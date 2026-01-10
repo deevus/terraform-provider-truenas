@@ -2,6 +2,8 @@ package resources
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io/fs"
 	"testing"
@@ -469,5 +471,222 @@ func TestFileResource_Create_WriteError(t *testing.T) {
 
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("expected error for write failure")
+	}
+}
+
+// Read operation tests
+
+// Helper to compute checksum in tests
+func computeChecksumForTest(content string) string {
+	hash := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(hash[:])
+}
+
+func TestFileResource_Read_Success(t *testing.T) {
+	content := "file content"
+	checksum := computeChecksumForTest(content)
+
+	r := &FileResource{
+		client: &client.MockClient{
+			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+				return true, nil
+			},
+			ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+				return []byte(content), nil
+			},
+		},
+	}
+
+	schemaResp := getFileResourceSchema(t)
+
+	stateValue := createFileResourceModel("/mnt/storage/test.txt", nil, nil, "/mnt/storage/test.txt", content, "0644", 0, 0, checksum)
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model FileResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	if model.Checksum.ValueString() != checksum {
+		t.Errorf("expected checksum %q, got %q", checksum, model.Checksum.ValueString())
+	}
+}
+
+func TestFileResource_Read_FileNotFound(t *testing.T) {
+	r := &FileResource{
+		client: &client.MockClient{
+			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+				return false, nil
+			},
+		},
+	}
+
+	schemaResp := getFileResourceSchema(t)
+
+	stateValue := createFileResourceModel("/mnt/storage/test.txt", nil, nil, "/mnt/storage/test.txt", "content", "0644", 0, 0, "checksum")
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	// Should not error, just remove from state
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// State should be null (removed)
+	if !resp.State.Raw.IsNull() {
+		t.Error("expected state to be removed when file not found")
+	}
+}
+
+func TestFileResource_Read_DriftDetection(t *testing.T) {
+	// Remote content is different from state
+	remoteContent := "modified content"
+
+	r := &FileResource{
+		client: &client.MockClient{
+			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+				return true, nil
+			},
+			ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+				return []byte(remoteContent), nil
+			},
+		},
+	}
+
+	schemaResp := getFileResourceSchema(t)
+
+	// State has old content/checksum
+	stateValue := createFileResourceModel("/mnt/storage/test.txt", nil, nil, "/mnt/storage/test.txt", "old content", "0644", 0, 0, "old-checksum")
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model FileResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	// Checksum should be updated to match remote
+	expectedChecksum := computeChecksumForTest(remoteContent)
+	if model.Checksum.ValueString() != expectedChecksum {
+		t.Errorf("expected checksum %q, got %q", expectedChecksum, model.Checksum.ValueString())
+	}
+}
+
+func TestFileResource_Read_FileExistsError(t *testing.T) {
+	r := &FileResource{
+		client: &client.MockClient{
+			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+				return false, errors.New("connection failed")
+			},
+		},
+	}
+
+	schemaResp := getFileResourceSchema(t)
+
+	stateValue := createFileResourceModel("/mnt/storage/test.txt", nil, nil, "/mnt/storage/test.txt", "content", "0644", 0, 0, "checksum")
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when FileExists fails")
+	}
+}
+
+func TestFileResource_Read_ReadFileError(t *testing.T) {
+	r := &FileResource{
+		client: &client.MockClient{
+			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+				return true, nil
+			},
+			ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+				return nil, errors.New("read error")
+			},
+		},
+	}
+
+	schemaResp := getFileResourceSchema(t)
+
+	stateValue := createFileResourceModel("/mnt/storage/test.txt", nil, nil, "/mnt/storage/test.txt", "content", "0644", 0, 0, "checksum")
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when ReadFile fails")
 	}
 }

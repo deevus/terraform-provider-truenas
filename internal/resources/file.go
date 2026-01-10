@@ -282,7 +282,45 @@ func (r *FileResource) Create(ctx context.Context, req resource.CreateRequest, r
 }
 
 func (r *FileResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	// Will be implemented in Phase 3
+	var data FileResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	fullPath := data.Path.ValueString()
+
+	// Check if file exists
+	exists, err := r.client.FileExists(ctx, fullPath)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Check File",
+			fmt.Sprintf("Unable to check if file %q exists: %s", fullPath, err.Error()),
+		)
+		return
+	}
+
+	if !exists {
+		// File was deleted externally, remove from state
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
+	// Read file content for checksum calculation
+	content, err := r.client.ReadFile(ctx, fullPath)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Read File",
+			fmt.Sprintf("Unable to read file %q: %s", fullPath, err.Error()),
+		)
+		return
+	}
+
+	// Update checksum to reflect actual remote state
+	data.Checksum = types.StringValue(computeChecksum(string(content)))
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *FileResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
