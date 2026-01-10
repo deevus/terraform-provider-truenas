@@ -152,14 +152,14 @@ func TestProvider_Resources(t *testing.T) {
 
 	resources := p.Resources(context.Background())
 
-	// Verify it returns a slice (can be empty for now)
+	// Verify it returns a slice
 	if resources == nil {
 		t.Error("expected non-nil resources slice")
 	}
 
-	// Currently no resources are implemented
-	if len(resources) != 0 {
-		t.Errorf("expected 0 resources, got %d", len(resources))
+	// Verify the expected number of resources
+	if len(resources) != 1 {
+		t.Errorf("expected 1 resource, got %d", len(resources))
 	}
 
 	// Verify the return type

@@ -5,6 +5,7 @@ import (
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/deevus/terraform-provider-truenas/internal/datasources"
+	"github.com/deevus/terraform-provider-truenas/internal/resources"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -145,5 +146,7 @@ func (p *TrueNASProvider) DataSources(ctx context.Context) []func() datasource.D
 }
 
 func (p *TrueNASProvider) Resources(ctx context.Context) []func() resource.Resource {
-	return []func() resource.Resource{}
+	return []func() resource.Resource{
+		resources.NewDatasetResource,
+	}
 }
