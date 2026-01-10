@@ -481,5 +481,10 @@ func (c *SSHClient) MkdirAll(ctx context.Context, path string, mode fs.FileMode)
 		return fmt.Errorf("failed to create directory %q: %w", path, err)
 	}
 
+	// Apply the requested permissions
+	if err := c.sftpClient.Chmod(path, mode); err != nil {
+		return fmt.Errorf("failed to set permissions on directory %q: %w", path, err)
+	}
+
 	return nil
 }

@@ -451,6 +451,44 @@ func TestSSHClient_MkdirAll_PermissionDenied(t *testing.T) {
 	}
 }
 
+func TestSSHClient_MkdirAll_AppliesMode(t *testing.T) {
+	config := &SSHConfig{
+		Host:       "truenas.local",
+		PrivateKey: testPrivateKey,
+	}
+
+	client, _ := NewSSHClient(config)
+
+	var chmodPath string
+	var chmodMode fs.FileMode
+
+	mockSFTP := &mockSFTPClient{
+		mkdirAllFunc: func(path string) error {
+			return nil
+		},
+		chmodFunc: func(path string, mode fs.FileMode) error {
+			chmodPath = path
+			chmodMode = mode
+			return nil
+		},
+	}
+
+	client.sftpClient = mockSFTP
+
+	err := client.MkdirAll(context.Background(), "/mnt/storage/apps/config", 0750)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if chmodPath != "/mnt/storage/apps/config" {
+		t.Errorf("expected chmod path '/mnt/storage/apps/config', got %q", chmodPath)
+	}
+
+	if chmodMode != 0750 {
+		t.Errorf("expected chmod mode 0750, got %o", chmodMode)
+	}
+}
+
 func TestSSHClient_ReadFile_PartialReads(t *testing.T) {
 	// Test that ReadFile handles partial reads correctly (large files)
 	config := &SSHConfig{
