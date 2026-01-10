@@ -2,7 +2,12 @@ package resources
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io/fs"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
@@ -198,8 +203,82 @@ func (r *FileResource) ValidateConfig(ctx context.Context, req resource.Validate
 	}
 }
 
+// computeChecksum calculates SHA256 checksum of content.
+func computeChecksum(content string) string {
+	hash := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(hash[:])
+}
+
+// resolvePath resolves the full path from host_path + relative_path or standalone path.
+func (r *FileResource) resolvePath(data *FileResourceModel) string {
+	if !data.HostPath.IsNull() && !data.HostPath.IsUnknown() {
+		return filepath.Join(data.HostPath.ValueString(), data.RelativePath.ValueString())
+	}
+	return data.Path.ValueString()
+}
+
+// parseMode converts mode string to fs.FileMode.
+func parseMode(mode string) fs.FileMode {
+	if mode == "" {
+		return 0644
+	}
+	m, err := strconv.ParseUint(mode, 8, 32)
+	if err != nil {
+		return 0644
+	}
+	return fs.FileMode(m)
+}
+
 func (r *FileResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	// Will be implemented in Phase 3
+	var data FileResourceModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	fullPath := r.resolvePath(&data)
+	content := data.Content.ValueString()
+	mode := parseMode(data.Mode.ValueString())
+
+	// If using host_path + relative_path, create parent directories
+	if !data.HostPath.IsNull() && !data.HostPath.IsUnknown() {
+		parentDir := filepath.Dir(fullPath)
+		if err := r.client.MkdirAll(ctx, parentDir, 0755); err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Create Parent Directory",
+				fmt.Sprintf("Unable to create directory %q: %s", parentDir, err.Error()),
+			)
+			return
+		}
+	}
+
+	// Write the file
+	if err := r.client.WriteFile(ctx, fullPath, []byte(content), mode); err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Create File",
+			fmt.Sprintf("Unable to write file %q: %s", fullPath, err.Error()),
+		)
+		return
+	}
+
+	// Set computed values
+	data.ID = types.StringValue(fullPath)
+	data.Path = types.StringValue(fullPath)
+	data.Checksum = types.StringValue(computeChecksum(content))
+
+	// Set defaults for mode/uid/gid if not specified
+	if data.Mode.IsNull() || data.Mode.IsUnknown() {
+		data.Mode = types.StringValue("0644")
+	}
+	if data.UID.IsNull() || data.UID.IsUnknown() {
+		data.UID = types.Int64Value(0)
+	}
+	if data.GID.IsNull() || data.GID.IsUnknown() {
+		data.GID = types.Int64Value(0)
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *FileResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {

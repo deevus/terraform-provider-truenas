@@ -2,8 +2,11 @@ package resources
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"testing"
 
+	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -319,4 +322,152 @@ func createFileResourceModel(id, hostPath, relativePath, path, content, mode, ui
 		"gid":           tftypes.NewValue(tftypes.Number, gid),
 		"checksum":      tftypes.NewValue(tftypes.String, checksum),
 	})
+}
+
+// Create operation tests
+
+func TestFileResource_Create_WithHostPath(t *testing.T) {
+	var writtenPath string
+	var writtenContent []byte
+	var mkdirPath string
+
+	r := &FileResource{
+		client: &client.MockClient{
+			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+				mkdirPath = path
+				return nil
+			},
+			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
+				writtenPath = path
+				writtenContent = content
+				return nil
+			},
+		},
+	}
+
+	schemaResp := getFileResourceSchema(t)
+
+	planValue := createFileResourceModel(nil, "/mnt/storage/apps/myapp", "config/app.conf", nil, "hello world", "0644", 0, 0, nil)
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify mkdir was called for parent directory
+	expectedMkdir := "/mnt/storage/apps/myapp/config"
+	if mkdirPath != expectedMkdir {
+		t.Errorf("expected mkdir path %q, got %q", expectedMkdir, mkdirPath)
+	}
+
+	// Verify file was written
+	expectedPath := "/mnt/storage/apps/myapp/config/app.conf"
+	if writtenPath != expectedPath {
+		t.Errorf("expected path %q, got %q", expectedPath, writtenPath)
+	}
+
+	if string(writtenContent) != "hello world" {
+		t.Errorf("expected content 'hello world', got %q", string(writtenContent))
+	}
+
+	// Verify state
+	var model FileResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	if model.Path.ValueString() != expectedPath {
+		t.Errorf("expected state path %q, got %q", expectedPath, model.Path.ValueString())
+	}
+}
+
+func TestFileResource_Create_WithStandalonePath(t *testing.T) {
+	var writtenPath string
+
+	r := &FileResource{
+		client: &client.MockClient{
+			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
+				writtenPath = path
+				return nil
+			},
+		},
+	}
+
+	schemaResp := getFileResourceSchema(t)
+
+	planValue := createFileResourceModel(nil, nil, nil, "/mnt/storage/existing/config.txt", "content", "0644", 0, 0, nil)
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if writtenPath != "/mnt/storage/existing/config.txt" {
+		t.Errorf("expected path '/mnt/storage/existing/config.txt', got %q", writtenPath)
+	}
+}
+
+func TestFileResource_Create_WriteError(t *testing.T) {
+	r := &FileResource{
+		client: &client.MockClient{
+			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+				return nil
+			},
+			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
+				return errors.New("permission denied")
+			},
+		},
+	}
+
+	schemaResp := getFileResourceSchema(t)
+
+	planValue := createFileResourceModel(nil, "/mnt/storage/apps", "config.txt", nil, "content", "0644", 0, 0, nil)
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for write failure")
+	}
 }
