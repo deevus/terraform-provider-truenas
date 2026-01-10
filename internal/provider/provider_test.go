@@ -158,8 +158,8 @@ func TestProvider_Resources(t *testing.T) {
 	}
 
 	// Verify the expected number of resources
-	if len(resources) != 2 {
-		t.Errorf("expected 2 resources, got %d", len(resources))
+	if len(resources) != 3 {
+		t.Errorf("expected 3 resources, got %d", len(resources))
 	}
 
 	// Verify the return type
