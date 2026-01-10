@@ -2,7 +2,10 @@ module github.com/deevus/terraform-provider-truenas
 
 go 1.25.5
 
-require github.com/hashicorp/terraform-plugin-framework v1.17.0
+require (
+	github.com/hashicorp/terraform-plugin-framework v1.17.0
+	golang.org/x/crypto v0.44.0
+)
 
 require (
 	github.com/fatih/color v1.16.0 // indirect
