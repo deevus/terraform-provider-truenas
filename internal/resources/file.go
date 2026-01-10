@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -124,7 +125,77 @@ func (r *FileResource) ValidateConfig(ctx context.Context, req resource.Validate
 		return
 	}
 
-	// Validation logic will be added in Task 2.2
+	hasHostPath := !data.HostPath.IsNull() && !data.HostPath.IsUnknown()
+	hasRelativePath := !data.RelativePath.IsNull() && !data.RelativePath.IsUnknown()
+	hasPath := !data.Path.IsNull() && !data.Path.IsUnknown()
+
+	// Must provide either host_path+relative_path OR path
+	if hasHostPath && hasPath {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"Cannot specify both 'host_path' and 'path'. Use one or the other.",
+		)
+		return
+	}
+
+	if !hasHostPath && !hasPath {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"Must specify either 'host_path' with 'relative_path', or 'path'.",
+		)
+		return
+	}
+
+	// If host_path is specified, relative_path is required
+	if hasHostPath && !hasRelativePath {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"'relative_path' is required when 'host_path' is specified.",
+		)
+		return
+	}
+
+	// If relative_path is specified, host_path is required
+	if hasRelativePath && !hasHostPath {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"'host_path' is required when 'relative_path' is specified.",
+		)
+		return
+	}
+
+	// Validate relative_path format
+	if hasRelativePath {
+		relativePath := data.RelativePath.ValueString()
+
+		if strings.HasPrefix(relativePath, "/") {
+			resp.Diagnostics.AddError(
+				"Invalid Configuration",
+				"'relative_path' must not start with '/'. It should be relative to host_path.",
+			)
+			return
+		}
+
+		if strings.Contains(relativePath, "..") {
+			resp.Diagnostics.AddError(
+				"Invalid Configuration",
+				"'relative_path' must not contain '..' (path traversal not allowed).",
+			)
+			return
+		}
+	}
+
+	// Validate path is absolute
+	if hasPath {
+		p := data.Path.ValueString()
+		if !strings.HasPrefix(p, "/") {
+			resp.Diagnostics.AddError(
+				"Invalid Configuration",
+				"'path' must be an absolute path (start with '/').",
+			)
+			return
+		}
+	}
 }
 
 func (r *FileResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
