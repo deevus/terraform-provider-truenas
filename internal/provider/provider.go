@@ -140,6 +140,7 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 func (p *TrueNASProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		datasources.NewPoolDataSource,
+		datasources.NewDatasetDataSource,
 	}
 }
 

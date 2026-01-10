@@ -131,8 +131,8 @@ func TestProvider_DataSources(t *testing.T) {
 	}
 
 	// Verify we have the expected data sources
-	if len(dataSources) != 1 {
-		t.Errorf("expected 1 data source, got %d", len(dataSources))
+	if len(dataSources) != 2 {
+		t.Errorf("expected 2 data sources, got %d", len(dataSources))
 	}
 
 	// Verify the return type
