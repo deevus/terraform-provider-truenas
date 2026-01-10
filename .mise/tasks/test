@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run unit tests"
+set -euo pipefail
+
+go test ./... -v -cover

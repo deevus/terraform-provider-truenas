@@ -1,2 +1,3 @@
 [tools]
-go = "latest"
+go = "1.22"
+golangci-lint = "latest"

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run linter"
+set -euo pipefail
+
+golangci-lint run ./...

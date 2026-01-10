@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Build provider binary"
+set -euo pipefail
+
+go build -o terraform-provider-truenas

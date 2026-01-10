@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#MISE description="Run acceptance tests (requires TrueNAS)"
+#USAGE flag "-r --resource <name>" help="Test specific resource only"
+#USAGE flag "-t --timeout <duration>" default="30m" help="Test timeout"
+set -euo pipefail
+
+resource="${usage_resource:-}"
+timeout="${usage_timeout}"
+
+if [[ -n "$resource" ]]; then
+  TF_ACC=1 go test ./internal/resources -run "TestAcc.*${resource}.*" -v -timeout "$timeout"
+else
+  TF_ACC=1 go test ./... -v -timeout "$timeout"
+fi
