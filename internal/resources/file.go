@@ -344,9 +344,10 @@ func (r *FileResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		return
 	}
 
-	// Update checksum
-	data.Checksum = types.StringValue(computeChecksum(content))
+	// Update computed values - explicitly set for consistency with Create
+	data.ID = types.StringValue(fullPath)
 	data.Path = types.StringValue(fullPath)
+	data.Checksum = types.StringValue(computeChecksum(content))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

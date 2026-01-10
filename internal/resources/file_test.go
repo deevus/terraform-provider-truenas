@@ -746,6 +746,14 @@ func TestFileResource_Update_ContentChange(t *testing.T) {
 		t.Fatalf("failed to get state: %v", diags)
 	}
 
+	if model.ID.ValueString() != "/mnt/storage/test.txt" {
+		t.Errorf("expected ID '/mnt/storage/test.txt', got %q", model.ID.ValueString())
+	}
+
+	if model.Path.ValueString() != "/mnt/storage/test.txt" {
+		t.Errorf("expected path '/mnt/storage/test.txt', got %q", model.Path.ValueString())
+	}
+
 	if model.Checksum.ValueString() != newChecksum {
 		t.Errorf("expected checksum %q, got %q", newChecksum, model.Checksum.ValueString())
 	}
