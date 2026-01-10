@@ -158,8 +158,8 @@ func TestProvider_Resources(t *testing.T) {
 	}
 
 	// Verify the expected number of resources
-	if len(resources) != 3 {
-		t.Errorf("expected 3 resources, got %d", len(resources))
+	if len(resources) != 4 {
+		t.Errorf("expected 4 resources, got %d", len(resources))
 	}
 
 	// Verify the return type
@@ -473,6 +473,30 @@ func TestProvider_Configure_InvalidSSHClient(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected error diagnostic")
+	}
+}
+
+func TestTrueNASProvider_Resources_IncludesFile(t *testing.T) {
+	p := New("test")()
+
+	resources := p.Resources(context.Background())
+
+	// Find file resource
+	found := false
+	for _, rf := range resources {
+		r := rf()
+		req := resource.MetadataRequest{ProviderTypeName: "truenas"}
+		resp := &resource.MetadataResponse{}
+		r.Metadata(context.Background(), req, resp)
+
+		if resp.TypeName == "truenas_file" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("expected truenas_file resource to be registered")
 	}
 }
 
