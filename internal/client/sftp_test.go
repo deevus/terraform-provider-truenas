@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"testing"
+	"time"
 )
 
 // mockSFTPClient is a test double for sftpClient interface
@@ -217,5 +218,79 @@ func TestSSHClient_WriteFile_ChmodError(t *testing.T) {
 	err := client.WriteFile(context.Background(), "/mnt/storage/test.txt", []byte("hello"), 0644)
 	if err == nil {
 		t.Fatal("expected error for chmod failure")
+	}
+}
+
+// mockFileInfo implements fs.FileInfo for testing
+type mockFileInfo struct {
+	size int64
+}
+
+func (m *mockFileInfo) Name() string       { return "test" }
+func (m *mockFileInfo) Size() int64        { return m.size }
+func (m *mockFileInfo) Mode() fs.FileMode  { return 0644 }
+func (m *mockFileInfo) ModTime() time.Time { return time.Now() }
+func (m *mockFileInfo) IsDir() bool        { return false }
+func (m *mockFileInfo) Sys() any           { return nil }
+
+func TestSSHClient_ReadFile_Success(t *testing.T) {
+	config := &SSHConfig{
+		Host:       "truenas.local",
+		PrivateKey: testPrivateKey,
+	}
+
+	client, _ := NewSSHClient(config)
+
+	content := []byte("file content here")
+	mockFile := &mockSFTPFile{
+		readFunc: func(p []byte) (int, error) {
+			copy(p, content)
+			return len(content), nil
+		},
+	}
+
+	mockSFTP := &mockSFTPClient{
+		openFunc: func(path string) (sftpFile, error) {
+			if path != "/mnt/storage/test.txt" {
+				t.Errorf("expected path '/mnt/storage/test.txt', got %q", path)
+			}
+			return mockFile, nil
+		},
+		statFunc: func(path string) (fs.FileInfo, error) {
+			return &mockFileInfo{size: int64(len(content))}, nil
+		},
+	}
+
+	client.sftpClient = mockSFTP
+
+	result, err := client.ReadFile(context.Background(), "/mnt/storage/test.txt")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if string(result) != "file content here" {
+		t.Errorf("expected 'file content here', got %q", string(result))
+	}
+}
+
+func TestSSHClient_ReadFile_NotFound(t *testing.T) {
+	config := &SSHConfig{
+		Host:       "truenas.local",
+		PrivateKey: testPrivateKey,
+	}
+
+	client, _ := NewSSHClient(config)
+
+	mockSFTP := &mockSFTPClient{
+		openFunc: func(path string) (sftpFile, error) {
+			return nil, errors.New("file not found")
+		},
+	}
+
+	client.sftpClient = mockSFTP
+
+	_, err := client.ReadFile(context.Background(), "/mnt/storage/missing.txt")
+	if err == nil {
+		t.Fatal("expected error for missing file")
 	}
 }

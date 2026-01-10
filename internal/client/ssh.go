@@ -406,9 +406,35 @@ func (c *SSHClient) WriteFile(ctx context.Context, path string, content []byte, 
 }
 
 // ReadFile reads the content of a file from the remote system.
-// TODO: Implement SFTP file operations in Task 1.3
 func (c *SSHClient) ReadFile(ctx context.Context, path string) ([]byte, error) {
-	return nil, errors.New("SFTP operations not yet implemented")
+	// Connect SFTP if needed (skip if already mocked)
+	if c.sftpClient == nil {
+		if err := c.connectSFTP(); err != nil {
+			return nil, err
+		}
+	}
+
+	// Get file size first
+	info, err := c.sftpClient.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file %q: %w", path, err)
+	}
+
+	// Open the file
+	file, err := c.sftpClient.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file %q: %w", path, err)
+	}
+	defer file.Close()
+
+	// Read content
+	content := make([]byte, info.Size())
+	_, err = file.Read(content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file %q: %w", path, err)
+	}
+
+	return content, nil
 }
 
 // DeleteFile removes a file from the remote system.
