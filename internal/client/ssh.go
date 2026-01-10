@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"al.essio.dev/pkg/shellescape"
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -93,11 +94,63 @@ func (r *realSSHClient) Close() error {
 	return r.client.Close()
 }
 
+// sftpClient abstracts SFTP operations for testing.
+type sftpClient interface {
+	Create(path string) (sftpFile, error)
+	MkdirAll(path string) error
+	Stat(path string) (fs.FileInfo, error)
+	Remove(path string) error
+	Open(path string) (sftpFile, error)
+	Chmod(path string, mode fs.FileMode) error
+	Close() error
+}
+
+// sftpFile abstracts SFTP file operations for testing.
+type sftpFile interface {
+	Write(p []byte) (int, error)
+	Read(p []byte) (int, error)
+	Close() error
+}
+
+// realSFTPClient wraps *sftp.Client for the interface.
+type realSFTPClient struct {
+	client *sftp.Client
+}
+
+func (r *realSFTPClient) Create(path string) (sftpFile, error) {
+	return r.client.Create(path)
+}
+
+func (r *realSFTPClient) MkdirAll(path string) error {
+	return r.client.MkdirAll(path)
+}
+
+func (r *realSFTPClient) Stat(path string) (fs.FileInfo, error) {
+	return r.client.Stat(path)
+}
+
+func (r *realSFTPClient) Remove(path string) error {
+	return r.client.Remove(path)
+}
+
+func (r *realSFTPClient) Open(path string) (sftpFile, error) {
+	return r.client.Open(path)
+}
+
+func (r *realSFTPClient) Chmod(path string, mode fs.FileMode) error {
+	return r.client.Chmod(path, mode)
+}
+
+func (r *realSFTPClient) Close() error {
+	return r.client.Close()
+}
+
 // SSHClient implements Client interface using SSH/midclt.
 type SSHClient struct {
 	config        *SSHConfig
 	client        *ssh.Client
 	clientWrapper sshClientWrapper
+	sftpClient    sftpClient
 	dialer        sshDialer
 	mu            sync.Mutex
 }
@@ -279,6 +332,11 @@ func (c *SSHClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.sftpClient != nil {
+		c.sftpClient.Close()
+		c.sftpClient = nil
+	}
+
 	if c.clientWrapper == nil {
 		return nil
 	}
@@ -289,10 +347,62 @@ func (c *SSHClient) Close() error {
 	return err
 }
 
+// connectSFTP establishes the SFTP connection if not already connected.
+func (c *SSHClient) connectSFTP() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Already have SFTP client
+	if c.sftpClient != nil {
+		return nil
+	}
+
+	// Ensure SSH is connected first (unlock mutex temporarily)
+	c.mu.Unlock()
+	if err := c.connect(); err != nil {
+		c.mu.Lock()
+		return err
+	}
+	c.mu.Lock()
+
+	// Create SFTP client
+	sftpConn, err := sftp.NewClient(c.client)
+	if err != nil {
+		return fmt.Errorf("failed to create SFTP client: %w", err)
+	}
+
+	c.sftpClient = &realSFTPClient{client: sftpConn}
+	return nil
+}
+
 // WriteFile writes content to a file on the remote system.
-// TODO: Implement SFTP file operations in Task 1.3
 func (c *SSHClient) WriteFile(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
-	return errors.New("SFTP operations not yet implemented")
+	// Connect SFTP if needed (skip if already mocked)
+	if c.sftpClient == nil {
+		if err := c.connectSFTP(); err != nil {
+			return err
+		}
+	}
+
+	// Create the file
+	file, err := c.sftpClient.Create(path)
+	if err != nil {
+		return fmt.Errorf("failed to create file %q: %w", path, err)
+	}
+	defer file.Close()
+
+	// Write content
+	_, err = file.Write(content)
+	if err != nil {
+		return fmt.Errorf("failed to write to file %q: %w", path, err)
+	}
+
+	// Set permissions
+	if err := c.sftpClient.Chmod(path, mode); err != nil {
+		return fmt.Errorf("failed to set permissions on %q: %w", path, err)
+	}
+
+	return nil
 }
 
 // ReadFile reads the content of a file from the remote system.
