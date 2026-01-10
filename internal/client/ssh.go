@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"regexp"
@@ -415,12 +416,6 @@ func (c *SSHClient) ReadFile(ctx context.Context, path string) ([]byte, error) {
 		}
 	}
 
-	// Get file size first
-	info, err := c.sftpClient.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to stat file %q: %w", path, err)
-	}
-
 	// Open the file
 	file, err := c.sftpClient.Open(path)
 	if err != nil {
@@ -428,9 +423,8 @@ func (c *SSHClient) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	}
 	defer file.Close()
 
-	// Read content
-	content := make([]byte, info.Size())
-	_, err = file.Read(content)
+	// Read all content - handles partial reads correctly
+	content, err := io.ReadAll(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %q: %w", path, err)
 	}

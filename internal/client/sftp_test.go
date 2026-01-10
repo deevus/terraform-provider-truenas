@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"testing"
@@ -243,10 +244,15 @@ func TestSSHClient_ReadFile_Success(t *testing.T) {
 	client, _ := NewSSHClient(config)
 
 	content := []byte("file content here")
+	readDone := false
 	mockFile := &mockSFTPFile{
 		readFunc: func(p []byte) (int, error) {
-			copy(p, content)
-			return len(content), nil
+			if readDone {
+				return 0, io.EOF
+			}
+			n := copy(p, content)
+			readDone = true
+			return n, nil
 		},
 	}
 
@@ -256,9 +262,6 @@ func TestSSHClient_ReadFile_Success(t *testing.T) {
 				t.Errorf("expected path '/mnt/storage/test.txt', got %q", path)
 			}
 			return mockFile, nil
-		},
-		statFunc: func(path string) (fs.FileInfo, error) {
-			return &mockFileInfo{size: int64(len(content))}, nil
 		},
 	}
 
@@ -445,5 +448,59 @@ func TestSSHClient_MkdirAll_PermissionDenied(t *testing.T) {
 	err := client.MkdirAll(context.Background(), "/mnt/storage/protected", 0755)
 	if err == nil {
 		t.Fatal("expected error for permission denied")
+	}
+}
+
+func TestSSHClient_ReadFile_PartialReads(t *testing.T) {
+	// Test that ReadFile handles partial reads correctly (large files)
+	config := &SSHConfig{
+		Host:       "truenas.local",
+		PrivateKey: testPrivateKey,
+	}
+
+	client, _ := NewSSHClient(config)
+
+	// Simulate a large file where Read returns partial data
+	fullContent := []byte("This is a large file that requires multiple reads to complete")
+	readOffset := 0
+
+	mockFile := &mockSFTPFile{
+		readFunc: func(p []byte) (int, error) {
+			// Simulate partial read - only return 10 bytes at a time
+			remaining := len(fullContent) - readOffset
+			if remaining == 0 {
+				return 0, io.EOF
+			}
+			chunkSize := 10
+			if chunkSize > remaining {
+				chunkSize = remaining
+			}
+			if chunkSize > len(p) {
+				chunkSize = len(p)
+			}
+			copy(p, fullContent[readOffset:readOffset+chunkSize])
+			readOffset += chunkSize
+			return chunkSize, nil
+		},
+	}
+
+	mockSFTP := &mockSFTPClient{
+		openFunc: func(path string) (sftpFile, error) {
+			return mockFile, nil
+		},
+		statFunc: func(path string) (fs.FileInfo, error) {
+			return &mockFileInfo{size: int64(len(fullContent))}, nil
+		},
+	}
+
+	client.sftpClient = mockSFTP
+
+	result, err := client.ReadFile(context.Background(), "/mnt/storage/large.txt")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if string(result) != string(fullContent) {
+		t.Errorf("expected full content %q, got %q", string(fullContent), string(result))
 	}
 }
