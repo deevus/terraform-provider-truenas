@@ -71,3 +71,38 @@ Optional:
 - TrueNAS SCALE or TrueNAS Community
 - SSH access to the TrueNAS server
 - SSH private key for authentication
+- A user with sudo permissions for `midclt` (see setup below)
+
+## TrueNAS User Setup
+
+For security, it's recommended to create a dedicated `terraform` user instead of using `root`. This user needs sudo access to run `midclt` commands.
+
+### Create the Terraform User
+
+1. In the TrueNAS web UI, navigate to **Credentials > Local Users**
+2. Click **Add** to create a new user
+3. Configure the user:
+   - **Username**: `terraform`
+   - **Auxiliary Groups**: `builtin_administrators`
+   - **Home Directory**: Choose a path on your pool (e.g., `/mnt/storage/users/terraform`)
+   - **Authorized Keys**: Paste your public key (e.g., contents of `~/.ssh/terraform_ed25519.pub`)
+   - **Shell**: `bash`
+   - **Allowed sudo commands with no password**: `/usr/bin/midclt`
+
+![TrueNAS User Setup](https://raw.githubusercontent.com/deevus/terraform-provider-truenas/main/docs/images/truenas-user-setup.png)
+
+### Configure the Provider
+
+Update your provider configuration to use the new user:
+
+```terraform
+provider "truenas" {
+  host        = "192.168.1.100"
+  auth_method = "ssh"
+
+  ssh {
+    user        = "terraform"
+    private_key = file("~/.ssh/terraform_ed25519")
+  }
+}
+```
