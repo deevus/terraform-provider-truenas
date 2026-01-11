@@ -6,12 +6,14 @@ import (
 	"fmt"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
+	customtypes "github.com/deevus/terraform-provider-truenas/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"gopkg.in/yaml.v3"
 )
 
 var _ resource.Resource = &AppResource{}
@@ -26,11 +28,11 @@ type AppResource struct {
 // AppResourceModel describes the resource data model.
 // Simplified for custom Docker Compose apps only.
 type AppResourceModel struct {
-	ID            types.String `tfsdk:"id"`
-	Name          types.String `tfsdk:"name"`
-	CustomApp     types.Bool   `tfsdk:"custom_app"`
-	ComposeConfig types.String `tfsdk:"compose_config"`
-	State         types.String `tfsdk:"state"`
+	ID            types.String              `tfsdk:"id"`
+	Name          types.String              `tfsdk:"name"`
+	CustomApp     types.Bool                `tfsdk:"custom_app"`
+	ComposeConfig customtypes.YAMLStringValue `tfsdk:"compose_config"`
+	State         types.String              `tfsdk:"state"`
 }
 
 // appAPIResponse represents the JSON response from app API calls.
@@ -44,9 +46,8 @@ type appAPIResponse struct {
 }
 
 // appConfigResponse contains config fields from the API.
-type appConfigResponse struct {
-	CustomComposeConfigString string `json:"custom_compose_config_string"`
-}
+// When retrieve_config is true, the API returns the parsed compose config as a map.
+type appConfigResponse map[string]any
 
 // NewAppResource creates a new AppResource.
 func NewAppResource() resource.Resource {
@@ -82,6 +83,7 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			"compose_config": schema.StringAttribute{
 				Description: "Docker Compose YAML configuration string (required for custom apps).",
 				Optional:    true,
+				CustomType:  customtypes.YAMLStringType{},
 			},
 			"state": schema.StringAttribute{
 				Description: "Application state (RUNNING, STOPPED, etc.).",
@@ -182,11 +184,19 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	// Use the name to query the app
 	appName := data.Name.ValueString()
 
-	// Build filter params: [["name", "=", "appName"]]
+	// Build query params: [filter, options]
+	// Filter: [["name", "=", "appName"]]
+	// Options: {"extra": {"retrieve_config": true}} to get compose config
 	filter := [][]any{{"name", "=", appName}}
+	options := map[string]any{
+		"extra": map[string]any{
+			"retrieve_config": true,
+		},
+	}
+	queryParams := []any{filter, options}
 
 	// Call the TrueNAS API
-	result, err := r.client.Call(ctx, "app.query", filter)
+	result, err := r.client.Call(ctx, "app.query", queryParams)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read App",
@@ -220,10 +230,19 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	data.CustomApp = types.BoolValue(app.CustomApp)
 
 	// Sync compose_config if present
-	if app.Config.CustomComposeConfigString != "" {
-		data.ComposeConfig = types.StringValue(app.Config.CustomComposeConfigString)
+	// The API returns the parsed compose config as a map, convert back to YAML
+	if len(app.Config) > 0 {
+		yamlBytes, err := yaml.Marshal(app.Config)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Marshal Config",
+				fmt.Sprintf("Unable to marshal app config to YAML: %s", err.Error()),
+			)
+			return
+		}
+		data.ComposeConfig = customtypes.NewYAMLStringValue(string(yamlBytes))
 	} else {
-		data.ComposeConfig = types.StringNull()
+		data.ComposeConfig = customtypes.NewYAMLStringNull()
 	}
 
 	// TODO: Sync storage, network, and labels from active_workloads

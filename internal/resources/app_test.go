@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
+	customtypes "github.com/deevus/terraform-provider-truenas/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
@@ -86,6 +89,15 @@ func TestAppResource_Schema(t *testing.T) {
 	}
 	if !composeConfigAttr.IsOptional() {
 		t.Error("expected 'compose_config' attribute to be optional")
+	}
+
+	// Verify compose_config uses YAMLStringType for semantic comparison
+	stringAttr, ok := composeConfigAttr.(schema.StringAttribute)
+	if !ok {
+		t.Fatal("expected 'compose_config' to be a StringAttribute")
+	}
+	if _, ok := stringAttr.CustomType.(customtypes.YAMLStringType); !ok {
+		t.Errorf("expected 'compose_config' to use YAMLStringType, got %T", stringAttr.CustomType)
 	}
 
 	// Verify state attribute exists and is computed
@@ -355,12 +367,17 @@ func TestAppResource_Read_Success(t *testing.T) {
 				if method != "app.query" {
 					t.Errorf("expected method 'app.query', got %q", method)
 				}
+				// API returns parsed compose config when retrieve_config: true
 				return json.RawMessage(`[{
 					"name": "myapp",
 					"state": "RUNNING",
 					"custom_app": true,
 					"config": {
-						"custom_compose_config_string": "services:\n  web:\n    image: nginx"
+						"services": {
+							"web": {
+								"image": "nginx"
+							}
+						}
 					}
 				}]`), nil
 			},
@@ -409,8 +426,13 @@ func TestAppResource_Read_Success(t *testing.T) {
 		t.Error("expected CustomApp to be true")
 	}
 
-	if model.ComposeConfig.ValueString() != "services:\n  web:\n    image: nginx" {
-		t.Errorf("expected compose_config to be synced, got %q", model.ComposeConfig.ValueString())
+	// Config is returned as parsed YAML, then marshaled back - verify it contains expected content
+	composeConfig := model.ComposeConfig.ValueString()
+	if composeConfig == "" {
+		t.Error("expected compose_config to be synced, got empty string")
+	}
+	if !strings.Contains(composeConfig, "services:") || !strings.Contains(composeConfig, "image: nginx") {
+		t.Errorf("expected compose_config to contain services and nginx image, got %q", composeConfig)
 	}
 }
 
@@ -849,13 +871,12 @@ func TestAppResource_Read_EmptyComposeConfigSetsNull(t *testing.T) {
 	r := &AppResource{
 		client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				// Empty config object means no compose config
 				return json.RawMessage(`[{
 					"name": "myapp",
 					"state": "RUNNING",
 					"custom_app": false,
-					"config": {
-						"custom_compose_config_string": ""
-					}
+					"config": {}
 				}]`), nil
 			},
 		},
@@ -909,12 +930,13 @@ func TestAppResource_ImportState_FollowedByRead(t *testing.T) {
 				if method != "app.query" {
 					t.Errorf("expected method 'app.query', got %q", method)
 				}
+				// API returns parsed compose config when retrieve_config: true
 				return json.RawMessage(`[{
 					"name": "imported-app",
 					"state": "RUNNING",
 					"custom_app": true,
 					"config": {
-						"custom_compose_config_string": "version: '3'"
+						"version": "3"
 					}
 				}]`), nil
 			},
@@ -983,7 +1005,9 @@ func TestAppResource_ImportState_FollowedByRead(t *testing.T) {
 		t.Errorf("expected State 'RUNNING', got %q", model.State.ValueString())
 	}
 
-	if model.ComposeConfig.ValueString() != "version: '3'" {
-		t.Errorf("expected compose_config 'version: 3', got %q", model.ComposeConfig.ValueString())
+	// Config is returned as parsed YAML, then marshaled back
+	composeConfig := model.ComposeConfig.ValueString()
+	if !strings.Contains(composeConfig, "version:") || !strings.Contains(composeConfig, "\"3\"") {
+		t.Errorf("expected compose_config to contain version: 3, got %q", composeConfig)
 	}
 }
