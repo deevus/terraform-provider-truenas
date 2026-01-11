@@ -871,3 +871,144 @@ func TestFileResource_Delete_Error(t *testing.T) {
 		t.Fatal("expected error for delete failure")
 	}
 }
+
+// Bug fix tests
+
+// TestFileResource_ValidateConfig_UnknownHostPath tests that validation passes
+// when host_path is unknown (e.g., referencing another resource's output).
+// During terraform plan, referenced values are unknown until apply time.
+func TestFileResource_ValidateConfig_UnknownHostPath(t *testing.T) {
+	r := NewFileResource().(*FileResource)
+
+	schemaResp := getFileResourceSchema(t)
+
+	// Create config with unknown host_path (simulates: host_path = truenas_host_path.foo.id)
+	configValue := createFileResourceModelWithUnknown(
+		nil,                          // id
+		tftypes.UnknownValue,         // host_path - unknown during plan
+		"config/app.conf",            // relative_path - known
+		nil,                          // path
+		"content",                    // content
+		nil,                          // mode
+		nil,                          // uid
+		nil,                          // gid
+		nil,                          // checksum
+	)
+
+	req := resource.ValidateConfigRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    configValue,
+		},
+	}
+	resp := &resource.ValidateConfigResponse{}
+
+	r.ValidateConfig(context.Background(), req, resp)
+
+	// Validation should pass - unknown values should be allowed through
+	// and validated at apply time when values are known
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("validation should pass with unknown host_path, got errors: %v", resp.Diagnostics)
+	}
+}
+
+// TestFileResource_Read_UsesIDWhenPathIsNull tests that Read uses the ID
+// attribute when path is null (as happens during terraform import).
+func TestFileResource_Read_UsesIDWhenPathIsNull(t *testing.T) {
+	content := "file content"
+	var checkedPath string
+
+	r := &FileResource{
+		client: &client.MockClient{
+			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+				checkedPath = path
+				return true, nil
+			},
+			ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+				return []byte(content), nil
+			},
+		},
+	}
+
+	schemaResp := getFileResourceSchema(t)
+
+	// Simulate state after ImportStatePassthroughID: only ID is set, path is null
+	// This is what happens during: terraform import truenas_file.example /mnt/storage/test.txt
+	stateValue := createFileResourceModel(
+		"/mnt/storage/test.txt", // id - set by import
+		nil,                     // host_path
+		nil,                     // relative_path
+		nil,                     // path - NULL during import
+		nil,                     // content - null during import
+		nil,                     // mode
+		nil,                     // uid
+		nil,                     // gid
+		nil,                     // checksum
+	)
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Read should have used the ID to check the file, not an empty string
+	expectedPath := "/mnt/storage/test.txt"
+	if checkedPath != expectedPath {
+		t.Errorf("expected FileExists to be called with %q (from ID), got %q", expectedPath, checkedPath)
+	}
+}
+
+// Helper that supports tftypes.UnknownValue for creating unknown attribute values
+func createFileResourceModelWithUnknown(id, hostPath, relativePath, path, content, mode, uid, gid, checksum interface{}) tftypes.Value {
+	return tftypes.NewValue(tftypes.Object{
+		AttributeTypes: map[string]tftypes.Type{
+			"id":            tftypes.String,
+			"host_path":     tftypes.String,
+			"relative_path": tftypes.String,
+			"path":          tftypes.String,
+			"content":       tftypes.String,
+			"mode":          tftypes.String,
+			"uid":           tftypes.Number,
+			"gid":           tftypes.Number,
+			"checksum":      tftypes.String,
+		},
+	}, map[string]tftypes.Value{
+		"id":            newStringOrUnknown(id),
+		"host_path":     newStringOrUnknown(hostPath),
+		"relative_path": newStringOrUnknown(relativePath),
+		"path":          newStringOrUnknown(path),
+		"content":       newStringOrUnknown(content),
+		"mode":          newStringOrUnknown(mode),
+		"uid":           newNumberOrUnknown(uid),
+		"gid":           newNumberOrUnknown(gid),
+		"checksum":      newStringOrUnknown(checksum),
+	})
+}
+
+func newStringOrUnknown(v interface{}) tftypes.Value {
+	if v == tftypes.UnknownValue {
+		return tftypes.NewValue(tftypes.String, tftypes.UnknownValue)
+	}
+	return tftypes.NewValue(tftypes.String, v)
+}
+
+func newNumberOrUnknown(v interface{}) tftypes.Value {
+	if v == tftypes.UnknownValue {
+		return tftypes.NewValue(tftypes.Number, tftypes.UnknownValue)
+	}
+	return tftypes.NewValue(tftypes.Number, v)
+}
