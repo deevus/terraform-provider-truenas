@@ -363,6 +363,17 @@ func (r *FileResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	data.Path = types.StringValue(fullPath)
 	data.Checksum = types.StringValue(computeChecksum(content))
 
+	// Set defaults for mode/uid/gid if not specified (same as Create)
+	if data.Mode.IsNull() || data.Mode.IsUnknown() {
+		data.Mode = types.StringValue("0644")
+	}
+	if data.UID.IsNull() || data.UID.IsUnknown() {
+		data.UID = types.Int64Value(0)
+	}
+	if data.GID.IsNull() || data.GID.IsUnknown() {
+		data.GID = types.Int64Value(0)
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 

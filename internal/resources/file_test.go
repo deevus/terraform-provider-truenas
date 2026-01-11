@@ -1012,3 +1012,101 @@ func newNumberOrUnknown(v interface{}) tftypes.Value {
 	}
 	return tftypes.NewValue(tftypes.Number, v)
 }
+
+// TestFileResource_Update_SetsDefaultsForUnknownComputedAttributes tests that Update
+// sets default values for mode, uid, and gid when they are unknown in the plan.
+// This can happen when these optional+computed attributes are not specified in config
+// and Terraform marks them as unknown during planning.
+// Bug: Without this fix, Terraform errors with "provider still indicated an unknown
+// value for truenas_file.*.mode/uid/gid. All values must be known after apply."
+func TestFileResource_Update_SetsDefaultsForUnknownComputedAttributes(t *testing.T) {
+	r := &FileResource{
+		client: &client.MockClient{
+			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
+				return nil
+			},
+		},
+	}
+
+	schemaResp := getFileResourceSchema(t)
+
+	// State has known values from previous Create
+	stateValue := createFileResourceModel(
+		"/mnt/storage/test.txt",
+		nil,
+		nil,
+		"/mnt/storage/test.txt",
+		"old content",
+		"0644",
+		int64(0),
+		int64(0),
+		computeChecksumForTest("old content"),
+	)
+
+	// Plan has unknown values for mode, uid, gid (they weren't specified in config,
+	// so Terraform marks computed attributes as unknown during plan)
+	planValue := createFileResourceModelWithUnknown(
+		"/mnt/storage/test.txt",
+		nil,
+		nil,
+		"/mnt/storage/test.txt",
+		"new content",
+		tftypes.UnknownValue, // mode unknown
+		tftypes.UnknownValue, // uid unknown
+		tftypes.UnknownValue, // gid unknown
+		tftypes.UnknownValue, // checksum unknown (will be computed)
+	)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model FileResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	// Mode should be set to default "0644", not unknown
+	if model.Mode.IsUnknown() {
+		t.Error("mode should not be unknown after Update")
+	}
+	if model.Mode.ValueString() != "0644" {
+		t.Errorf("expected mode '0644', got %q", model.Mode.ValueString())
+	}
+
+	// UID should be set to default 0, not unknown
+	if model.UID.IsUnknown() {
+		t.Error("uid should not be unknown after Update")
+	}
+	if model.UID.ValueInt64() != 0 {
+		t.Errorf("expected uid 0, got %d", model.UID.ValueInt64())
+	}
+
+	// GID should be set to default 0, not unknown
+	if model.GID.IsUnknown() {
+		t.Error("gid should not be unknown after Update")
+	}
+	if model.GID.ValueInt64() != 0 {
+		t.Errorf("expected gid 0, got %d", model.GID.ValueInt64())
+	}
+}
