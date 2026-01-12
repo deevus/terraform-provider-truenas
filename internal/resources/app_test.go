@@ -922,6 +922,243 @@ func TestAppResource_Read_EmptyComposeConfigSetsNull(t *testing.T) {
 	}
 }
 
+// Test Create with query error after create
+func TestAppResource_Create_QueryErrorAfterCreate(t *testing.T) {
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, nil // create succeeds
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("query failed")
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	planValue := createAppResourceModelValue(nil, "myapp", true, nil, nil)
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when query fails after create")
+	}
+}
+
+// Test Create when app is not found after create
+func TestAppResource_Create_AppNotFoundAfterCreate(t *testing.T) {
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, nil // create succeeds
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[]`), nil // empty array
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	planValue := createAppResourceModelValue(nil, "myapp", true, nil, nil)
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when app not found after create")
+	}
+}
+
+// Test Update with query error after update
+func TestAppResource_Update_QueryErrorAfterUpdate(t *testing.T) {
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, nil // update succeeds
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("query failed")
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	stateValue := createAppResourceModelValue("myapp", "myapp", true, nil, "STOPPED")
+	planValue := createAppResourceModelValue("myapp", "myapp", true, "new: config", nil)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when query fails after update")
+	}
+}
+
+// Test Update when app is not found after update
+func TestAppResource_Update_AppNotFoundAfterUpdate(t *testing.T) {
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, nil // update succeeds
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[]`), nil // empty array
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	stateValue := createAppResourceModelValue("myapp", "myapp", true, nil, "STOPPED")
+	planValue := createAppResourceModelValue("myapp", "myapp", true, "new: config", nil)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when app not found after update")
+	}
+}
+
+// Test Update with invalid JSON response from query
+func TestAppResource_Update_QueryInvalidJSONResponse(t *testing.T) {
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, nil // update succeeds
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`not valid json`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	stateValue := createAppResourceModelValue("myapp", "myapp", true, nil, "STOPPED")
+	planValue := createAppResourceModelValue("myapp", "myapp", true, "new: config", nil)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for invalid JSON response from query")
+	}
+}
+
+// Test Create with invalid JSON response from query
+func TestAppResource_Create_QueryInvalidJSONResponse(t *testing.T) {
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, nil // create succeeds
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`not valid json`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	planValue := createAppResourceModelValue(nil, "myapp", true, nil, nil)
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for invalid JSON response from query")
+	}
+}
+
 // Test ImportState followed by Read verifies the flow works
 func TestAppResource_ImportState_FollowedByRead(t *testing.T) {
 	r := &AppResource{
