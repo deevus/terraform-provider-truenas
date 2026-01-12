@@ -460,7 +460,8 @@ func TestDatasetResource_Read_Success(t *testing.T) {
 
 	schemaResp := getDatasetResourceSchema(t)
 
-	stateValue := createDatasetResourceModel("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", nil, nil, nil, nil)
+	// State has compression, quota, refquota, and atime set (user specified them) - they should sync from API
+	stateValue := createDatasetResourceModel("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", "5G", "2G", "off", nil)
 
 	req := resource.ReadRequest{
 		State: tfsdk.State{
@@ -481,7 +482,7 @@ func TestDatasetResource_Read_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify state was updated
+	// Verify state was updated from API
 	var model DatasetResourceModel
 	diags := resp.State.Get(context.Background(), &model)
 	if diags.HasError() {
@@ -494,6 +495,7 @@ func TestDatasetResource_Read_Success(t *testing.T) {
 	if model.MountPath.ValueString() != "/mnt/storage/apps" {
 		t.Errorf("expected MountPath '/mnt/storage/apps', got %q", model.MountPath.ValueString())
 	}
+	// Compression was set in state, so it syncs from API
 	if model.Compression.ValueString() != "lz4" {
 		t.Errorf("expected Compression 'lz4', got %q", model.Compression.ValueString())
 	}
@@ -503,6 +505,7 @@ func TestDatasetResource_Read_Success(t *testing.T) {
 	if model.RefQuota.ValueString() != "5G" {
 		t.Errorf("expected RefQuota '5G', got %q", model.RefQuota.ValueString())
 	}
+	// Atime was set in state to "off", API returns "on", so it syncs to "on"
 	if model.Atime.ValueString() != "on" {
 		t.Errorf("expected Atime 'on', got %q", model.Atime.ValueString())
 	}
@@ -1690,6 +1693,154 @@ func TestDatasetResource_Update_StateParseError(t *testing.T) {
 
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("expected error for state parse error")
+	}
+}
+
+// Test that compression attribute is Optional+Computed with UseStateForUnknown
+func TestDatasetResource_Schema_CompressionIsComputed(t *testing.T) {
+	r := NewDatasetResource()
+
+	req := resource.SchemaRequest{}
+	resp := &resource.SchemaResponse{}
+
+	r.Schema(context.Background(), req, resp)
+
+	// Verify compression attribute is computed (required for UseStateForUnknown)
+	compressionAttr, ok := resp.Schema.Attributes["compression"]
+	if !ok {
+		t.Fatal("expected 'compression' attribute in schema")
+	}
+	if !compressionAttr.IsComputed() {
+		t.Error("expected 'compression' attribute to be computed")
+	}
+}
+
+// Test that atime attribute is Optional+Computed with UseStateForUnknown
+func TestDatasetResource_Schema_AtimeIsComputed(t *testing.T) {
+	r := NewDatasetResource()
+
+	req := resource.SchemaRequest{}
+	resp := &resource.SchemaResponse{}
+
+	r.Schema(context.Background(), req, resp)
+
+	// Verify atime attribute is computed (required for UseStateForUnknown)
+	atimeAttr, ok := resp.Schema.Attributes["atime"]
+	if !ok {
+		t.Fatal("expected 'atime' attribute in schema")
+	}
+	if !atimeAttr.IsComputed() {
+		t.Error("expected 'atime' attribute to be computed")
+	}
+}
+
+// Test that Read preserves null compression when not set in config
+func TestDatasetResource_Read_PreservesNullCompression(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				// API returns default values even when user didn't set them
+				return json.RawMessage(`[{
+					"id": "storage/apps",
+					"name": "storage/apps",
+					"mountpoint": "/mnt/storage/apps",
+					"compression": {"value": "LZ4"},
+					"quota": {"value": "0"},
+					"refquota": {"value": "0"},
+					"atime": {"value": "OFF"}
+				}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// State has null compression (user never specified it)
+	stateValue := createDatasetResourceModel("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", nil, nil, nil, nil, nil)
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model DatasetResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	// Compression should remain null since user never specified it
+	// (This is the drift-prevention behavior we want)
+	if !model.Compression.IsNull() {
+		t.Errorf("expected compression to remain null when not specified in config, got %q", model.Compression.ValueString())
+	}
+}
+
+// Test that Read preserves null atime when not set in config
+func TestDatasetResource_Read_PreservesNullAtime(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"id": "storage/apps",
+					"name": "storage/apps",
+					"mountpoint": "/mnt/storage/apps",
+					"compression": {"value": "LZ4"},
+					"quota": {"value": "0"},
+					"refquota": {"value": "0"},
+					"atime": {"value": "OFF"}
+				}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// State has null atime (user never specified it)
+	stateValue := createDatasetResourceModel("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", nil, nil, nil, nil, nil)
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model DatasetResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	// Atime should remain null since user never specified it
+	if !model.Atime.IsNull() {
+		t.Errorf("expected atime to remain null when not specified in config, got %q", model.Atime.ValueString())
 	}
 }
 

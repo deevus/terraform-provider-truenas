@@ -1457,6 +1457,58 @@ func TestHostPathResource_Delete_ForceDestroyNil(t *testing.T) {
 	}
 }
 
+// Test that Read preserves null mode when not set in config
+func TestHostPathResource_Read_PreservesNullMode(t *testing.T) {
+	r := &HostPathResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				// API returns mode from filesystem even when user didn't specify it
+				return json.RawMessage(`{
+					"mode": 16877,
+					"uid": 0,
+					"gid": 0
+				}`), nil
+			},
+		},
+	}
+
+	schemaResp := getHostPathResourceSchema(t)
+
+	// State has null mode (user never specified it - directory created with default)
+	stateValue := createHostPathResourceModel("/mnt/tank/apps/myapp", "/mnt/tank/apps/myapp", nil, nil, nil)
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model HostPathResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	// Mode should remain null since user never specified it
+	// (This is the drift-prevention behavior we want)
+	if !model.Mode.IsNull() {
+		t.Errorf("expected mode to remain null when not specified in config, got %q", model.Mode.ValueString())
+	}
+}
+
 // Test Delete with force_destroy error
 func TestHostPathResource_Delete_ForceDestroy_Error(t *testing.T) {
 	r := &HostPathResource{
