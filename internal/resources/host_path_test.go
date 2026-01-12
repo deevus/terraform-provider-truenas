@@ -367,7 +367,8 @@ func TestHostPathResource_Create_SetPermError(t *testing.T) {
 
 	schemaResp := getHostPathResourceSchema(t)
 
-	planValue := createHostPathResourceModel(nil, "/mnt/tank/apps/myapp", "755", nil, nil)
+	// Must set uid or gid to trigger setperm call (mode is now handled by mkdir)
+	planValue := createHostPathResourceModel(nil, "/mnt/tank/apps/myapp", "755", 1000, 1000)
 
 	req := resource.CreateRequest{
 		Plan: tfsdk.Plan{

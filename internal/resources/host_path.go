@@ -112,34 +112,46 @@ func (r *HostPathResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	path := data.Path.ValueString()
+	pathStr := data.Path.ValueString()
+
+	// Build mkdir params - API expects {"path": "...", "options": {...}}
+	mkdirParams := map[string]any{
+		"path": pathStr,
+	}
+	if !data.Mode.IsNull() && !data.Mode.IsUnknown() {
+		mkdirParams["options"] = map[string]any{
+			"mode": data.Mode.ValueString(),
+		}
+	}
 
 	// Create the directory
-	_, err := r.client.Call(ctx, "filesystem.mkdir", path)
+	_, err := r.client.Call(ctx, "filesystem.mkdir", mkdirParams)
 	if err != nil {
+		parsedErr := client.ParseTrueNASError(err.Error())
 		resp.Diagnostics.AddError(
 			"Unable to Create Host Path",
-			fmt.Sprintf("Unable to create directory %q: %s", path, err.Error()),
+			fmt.Sprintf("Cannot create directory %q: %s", pathStr, parsedErr.Error()),
 		)
 		return
 	}
 
-	// Set permissions if any are specified
-	if r.hasPermissions(&data) {
+	// Set permissions if any are specified (uid/gid - mode already set in mkdir)
+	if r.hasUIDGID(&data) {
 		permParams := r.buildPermParams(&data)
 
 		_, err := r.client.Call(ctx, "filesystem.setperm", permParams)
 		if err != nil {
+			parsedErr := client.ParseTrueNASError(err.Error())
 			resp.Diagnostics.AddError(
 				"Unable to Set Permissions",
-				fmt.Sprintf("Unable to set permissions on %q: %s", path, err.Error()),
+				fmt.Sprintf("Cannot set permissions on %q: %s", pathStr, parsedErr.Error()),
 			)
 			return
 		}
 	}
 
 	// Set the ID to the path
-	data.ID = types.StringValue(path)
+	data.ID = types.StringValue(pathStr)
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -211,9 +223,10 @@ func (r *HostPathResource) Update(ctx context.Context, req resource.UpdateReques
 
 		_, err := r.client.Call(ctx, "filesystem.setperm", permParams)
 		if err != nil {
+			parsedErr := client.ParseTrueNASError(err.Error())
 			resp.Diagnostics.AddError(
 				"Unable to Update Permissions",
-				fmt.Sprintf("Unable to update permissions on %q: %s", data.Path.ValueString(), err.Error()),
+				fmt.Sprintf("Cannot update permissions on %q: %s", data.Path.ValueString(), parsedErr.Error()),
 			)
 			return
 		}
@@ -237,9 +250,10 @@ func (r *HostPathResource) Delete(ctx context.Context, req resource.DeleteReques
 	// Delete the directory
 	_, err := r.client.Call(ctx, "filesystem.rmdir", p)
 	if err != nil {
+		parsedErr := client.ParseTrueNASError(err.Error())
 		resp.Diagnostics.AddError(
 			"Unable to Delete Host Path",
-			fmt.Sprintf("Unable to delete directory %q: %s", p, err.Error()),
+			fmt.Sprintf("Cannot delete directory %q: %s", p, parsedErr.Error()),
 		)
 		return
 	}
@@ -255,6 +269,12 @@ func (r *HostPathResource) ImportState(ctx context.Context, req resource.ImportS
 func (r *HostPathResource) hasPermissions(data *HostPathResourceModel) bool {
 	return (!data.Mode.IsNull() && !data.Mode.IsUnknown()) ||
 		(!data.UID.IsNull() && !data.UID.IsUnknown()) ||
+		(!data.GID.IsNull() && !data.GID.IsUnknown())
+}
+
+// hasUIDGID returns true if uid or gid are set (mode handled separately in mkdir).
+func (r *HostPathResource) hasUIDGID(data *HostPathResourceModel) bool {
+	return (!data.UID.IsNull() && !data.UID.IsUnknown()) ||
 		(!data.GID.IsNull() && !data.GID.IsUnknown())
 }
 
