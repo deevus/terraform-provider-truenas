@@ -27,17 +27,20 @@ func (e *TrueNASError) Error() string {
 
 var (
 	// Matches [CODE] at start of error message
-	errorCodeRegex = regexp.MustCompile(`^\[([A-Z]+)\]\s*(.*)`)
+	errorCodeRegex = regexp.MustCompile(`\[([A-Z]+)\]\s*(.*)`)
 	// Matches field path before colon
 	fieldRegex = regexp.MustCompile(`^([\w.]+):\s*(.*)`)
+	// Matches "Process exited with status N: " prefix
+	processExitRegex = regexp.MustCompile(`^Process exited with status \d+:\s*`)
 )
 
 // errorSuggestions maps error codes to helpful suggestions.
 var errorSuggestions = map[string]string{
-	"EINVAL": "Check the configuration schema. A field may be invalid or unexpected.",
-	"ENOENT": "Resource not found. It may have been deleted outside Terraform.",
-	"EFAULT": "Container failed to start. Check compose_config and image availability.",
-	"EEXIST": "Resource already exists. Import it or choose a different name.",
+	"EINVAL":    "Check the configuration schema. A field may be invalid or unexpected.",
+	"ENOENT":    "Resource not found. It may have been deleted outside Terraform.",
+	"EFAULT":    "Container failed to start. Check compose_config and image availability.",
+	"EEXIST":    "Resource already exists. Import it or choose a different name.",
+	"ENOTEMPTY": "Directory or dataset has children. Use force_destroy = true or delete children first.",
 }
 
 // ParseTrueNASError parses a raw error string from midclt into a structured error.
@@ -47,13 +50,28 @@ func ParseTrueNASError(raw string) *TrueNASError {
 		Message: raw,
 	}
 
+	// Strip "Process exited with status N: " prefix
+	cleaned := processExitRegex.ReplaceAllString(raw, "")
+
+	// Strip Python traceback - take only the first line or content before "Traceback"
+	if idx := strings.Index(cleaned, "\nTraceback"); idx != -1 {
+		cleaned = strings.TrimSpace(cleaned[:idx])
+	}
+
+	// Also handle case where traceback is on same line
+	if idx := strings.Index(cleaned, "Traceback (most recent call last)"); idx != -1 {
+		cleaned = strings.TrimSpace(cleaned[:idx])
+	}
+
+	err.Message = cleaned
+
 	// Try to extract error code
-	if matches := errorCodeRegex.FindStringSubmatch(raw); len(matches) == 3 {
+	if matches := errorCodeRegex.FindStringSubmatch(cleaned); len(matches) == 3 {
 		err.Code = matches[1]
-		remainder := matches[2]
+		err.Message = strings.TrimSpace(matches[2])
 
 		// Try to extract field from remainder
-		if fieldMatches := fieldRegex.FindStringSubmatch(remainder); len(fieldMatches) == 3 {
+		if fieldMatches := fieldRegex.FindStringSubmatch(err.Message); len(fieldMatches) == 3 {
 			err.Field = fieldMatches[1]
 		}
 	}
