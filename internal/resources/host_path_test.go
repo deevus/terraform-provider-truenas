@@ -1280,17 +1280,29 @@ func TestHostPathResource_Schema_ForceDestroy(t *testing.T) {
 	}
 }
 
-// Test Delete with force_destroy=true uses RemoveAll
+// Test Delete with force_destroy=true calls filesystem.setperm then RemoveAll
 func TestHostPathResource_Delete_ForceDestroy(t *testing.T) {
+	var setpermCalled bool
+	var setpermParams any
 	var removeAllCalled bool
 	var removedPath string
 	var removeDirCalled bool
+	var callOrder []string
 
 	r := &HostPathResource{
 		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "filesystem.setperm" {
+					setpermCalled = true
+					setpermParams = params
+					callOrder = append(callOrder, "setperm")
+				}
+				return json.RawMessage(`null`), nil
+			},
 			RemoveAllFunc: func(ctx context.Context, path string) error {
 				removeAllCalled = true
 				removedPath = path
+				callOrder = append(callOrder, "RemoveAll")
 				return nil
 			},
 			RemoveDirFunc: func(ctx context.Context, path string) error {
@@ -1324,6 +1336,50 @@ func TestHostPathResource_Delete_ForceDestroy(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
+	// filesystem.setperm should be called to fix permissions before deletion
+	if !setpermCalled {
+		t.Error("expected filesystem.setperm to be called when force_destroy is true")
+	}
+
+	// Verify setperm params
+	params, ok := setpermParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", setpermParams)
+	}
+
+	if params["path"] != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected setperm path '/mnt/tank/apps/myapp', got %v", params["path"])
+	}
+
+	if params["uid"] != 0 {
+		t.Errorf("expected uid 0, got %v", params["uid"])
+	}
+
+	if params["gid"] != 0 {
+		t.Errorf("expected gid 0, got %v", params["gid"])
+	}
+
+	if params["mode"] != "777" {
+		t.Errorf("expected mode '777', got %v", params["mode"])
+	}
+
+	options, ok := params["options"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected options to be map[string]any, got %T", params["options"])
+	}
+
+	if options["stripacl"] != true {
+		t.Errorf("expected stripacl=true, got %v", options["stripacl"])
+	}
+
+	if options["recursive"] != true {
+		t.Errorf("expected recursive=true, got %v", options["recursive"])
+	}
+
+	if options["traverse"] != true {
+		t.Errorf("expected traverse=true, got %v", options["traverse"])
+	}
+
 	// RemoveAll should be called when force_destroy is true
 	if !removeAllCalled {
 		t.Error("expected RemoveAll to be called when force_destroy is true")
@@ -1336,6 +1392,11 @@ func TestHostPathResource_Delete_ForceDestroy(t *testing.T) {
 	// RemoveDir should NOT be called when force_destroy is true
 	if removeDirCalled {
 		t.Error("expected RemoveDir NOT to be called when force_destroy is true")
+	}
+
+	// Verify call order: setperm -> RemoveAll
+	if len(callOrder) != 2 || callOrder[0] != "setperm" || callOrder[1] != "RemoveAll" {
+		t.Errorf("expected call order [setperm, RemoveAll], got %v", callOrder)
 	}
 }
 
@@ -1540,5 +1601,65 @@ func TestHostPathResource_Delete_ForceDestroy_Error(t *testing.T) {
 
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("expected error for RemoveAll error")
+	}
+}
+
+// Test Delete with force_destroy - setperm failure adds warning but deletion proceeds
+func TestHostPathResource_Delete_ForceDestroy_SetpermFails(t *testing.T) {
+	var setpermCalled bool
+	var removeAllCalled bool
+
+	r := &HostPathResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "filesystem.setperm" {
+					setpermCalled = true
+					return nil, errors.New("setperm failed")
+				}
+				return json.RawMessage(`null`), nil
+			},
+			RemoveAllFunc: func(ctx context.Context, path string) error {
+				removeAllCalled = true
+				return nil // RemoveAll succeeds
+			},
+		},
+	}
+
+	schemaResp := getHostPathResourceSchema(t)
+
+	stateValue := createHostPathResourceModelWithForceDestroy("/mnt/tank/apps/myapp", "/mnt/tank/apps/myapp", "755", 1000, 1000, true)
+
+	req := resource.DeleteRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.DeleteResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Delete(context.Background(), req, resp)
+
+	// Should NOT have an error - setperm failure is a warning, not an error
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected error: setperm failure should be warning only, got %v", resp.Diagnostics)
+	}
+
+	// Should have a warning about setperm failure
+	if !resp.Diagnostics.HasError() && len(resp.Diagnostics) == 0 {
+		t.Error("expected a warning about setperm failure")
+	}
+
+	// Both should still be called
+	if !setpermCalled {
+		t.Error("expected filesystem.setperm to be called")
+	}
+
+	if !removeAllCalled {
+		t.Error("expected RemoveAll to be called even after setperm failure")
 	}
 }

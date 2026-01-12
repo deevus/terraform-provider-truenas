@@ -268,6 +268,29 @@ func (r *HostPathResource) Delete(ctx context.Context, req resource.DeleteReques
 	// Delete the directory using SFTP
 	var err error
 	if data.ForceDestroy.ValueBool() {
+		// Best effort - fix permissions before deletion using TrueNAS API
+		// This handles permission issues from apps that may have restricted access
+		// Uses filesystem.setperm with stripacl to remove ACLs, set ownership to root,
+		// and set permissive mode recursively - all in one API call
+		permParams := map[string]any{
+			"path": p,
+			"uid":  0,
+			"gid":  0,
+			"mode": "777",
+			"options": map[string]any{
+				"stripacl":  true,
+				"recursive": true,
+				"traverse":  true,
+			},
+		}
+		_, permErr := r.client.CallAndWait(ctx, "filesystem.setperm", permParams)
+		if permErr != nil {
+			resp.Diagnostics.AddWarning(
+				"Failed to Set Permissions Before Delete",
+				fmt.Sprintf("filesystem.setperm failed for %q: %s. Will attempt deletion anyway.", p, permErr.Error()),
+			)
+		}
+
 		// Recursive delete when force_destroy is true
 		err = r.client.RemoveAll(ctx, p)
 	} else {
