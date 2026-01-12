@@ -12,13 +12,14 @@ import (
 
 // mockSFTPClient is a test double for sftpClient interface
 type mockSFTPClient struct {
-	createFunc   func(path string) (sftpFile, error)
-	mkdirAllFunc func(path string) error
-	statFunc     func(path string) (fs.FileInfo, error)
-	removeFunc   func(path string) error
-	openFunc     func(path string) (sftpFile, error)
-	chmodFunc    func(path string, mode fs.FileMode) error
-	closeFunc    func() error
+	createFunc    func(path string) (sftpFile, error)
+	mkdirAllFunc  func(path string) error
+	statFunc      func(path string) (fs.FileInfo, error)
+	removeFunc    func(path string) error
+	removeDirFunc func(path string) error
+	openFunc      func(path string) (sftpFile, error)
+	chmodFunc     func(path string, mode fs.FileMode) error
+	closeFunc     func() error
 }
 
 func (m *mockSFTPClient) Create(path string) (sftpFile, error) {
@@ -45,6 +46,13 @@ func (m *mockSFTPClient) Stat(path string) (fs.FileInfo, error) {
 func (m *mockSFTPClient) Remove(path string) error {
 	if m.removeFunc != nil {
 		return m.removeFunc(path)
+	}
+	return nil
+}
+
+func (m *mockSFTPClient) RemoveDirectory(path string) error {
+	if m.removeDirFunc != nil {
+		return m.removeDirFunc(path)
 	}
 	return nil
 }
@@ -540,5 +548,77 @@ func TestSSHClient_ReadFile_PartialReads(t *testing.T) {
 
 	if string(result) != string(fullContent) {
 		t.Errorf("expected full content %q, got %q", string(fullContent), string(result))
+	}
+}
+
+func TestSSHClient_RemoveDir_Success(t *testing.T) {
+	config := &SSHConfig{
+		Host:       "truenas.local",
+		PrivateKey: testPrivateKey,
+	}
+
+	client, _ := NewSSHClient(config)
+
+	var removedPath string
+	mockSFTP := &mockSFTPClient{
+		removeDirFunc: func(path string) error {
+			removedPath = path
+			return nil
+		},
+	}
+
+	client.sftpClient = mockSFTP
+
+	err := client.RemoveDir(context.Background(), "/mnt/storage/apps/myapp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if removedPath != "/mnt/storage/apps/myapp" {
+		t.Errorf("expected path '/mnt/storage/apps/myapp', got %q", removedPath)
+	}
+}
+
+func TestSSHClient_RemoveDir_NotEmpty(t *testing.T) {
+	config := &SSHConfig{
+		Host:       "truenas.local",
+		PrivateKey: testPrivateKey,
+	}
+
+	client, _ := NewSSHClient(config)
+
+	mockSFTP := &mockSFTPClient{
+		removeDirFunc: func(path string) error {
+			return errors.New("directory not empty")
+		},
+	}
+
+	client.sftpClient = mockSFTP
+
+	err := client.RemoveDir(context.Background(), "/mnt/storage/apps/myapp")
+	if err == nil {
+		t.Fatal("expected error for non-empty directory")
+	}
+}
+
+func TestSSHClient_RemoveDir_NotFound(t *testing.T) {
+	config := &SSHConfig{
+		Host:       "truenas.local",
+		PrivateKey: testPrivateKey,
+	}
+
+	client, _ := NewSSHClient(config)
+
+	mockSFTP := &mockSFTPClient{
+		removeDirFunc: func(path string) error {
+			return errors.New("no such file or directory")
+		},
+	}
+
+	client.sftpClient = mockSFTP
+
+	err := client.RemoveDir(context.Background(), "/mnt/storage/missing")
+	if err == nil {
+		t.Fatal("expected error for missing directory")
 	}
 }

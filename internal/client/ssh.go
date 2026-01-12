@@ -101,6 +101,7 @@ type sftpClient interface {
 	MkdirAll(path string) error
 	Stat(path string) (fs.FileInfo, error)
 	Remove(path string) error
+	RemoveDirectory(path string) error
 	Open(path string) (sftpFile, error)
 	Chmod(path string, mode fs.FileMode) error
 	Close() error
@@ -132,6 +133,10 @@ func (r *realSFTPClient) Stat(path string) (fs.FileInfo, error) {
 
 func (r *realSFTPClient) Remove(path string) error {
 	return r.client.Remove(path)
+}
+
+func (r *realSFTPClient) RemoveDirectory(path string) error {
+	return r.client.RemoveDirectory(path)
 }
 
 func (r *realSFTPClient) Open(path string) (sftpFile, error) {
@@ -432,6 +437,22 @@ func (c *SSHClient) DeleteFile(ctx context.Context, path string) error {
 
 	if err := c.sftpClient.Remove(path); err != nil {
 		return fmt.Errorf("failed to delete file %q: %w", path, err)
+	}
+
+	return nil
+}
+
+// RemoveDir removes an empty directory from the remote system.
+func (c *SSHClient) RemoveDir(ctx context.Context, path string) error {
+	// Connect SFTP if needed (skip if already mocked)
+	if c.sftpClient == nil {
+		if err := c.connectSFTP(); err != nil {
+			return err
+		}
+	}
+
+	if err := c.sftpClient.RemoveDirectory(path); err != nil {
+		return fmt.Errorf("failed to remove directory %q: %w", path, err)
 	}
 
 	return nil

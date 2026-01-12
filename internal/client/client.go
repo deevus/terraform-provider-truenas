@@ -23,6 +23,9 @@ type Client interface {
 	// DeleteFile removes a file from the remote system.
 	DeleteFile(ctx context.Context, path string) error
 
+	// RemoveDir removes an empty directory from the remote system.
+	RemoveDir(ctx context.Context, path string) error
+
 	// FileExists checks if a file exists on the remote system.
 	FileExists(ctx context.Context, path string) (bool, error)
 
@@ -40,6 +43,7 @@ type MockClient struct {
 	WriteFileFunc   func(ctx context.Context, path string, content []byte, mode fs.FileMode) error
 	ReadFileFunc    func(ctx context.Context, path string) ([]byte, error)
 	DeleteFileFunc  func(ctx context.Context, path string) error
+	RemoveDirFunc   func(ctx context.Context, path string) error
 	FileExistsFunc  func(ctx context.Context, path string) (bool, error)
 	MkdirAllFunc    func(ctx context.Context, path string, mode fs.FileMode) error
 	CloseFunc       func() error
@@ -76,6 +80,13 @@ func (m *MockClient) ReadFile(ctx context.Context, path string) ([]byte, error) 
 func (m *MockClient) DeleteFile(ctx context.Context, path string) error {
 	if m.DeleteFileFunc != nil {
 		return m.DeleteFileFunc(ctx, path)
+	}
+	return nil
+}
+
+func (m *MockClient) RemoveDir(ctx context.Context, path string) error {
+	if m.RemoveDirFunc != nil {
+		return m.RemoveDirFunc(ctx, path)
 	}
 	return nil
 }

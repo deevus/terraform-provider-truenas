@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -114,28 +115,22 @@ func (r *HostPathResource) Create(ctx context.Context, req resource.CreateReques
 
 	pathStr := data.Path.ValueString()
 
-	// Build mkdir params - API expects {"path": "...", "options": {...}}
-	mkdirParams := map[string]any{
-		"path": pathStr,
-	}
+	// Determine the mode for the directory
+	mode := fs.FileMode(0755) // default
 	if !data.Mode.IsNull() && !data.Mode.IsUnknown() {
-		mkdirParams["options"] = map[string]any{
-			"mode": data.Mode.ValueString(),
-		}
+		mode = parseMode(data.Mode.ValueString())
 	}
 
-	// Create the directory
-	_, err := r.client.Call(ctx, "filesystem.mkdir", mkdirParams)
-	if err != nil {
-		parsedErr := client.ParseTrueNASError(err.Error())
+	// Create the directory using SFTP
+	if err := r.client.MkdirAll(ctx, pathStr, mode); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Host Path",
-			fmt.Sprintf("Cannot create directory %q: %s", pathStr, parsedErr.Error()),
+			fmt.Sprintf("Cannot create directory %q: %s", pathStr, err.Error()),
 		)
 		return
 	}
 
-	// Set permissions if any are specified (uid/gid - mode already set in mkdir)
+	// Set permissions if uid/gid are specified (uses TrueNAS API)
 	if r.hasUIDGID(&data) {
 		permParams := r.buildPermParams(&data)
 
@@ -247,13 +242,11 @@ func (r *HostPathResource) Delete(ctx context.Context, req resource.DeleteReques
 
 	p := data.Path.ValueString()
 
-	// Delete the directory
-	_, err := r.client.Call(ctx, "filesystem.rmdir", p)
-	if err != nil {
-		parsedErr := client.ParseTrueNASError(err.Error())
+	// Delete the directory using SFTP
+	if err := r.client.RemoveDir(ctx, p); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete Host Path",
-			fmt.Sprintf("Cannot delete directory %q: %s", p, parsedErr.Error()),
+			fmt.Sprintf("Cannot delete directory %q: %s", p, err.Error()),
 		)
 		return
 	}

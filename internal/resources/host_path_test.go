@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"testing"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
@@ -184,20 +185,15 @@ func createHostPathResourceModel(id, path, mode, uid, gid interface{}) tftypes.V
 }
 
 func TestHostPathResource_Create_Success(t *testing.T) {
-	var callCount int
-	var capturedMethods []string
-	var capturedParams []any
+	var mkdirCalled bool
+	var createdPath string
 
 	r := &HostPathResource{
 		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				callCount++
-				capturedMethods = append(capturedMethods, method)
-				capturedParams = append(capturedParams, params)
-				if method == "filesystem.mkdir" {
-					return json.RawMessage(`null`), nil
-				}
-				return json.RawMessage(`null`), nil
+			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+				mkdirCalled = true
+				createdPath = path
+				return nil
 			},
 		},
 	}
@@ -225,13 +221,13 @@ func TestHostPathResource_Create_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify mkdir was called
-	if callCount < 1 {
-		t.Fatal("expected at least one API call")
+	// Verify MkdirAll was called
+	if !mkdirCalled {
+		t.Fatal("expected MkdirAll to be called")
 	}
 
-	if capturedMethods[0] != "filesystem.mkdir" {
-		t.Errorf("expected first method 'filesystem.mkdir', got %q", capturedMethods[0])
+	if createdPath != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %q", createdPath)
 	}
 
 	// Verify state was set
@@ -251,14 +247,25 @@ func TestHostPathResource_Create_Success(t *testing.T) {
 }
 
 func TestHostPathResource_Create_WithPermissions(t *testing.T) {
-	var capturedMethods []string
-	var capturedParams []any
+	var mkdirCalled bool
+	var createdPath string
+	var createdMode fs.FileMode
+	var setpermCalled bool
+	var setpermParams any
 
 	r := &HostPathResource{
 		client: &client.MockClient{
+			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+				mkdirCalled = true
+				createdPath = path
+				createdMode = mode
+				return nil
+			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethods = append(capturedMethods, method)
-				capturedParams = append(capturedParams, params)
+				if method == "filesystem.setperm" {
+					setpermCalled = true
+					setpermParams = params
+				}
 				return json.RawMessage(`null`), nil
 			},
 		},
@@ -288,39 +295,39 @@ func TestHostPathResource_Create_WithPermissions(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify mkdir was called first
-	if len(capturedMethods) < 2 {
-		t.Fatal("expected at least 2 API calls (mkdir + setperm)")
+	// Verify MkdirAll was called with correct mode
+	if !mkdirCalled {
+		t.Fatal("expected MkdirAll to be called")
 	}
 
-	if capturedMethods[0] != "filesystem.mkdir" {
-		t.Errorf("expected first method 'filesystem.mkdir', got %q", capturedMethods[0])
+	if createdPath != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %q", createdPath)
 	}
 
-	if capturedMethods[1] != "filesystem.setperm" {
-		t.Errorf("expected second method 'filesystem.setperm', got %q", capturedMethods[1])
+	if createdMode != 0755 {
+		t.Errorf("expected mode 0755, got %o", createdMode)
 	}
 
-	// Verify setperm params include permissions
-	setpermParams, ok := capturedParams[1].(map[string]any)
+	// Verify setperm was called for uid/gid
+	if !setpermCalled {
+		t.Fatal("expected setperm to be called for uid/gid")
+	}
+
+	params, ok := setpermParams.(map[string]any)
 	if !ok {
-		t.Fatalf("expected setperm params to be map[string]any, got %T", capturedParams[1])
+		t.Fatalf("expected setperm params to be map[string]any, got %T", setpermParams)
 	}
 
-	if setpermParams["path"] != "/mnt/tank/apps/myapp" {
-		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", setpermParams["path"])
-	}
-
-	if setpermParams["mode"] != "755" {
-		t.Errorf("expected mode '755', got %v", setpermParams["mode"])
+	if params["path"] != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", params["path"])
 	}
 }
 
 func TestHostPathResource_Create_APIError(t *testing.T) {
 	r := &HostPathResource{
 		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("permission denied")
+			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+				return errors.New("permission denied")
 			},
 		},
 	}
@@ -345,20 +352,17 @@ func TestHostPathResource_Create_APIError(t *testing.T) {
 	r.Create(context.Background(), req, resp)
 
 	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for API error")
+		t.Fatal("expected error for MkdirAll error")
 	}
 }
 
 func TestHostPathResource_Create_SetPermError(t *testing.T) {
-	callCount := 0
-
 	r := &HostPathResource{
 		client: &client.MockClient{
+			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+				return nil
+			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				callCount++
-				if method == "filesystem.mkdir" {
-					return json.RawMessage(`null`), nil
-				}
 				// setperm fails
 				return nil, errors.New("permission denied on setperm")
 			},
@@ -367,7 +371,7 @@ func TestHostPathResource_Create_SetPermError(t *testing.T) {
 
 	schemaResp := getHostPathResourceSchema(t)
 
-	// Must set uid or gid to trigger setperm call (mode is now handled by mkdir)
+	// Must set uid or gid to trigger setperm call
 	planValue := createHostPathResourceModel(nil, "/mnt/tank/apps/myapp", "755", 1000, 1000)
 
 	req := resource.CreateRequest{
@@ -621,15 +625,13 @@ func TestHostPathResource_Update_APIError(t *testing.T) {
 }
 
 func TestHostPathResource_Delete_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var removedPath string
 
 	r := &HostPathResource{
 		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedParams = params
-				return json.RawMessage(`null`), nil
+			RemoveDirFunc: func(ctx context.Context, path string) error {
+				removedPath = path
+				return nil
 			},
 		},
 	}
@@ -657,22 +659,17 @@ func TestHostPathResource_Delete_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify rmdir was called
-	if capturedMethod != "filesystem.rmdir" {
-		t.Errorf("expected method 'filesystem.rmdir', got %q", capturedMethod)
-	}
-
-	// Verify the path was passed
-	if capturedParams != "/mnt/tank/apps/myapp" {
-		t.Errorf("expected params '/mnt/tank/apps/myapp', got %v", capturedParams)
+	// Verify RemoveDir was called with the correct path
+	if removedPath != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %q", removedPath)
 	}
 }
 
 func TestHostPathResource_Delete_APIError(t *testing.T) {
 	r := &HostPathResource{
 		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("directory not empty")
+			RemoveDirFunc: func(ctx context.Context, path string) error {
+				return errors.New("directory not empty")
 			},
 		},
 	}
