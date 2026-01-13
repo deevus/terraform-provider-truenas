@@ -202,13 +202,20 @@ func (r *FileResource) ValidateConfig(ctx context.Context, req resource.Validate
 		}
 	}
 
-	// Validate path is absolute
+	// Validate path is absolute and does not contain path traversal
 	if hasPath {
 		p := data.Path.ValueString()
 		if !strings.HasPrefix(p, "/") {
 			resp.Diagnostics.AddError(
 				"Invalid Configuration",
 				"'path' must be an absolute path (start with '/').",
+			)
+			return
+		}
+		if strings.Contains(p, "..") {
+			resp.Diagnostics.AddError(
+				"Invalid Configuration",
+				"'path' must not contain '..' (path traversal not allowed).",
 			)
 			return
 		}

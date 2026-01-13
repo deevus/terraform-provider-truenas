@@ -266,6 +266,29 @@ func TestFileResource_ValidateConfig_PathNotAbsolute(t *testing.T) {
 	}
 }
 
+func TestFileResource_ValidateConfig_PathContainsDoubleDot(t *testing.T) {
+	r := NewFileResource().(*FileResource)
+
+	schemaResp := getFileResourceSchema(t)
+
+	// Invalid: path contains .. (path traversal)
+	configValue := createFileResourceModel(nil, nil, nil, "/mnt/storage/../etc/passwd", "content", nil, nil, nil, nil)
+
+	req := resource.ValidateConfigRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    configValue,
+		},
+	}
+	resp := &resource.ValidateConfigResponse{}
+
+	r.ValidateConfig(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when path contains .. (path traversal)")
+	}
+}
+
 func TestFileResource_ValidateConfig_HostPathWithoutRelativePath(t *testing.T) {
 	r := NewFileResource().(*FileResource)
 
