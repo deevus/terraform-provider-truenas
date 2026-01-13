@@ -2344,6 +2344,23 @@ func TestDatasetResource_Schema_MountPathDeprecated(t *testing.T) {
 }
 
 // Test Read reads permissions from filesystem.stat
+func TestDatasetResource_Schema_NameDeprecated(t *testing.T) {
+	r := NewDatasetResource()
+
+	req := resource.SchemaRequest{}
+	resp := &resource.SchemaResponse{}
+
+	r.Schema(context.Background(), req, resp)
+
+	nameAttr, ok := resp.Schema.Attributes["name"]
+	if !ok {
+		t.Fatal("expected 'name' attribute in schema")
+	}
+	if nameAttr.GetDeprecationMessage() == "" {
+		t.Error("expected 'name' attribute to have deprecation message")
+	}
+}
+
 func TestDatasetResource_Read_WithPermissions(t *testing.T) {
 	r := &DatasetResource{
 		client: &client.MockClient{

@@ -147,8 +147,9 @@ func (r *DatasetResource) Schema(ctx context.Context, req resource.SchemaRequest
 				},
 			},
 			"name": schema.StringAttribute{
-				Description: "Dataset name. Use with 'parent' attribute.",
-				Optional:    true,
+				Description:        "Dataset name. Use with 'parent' attribute.",
+				DeprecationMessage: "Use 'path' instead with 'parent'. This attribute will be removed in a future version.",
+				Optional:           true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
