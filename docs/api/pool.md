@@ -12,6 +12,35 @@ midclt call pool.query '[[["name", "=", "tank"]]]'
 midclt call pool.query '[]' '{"extra": {"is_upgraded": true}}'
 ```
 
+<!-- Source: internal/datasources/pool.go:33-41 -->
+**Response Schema:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | integer | Pool numeric ID |
+| name | string | Pool name |
+| path | string | Mount path (e.g., `/mnt/tank`) |
+| status | string | Pool status: ONLINE, DEGRADED, OFFLINE |
+| size | integer | Total pool size in bytes |
+| allocated | integer | Used space in bytes |
+| free | integer | Free space in bytes |
+
+<details>
+<summary>Example Response</summary>
+
+```json
+[{
+  "id": 1,
+  "name": "tank",
+  "path": "/mnt/tank",
+  "status": "ONLINE",
+  "size": 107374182400,
+  "allocated": 53687091200,
+  "free": 53687091200
+}]
+```
+</details>
+
 ### pool.create
 Create a new pool.
 ```bash
@@ -156,6 +185,37 @@ midclt call pool.dataset.query '[[["id", "=", "tank/data"]]]'
 midclt call pool.dataset.query '[]' '{"extra": {"properties": ["used", "available"]}}'
 ```
 
+<!-- Source: internal/resources/dataset.go:49-58 -->
+**Response Schema:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | string | Full dataset path (pool/path) |
+| name | string | Dataset name (last component) |
+| mountpoint | string | Filesystem mount path |
+| compression | object | `{value: string}` - Compression algorithm |
+| quota | object | `{value: string}` - Dataset quota |
+| refquota | object | `{value: string}` - Reference quota |
+| atime | object | `{value: string}` - Access time setting (on/off) |
+
+**Note:** Properties use nested `{value: string}` structure, not direct values.
+
+<details>
+<summary>Example Response</summary>
+
+```json
+[{
+  "id": "tank/data",
+  "name": "data",
+  "mountpoint": "/mnt/tank/data",
+  "compression": {"value": "lz4"},
+  "quota": {"value": "0"},
+  "refquota": {"value": "0"},
+  "atime": {"value": "on"}
+}]
+```
+</details>
+
 ### pool.dataset.create
 Create a dataset.
 ```bash
@@ -177,6 +237,27 @@ midclt call pool.dataset.create '{
 }'
 ```
 
+<!-- Source: internal/resources/dataset.go:43-47 -->
+**Response Schema:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | string | Full dataset path (pool/path) |
+| name | string | Dataset name (last component) |
+| mountpoint | string | Filesystem mount path |
+
+<details>
+<summary>Example Response</summary>
+
+```json
+{
+  "id": "tank/data",
+  "name": "data",
+  "mountpoint": "/mnt/tank/data"
+}
+```
+</details>
+
 ### pool.dataset.update
 Update dataset properties.
 ```bash
@@ -186,12 +267,28 @@ midclt call pool.dataset.update "tank/data" '{
 }'
 ```
 
+<!-- Source: internal/resources/dataset.go:365-394 -->
+**Response Schema:**
+
+Same schema as `pool.dataset.query` but returns a single object (not an array).
+
+**Note:** Parameters use positional array format: `[dataset_id, {properties}]`
+
 ### pool.dataset.delete
 Delete a dataset.
 ```bash
 midclt call pool.dataset.delete "tank/data"
 midclt call pool.dataset.delete "tank/data" '{"recursive": true}'
 ```
+
+<!-- Source: internal/resources/dataset.go:409-426 -->
+**Response Schema:**
+
+No response body on success. Errors return standard error response.
+
+**Parameters:**
+- Simple: `dataset_id` (string)
+- With options: `[dataset_id, {"recursive": true}]` (positional array)
 
 ### pool.dataset.promote
 Promote a clone to a standalone dataset.
