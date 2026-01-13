@@ -24,9 +24,10 @@ type TrueNASProviderModel struct {
 
 // SSHBlockModel describes the SSH configuration block.
 type SSHBlockModel struct {
-	Port       types.Int64  `tfsdk:"port"`
-	User       types.String `tfsdk:"user"`
-	PrivateKey types.String `tfsdk:"private_key"`
+	Port               types.Int64  `tfsdk:"port"`
+	User               types.String `tfsdk:"user"`
+	PrivateKey         types.String `tfsdk:"private_key"`
+	HostKeyFingerprint types.String `tfsdk:"host_key_fingerprint"`
 }
 
 type TrueNASProvider struct {
@@ -76,6 +77,12 @@ func (p *TrueNASProvider) Schema(ctx context.Context, req provider.SchemaRequest
 						Required:    true,
 						Sensitive:   true,
 					},
+					"host_key_fingerprint": schema.StringAttribute{
+						Description: "SHA256 fingerprint of the TrueNAS server's SSH host key. " +
+							"Get it with: ssh-keygen -lvf /etc/ssh/ssh_host_rsa_key.pub",
+						Required:  true,
+						Sensitive: false,
+					},
 				},
 			},
 		},
@@ -111,8 +118,9 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 	// Build SSH config with values from provider configuration
 	sshConfig := &client.SSHConfig{
-		Host:       config.Host.ValueString(),
-		PrivateKey: config.SSH.PrivateKey.ValueString(),
+		Host:               config.Host.ValueString(),
+		PrivateKey:         config.SSH.PrivateKey.ValueString(),
+		HostKeyFingerprint: config.SSH.HostKeyFingerprint.ValueString(),
 	}
 
 	// Set optional values if provided
