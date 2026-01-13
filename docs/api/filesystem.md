@@ -1,0 +1,258 @@
+# Filesystem API
+
+Filesystem operations including permissions and ACLs.
+
+## File Operations
+
+### filesystem.stat
+Get file/directory information.
+```bash
+midclt call filesystem.stat "/mnt/tank/data"
+```
+
+Returns:
+- `size` - File size in bytes
+- `mode` - Unix permission mode
+- `uid` - Owner user ID
+- `gid` - Owner group ID
+- `atime` - Access time
+- `mtime` - Modification time
+- `ctime` - Change time
+- `dev` - Device ID
+- `inode` - Inode number
+- `nlink` - Number of hard links
+- `user` - Owner username
+- `group` - Owner group name
+- `acl` - ACL enabled flag
+- `is_mountpoint` - Whether path is a mountpoint
+- `is_ctldir` - Whether path is a .zfs control directory
+
+### filesystem.statfs
+Get filesystem statistics.
+```bash
+midclt call filesystem.statfs "/mnt/tank/data"
+```
+
+Returns:
+- `flags` - Mount flags
+- `fstype` - Filesystem type
+- `source` - Source device/dataset
+- `dest` - Mount destination
+- `blocksize` - Block size
+- `total_blocks` - Total blocks
+- `free_blocks` - Free blocks
+- `avail_blocks` - Available blocks
+- `total_bytes` - Total size in bytes
+- `free_bytes` - Free space in bytes
+- `avail_bytes` - Available space in bytes
+
+### filesystem.listdir
+List directory contents.
+```bash
+midclt call filesystem.listdir "/mnt/tank/data"
+midclt call filesystem.listdir "/mnt/tank/data" '[["name", "^", "test"]]'
+midclt call filesystem.listdir "/mnt/tank/data" '[]' '{"limit": 100, "offset": 0}'
+```
+
+Returns array of entries with:
+- `name` - Entry name
+- `path` - Full path
+- `realpath` - Resolved symlink path
+- `type` - FILE, DIRECTORY, SYMLINK, OTHER
+- `size` - Size in bytes
+- `mode` - Unix permissions
+- `acl` - ACL enabled
+- `uid` - Owner user ID
+- `gid` - Owner group ID
+- `is_mountpoint` - Mountpoint flag
+- `is_ctldir` - Control directory flag
+
+### filesystem.file_tail_follow
+Follow a file like `tail -f`.
+```bash
+midclt call filesystem.file_tail_follow "/var/log/messages" 100
+```
+
+## Permissions
+
+### filesystem.setperm
+Set Unix permissions on a file/directory.
+```bash
+midclt call filesystem.setperm '{
+  "path": "/mnt/tank/data",
+  "mode": "755",
+  "uid": 1000,
+  "gid": 1000
+}'
+```
+
+With recursive option:
+```bash
+midclt call filesystem.setperm '{
+  "path": "/mnt/tank/data",
+  "mode": "755",
+  "uid": 1000,
+  "gid": 1000,
+  "options": {
+    "recursive": true,
+    "traverse": false
+  }
+}'
+```
+
+## ACL Operations
+
+### filesystem.getacl
+Get ACL for a path.
+```bash
+midclt call filesystem.getacl "/mnt/tank/data"
+midclt call filesystem.getacl "/mnt/tank/data" true  # Simplified format
+```
+
+Returns:
+- `path` - File path
+- `trivial` - Whether ACL is trivial (basic Unix perms only)
+- `acltype` - NFS4 or POSIX1E
+- `uid` - Owner user ID
+- `gid` - Owner group ID
+- `acl` - Array of ACL entries
+
+NFS4 ACL entry structure:
+- `tag` - owner@, group@, everyone@, USER, GROUP
+- `id` - User/group ID (for USER/GROUP tags)
+- `who` - User/group name
+- `type` - ALLOW or DENY
+- `perms` - Permission object (READ_DATA, WRITE_DATA, etc.)
+- `flags` - Inheritance flags (FILE_INHERIT, DIRECTORY_INHERIT, etc.)
+
+POSIX ACL entry structure:
+- `tag` - USER_OBJ, GROUP_OBJ, OTHER, USER, GROUP, MASK
+- `id` - User/group ID
+- `who` - User/group name
+- `perms` - Permission object (READ, WRITE, EXECUTE)
+- `default` - Whether this is a default ACL entry
+
+### filesystem.setacl
+Set ACL on a path.
+
+NFS4 ACL example:
+```bash
+midclt call filesystem.setacl '{
+  "path": "/mnt/tank/data",
+  "dacl": [
+    {
+      "tag": "owner@",
+      "type": "ALLOW",
+      "perms": {"BASIC": "FULL_CONTROL"},
+      "flags": {"BASIC": "INHERIT"}
+    },
+    {
+      "tag": "group@",
+      "type": "ALLOW",
+      "perms": {"BASIC": "MODIFY"},
+      "flags": {"BASIC": "INHERIT"}
+    },
+    {
+      "tag": "everyone@",
+      "type": "ALLOW",
+      "perms": {"BASIC": "READ"},
+      "flags": {"BASIC": "INHERIT"}
+    }
+  ],
+  "acltype": "NFS4",
+  "options": {
+    "recursive": true,
+    "traverse": false
+  }
+}'
+```
+
+POSIX ACL example:
+```bash
+midclt call filesystem.setacl '{
+  "path": "/mnt/tank/data",
+  "dacl": [
+    {"tag": "USER_OBJ", "perms": {"READ": true, "WRITE": true, "EXECUTE": true}},
+    {"tag": "GROUP_OBJ", "perms": {"READ": true, "WRITE": false, "EXECUTE": true}},
+    {"tag": "OTHER", "perms": {"READ": true, "WRITE": false, "EXECUTE": false}},
+    {"tag": "USER", "id": 1000, "perms": {"READ": true, "WRITE": true, "EXECUTE": true}},
+    {"tag": "MASK", "perms": {"READ": true, "WRITE": true, "EXECUTE": true}}
+  ],
+  "acltype": "POSIX1E"
+}'
+```
+
+Options:
+- `recursive` - Apply to all children
+- `traverse` - Cross filesystem boundaries
+- `canonicalize` - Reorder ACL entries
+
+## ACL Templates
+
+### filesystem.acltemplate.by_path
+Get ACL templates available for a path.
+```bash
+midclt call filesystem.acltemplate.by_path "/mnt/tank/data"
+midclt call filesystem.acltemplate.by_path "/mnt/tank/data" "NFS4"
+```
+
+### filesystem.acltemplate.create
+Create a custom ACL template.
+```bash
+midclt call filesystem.acltemplate.create '{
+  "name": "Custom Template",
+  "acltype": "NFS4",
+  "acl": [
+    {"tag": "owner@", "type": "ALLOW", "perms": {"BASIC": "FULL_CONTROL"}, "flags": {"BASIC": "INHERIT"}}
+  ]
+}'
+```
+
+### filesystem.acltemplate.delete
+Delete an ACL template.
+```bash
+midclt call filesystem.acltemplate.delete <template_id>
+```
+
+## NFS4 ACL Permissions
+
+Basic permission sets:
+- `FULL_CONTROL` - All permissions
+- `MODIFY` - Read, write, execute, delete
+- `READ` - Read and execute
+- `TRAVERSE` - Execute only
+
+Individual permissions:
+- `READ_DATA` / `LIST_DIRECTORY`
+- `WRITE_DATA` / `ADD_FILE`
+- `APPEND_DATA` / `ADD_SUBDIRECTORY`
+- `READ_NAMED_ATTRS`
+- `WRITE_NAMED_ATTRS`
+- `EXECUTE`
+- `DELETE_CHILD`
+- `READ_ATTRIBUTES`
+- `WRITE_ATTRIBUTES`
+- `DELETE`
+- `READ_ACL`
+- `WRITE_ACL`
+- `WRITE_OWNER`
+- `SYNCHRONIZE`
+
+## NFS4 ACL Flags
+
+Basic flag sets:
+- `INHERIT` - FILE_INHERIT, DIRECTORY_INHERIT
+- `NOINHERIT` - No inheritance flags
+
+Individual flags:
+- `FILE_INHERIT` - ACE inherited by files
+- `DIRECTORY_INHERIT` - ACE inherited by directories
+- `NO_PROPAGATE_INHERIT` - Don't propagate to subdirectories
+- `INHERIT_ONLY` - ACE not applied to this object
+- `INHERITED` - ACE was inherited
+
+## POSIX ACL Permissions
+
+- `READ` - Read permission
+- `WRITE` - Write permission
+- `EXECUTE` - Execute permission

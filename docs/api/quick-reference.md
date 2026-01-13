@@ -1,0 +1,667 @@
+# midclt Quick Reference
+
+Complete alphabetical list of all 581 API methods discovered in TrueNAS WebUI.
+
+## A
+
+- `acme.dns.authenticator.authenticator_schemas`
+- `acme.dns.authenticator.create`
+- `acme.dns.authenticator.delete`
+- `acme.dns.authenticator.query`
+- `acme.dns.authenticator.update`
+- `alert.dismiss`
+- `alert.list`
+- `alert.list_categories`
+- `alert.list_policies`
+- `alert.restore`
+- `alertclasses.config`
+- `alertclasses.update`
+- `alertservice.create`
+- `alertservice.delete`
+- `alertservice.query`
+- `alertservice.test`
+- `alertservice.update`
+- `api_key.create`
+- `api_key.delete`
+- `api_key.query`
+- `api_key.update`
+- `app.available`
+- `app.available_space`
+- `app.categories`
+- `app.convert_to_custom`
+- `app.create`
+- `app.delete`
+- `app.image.delete`
+- `app.image.dockerhub_rate_limit`
+- `app.image.pull`
+- `app.image.query`
+- `app.ix_volume.exists`
+- `app.latest`
+- `app.query`
+- `app.redeploy`
+- `app.registry.create`
+- `app.registry.delete`
+- `app.registry.query`
+- `app.registry.update`
+- `app.rollback`
+- `app.rollback_versions`
+- `app.similar`
+- `app.start`
+- `app.stats`
+- `app.stop`
+- `app.update`
+- `app.upgrade`
+- `app.upgrade_summary`
+- `audit.config`
+- `audit.export`
+- `audit.query`
+- `audit.update`
+- `auth.generate_onetime_password`
+- `auth.generate_token`
+- `auth.login_ex`
+- `auth.login_ex_continue`
+- `auth.logout`
+- `auth.me`
+- `auth.mechanism_choices`
+- `auth.sessions`
+- `auth.set_attribute`
+- `auth.terminate_other_sessions`
+- `auth.terminate_session`
+- `auth.twofactor.config`
+- `auth.twofactor.update`
+
+## B
+
+- `boot.attach`
+- `boot.detach`
+- `boot.environment.activate`
+- `boot.environment.clone`
+- `boot.environment.destroy`
+- `boot.environment.keep`
+- `boot.environment.query`
+- `boot.get_state`
+- `boot.replace`
+- `boot.set_scrub_interval`
+
+## C
+
+- `catalog.config`
+- `catalog.get_app_details`
+- `catalog.sync`
+- `catalog.trains`
+- `catalog.update`
+- `certificate.acme_server_choices`
+- `certificate.country_choices`
+- `certificate.create`
+- `certificate.delete`
+- `certificate.ec_curve_choices`
+- `certificate.extended_key_usage_choices`
+- `certificate.query`
+- `certificate.update`
+- `cloud_backup.create`
+- `cloud_backup.delete`
+- `cloud_backup.delete_snapshot`
+- `cloud_backup.list_snapshots`
+- `cloud_backup.query`
+- `cloud_backup.restore`
+- `cloud_backup.sync`
+- `cloud_backup.transfer_setting_choices`
+- `cloud_backup.update`
+- `cloudsync.abort`
+- `cloudsync.create`
+- `cloudsync.create_bucket`
+- `cloudsync.credentials.create`
+- `cloudsync.credentials.delete`
+- `cloudsync.credentials.query`
+- `cloudsync.credentials.update`
+- `cloudsync.credentials.verify`
+- `cloudsync.delete`
+- `cloudsync.list_buckets`
+- `cloudsync.list_directory`
+- `cloudsync.onedrive_list_drives`
+- `cloudsync.providers`
+- `cloudsync.query`
+- `cloudsync.restore`
+- `cloudsync.sync`
+- `cloudsync.sync_onetime`
+- `cloudsync.update`
+- `config.reset`
+- `container.create`
+- `container.delete`
+- `container.device.create`
+- `container.device.delete`
+- `container.device.gpu_choices`
+- `container.device.nic_attach_choices`
+- `container.device.query`
+- `container.device.update`
+- `container.device.usb_choices`
+- `container.get_instance`
+- `container.image.query_registry`
+- `container.metrics`
+- `container.pool_choices`
+- `container.query`
+- `container.start`
+- `container.stop`
+- `container.update`
+- `core.bulk`
+- `core.download`
+- `core.get_jobs`
+- `core.job_abort`
+- `core.job_download_logs`
+- `core.resize_shell`
+- `core.subscribe`
+- `cronjob.create`
+- `cronjob.delete`
+- `cronjob.query`
+- `cronjob.run`
+- `cronjob.update`
+
+## D
+
+- `device.get_info`
+- `directoryservices.cache_refresh`
+- `directoryservices.certificate_choices`
+- `directoryservices.config`
+- `directoryservices.leave`
+- `directoryservices.status`
+- `directoryservices.sync_keytab`
+- `directoryservices.update`
+- `disk.details`
+- `disk.query`
+- `disk.reset_sed`
+- `disk.temperature_agg`
+- `disk.temperature_alerts`
+- `disk.temperatures`
+- `disk.unlock_sed`
+- `disk.update`
+- `disk.wipe`
+- `docker.config`
+- `docker.state`
+- `docker.status`
+- `docker.update`
+
+## E
+
+- `enclosure.label.set`
+
+## F
+
+- `failover.become_passive`
+- `failover.config`
+- `failover.disabled.reasons`
+- `failover.licensed`
+- `failover.node`
+- `failover.reboot.info`
+- `failover.reboot.other_node`
+- `failover.status`
+- `failover.sync_from_peer`
+- `failover.sync_to_peer`
+- `failover.update`
+- `failover.upgrade`
+- `fc.capable`
+- `fc.fc_host.query`
+- `fc.fc_host.update`
+- `fcport.create`
+- `fcport.delete`
+- `fcport.port_choices`
+- `fcport.query`
+- `fcport.status`
+- `filesystem.acltemplate.by_path`
+- `filesystem.acltemplate.create`
+- `filesystem.acltemplate.delete`
+- `filesystem.file_tail_follow`
+- `filesystem.getacl`
+- `filesystem.listdir`
+- `filesystem.setacl`
+- `filesystem.setperm`
+- `filesystem.stat`
+- `filesystem.statfs`
+- `ftp.config`
+- `ftp.update`
+
+## G
+
+- `group.create`
+- `group.delete`
+- `group.get_group_obj`
+- `group.get_next_gid`
+- `group.query`
+- `group.update`
+
+## I
+
+- `initshutdownscript.create`
+- `initshutdownscript.delete`
+- `initshutdownscript.query`
+- `initshutdownscript.update`
+- `interface.bridge_members_choices`
+- `interface.cancel_rollback`
+- `interface.checkin`
+- `interface.checkin_waiting`
+- `interface.commit`
+- `interface.create`
+- `interface.delete`
+- `interface.has_pending_changes`
+- `interface.lacpdu_rate_choices`
+- `interface.lag_ports_choices`
+- `interface.lag_supported_protocols`
+- `interface.network_config_to_be_removed`
+- `interface.query`
+- `interface.rollback`
+- `interface.save_network_config`
+- `interface.services_restarted_on_sync`
+- `interface.update`
+- `interface.vlan_parent_interface_choices`
+- `interface.websocket_local_ip`
+- `interface.xmit_hash_policy_choices`
+- `ipmi.chassis.identify`
+- `ipmi.chassis.info`
+- `ipmi.is_loaded`
+- `ipmi.lan.query`
+- `ipmi.lan.update`
+- `ipmi.sel.clear`
+- `ipmi.sel.elist`
+- `iscsi.auth.create`
+- `iscsi.auth.delete`
+- `iscsi.auth.query`
+- `iscsi.auth.update`
+- `iscsi.extent.create`
+- `iscsi.extent.delete`
+- `iscsi.extent.disk_choices`
+- `iscsi.extent.query`
+- `iscsi.extent.update`
+- `iscsi.global.config`
+- `iscsi.global.sessions`
+- `iscsi.global.update`
+- `iscsi.initiator.create`
+- `iscsi.initiator.delete`
+- `iscsi.initiator.query`
+- `iscsi.initiator.update`
+- `iscsi.portal.create`
+- `iscsi.portal.delete`
+- `iscsi.portal.listen_ip_choices`
+- `iscsi.portal.query`
+- `iscsi.portal.update`
+- `iscsi.target.create`
+- `iscsi.target.delete`
+- `iscsi.target.query`
+- `iscsi.target.update`
+- `iscsi.target.validate_name`
+- `iscsi.targetextent.create`
+- `iscsi.targetextent.delete`
+- `iscsi.targetextent.query`
+
+## J
+
+- `jbof.create`
+- `jbof.delete`
+- `jbof.licensed`
+- `jbof.query`
+- `jbof.update`
+
+## K
+
+- `kerberos.keytab.create`
+- `kerberos.keytab.delete`
+- `kerberos.keytab.kerberos_principal_choices`
+- `kerberos.keytab.query`
+- `kerberos.keytab.update`
+- `kerberos.realm.create`
+- `kerberos.realm.delete`
+- `kerberos.realm.query`
+- `kerberos.realm.update`
+- `keychaincredential.create`
+- `keychaincredential.delete`
+- `keychaincredential.generate_ssh_key_pair`
+- `keychaincredential.query`
+- `keychaincredential.remote_ssh_host_key_scan`
+- `keychaincredential.setup_ssh_connection`
+- `keychaincredential.update`
+- `keychaincredential.used_by`
+- `kmip.clear_sync_pending_keys`
+- `kmip.config`
+- `kmip.kmip_sync_pending`
+- `kmip.sync_keys`
+- `kmip.update`
+
+## L
+
+- `lxc.bridge_choices`
+- `lxc.config`
+- `lxc.update`
+
+## M
+
+- `mail.config`
+- `mail.local_administrator_email`
+- `mail.send`
+- `mail.update`
+
+## N
+
+- `network.configuration.activity_choices`
+- `network.configuration.config`
+- `network.configuration.update`
+- `network.general.summary`
+- `nfs.add_principal`
+- `nfs.bindip_choices`
+- `nfs.config`
+- `nfs.update`
+- `nvmet.global.config`
+- `nvmet.global.update`
+- `nvmet.host.create`
+- `nvmet.host.delete`
+- `nvmet.host.dhchap_dhgroup_choices`
+- `nvmet.host.dhchap_hash_choices`
+- `nvmet.host.generate_key`
+- `nvmet.host.query`
+- `nvmet.host.update`
+- `nvmet.host_subsys.create`
+- `nvmet.host_subsys.delete`
+- `nvmet.host_subsys.query`
+- `nvmet.namespace.create`
+- `nvmet.namespace.delete`
+- `nvmet.namespace.query`
+- `nvmet.namespace.update`
+- `nvmet.port.create`
+- `nvmet.port.delete`
+- `nvmet.port.query`
+- `nvmet.port.transport_address_choices`
+- `nvmet.port.update`
+- `nvmet.port_subsys.create`
+- `nvmet.port_subsys.delete`
+- `nvmet.port_subsys.query`
+- `nvmet.subsys.create`
+- `nvmet.subsys.delete`
+- `nvmet.subsys.query`
+- `nvmet.subsys.update`
+
+## P
+
+- `pool.attach`
+- `pool.attachments`
+- `pool.create`
+- `pool.dataset.attachments`
+- `pool.dataset.change_key`
+- `pool.dataset.checksum_choices`
+- `pool.dataset.compression_choices`
+- `pool.dataset.create`
+- `pool.dataset.delete`
+- `pool.dataset.details`
+- `pool.dataset.encryption_algorithm_choices`
+- `pool.dataset.encryption_summary`
+- `pool.dataset.export_key`
+- `pool.dataset.get_quota`
+- `pool.dataset.inherit_parent_encryption_properties`
+- `pool.dataset.lock`
+- `pool.dataset.processes`
+- `pool.dataset.promote`
+- `pool.dataset.query`
+- `pool.dataset.recommended_zvol_blocksize`
+- `pool.dataset.recordsize_choices`
+- `pool.dataset.set_quota`
+- `pool.dataset.unlock`
+- `pool.dataset.update`
+- `pool.ddt_prune`
+- `pool.detach`
+- `pool.expand`
+- `pool.export`
+- `pool.filesystem_choices`
+- `pool.import_find`
+- `pool.import_pool`
+- `pool.offline`
+- `pool.online`
+- `pool.processes`
+- `pool.query`
+- `pool.reimport`
+- `pool.remove`
+- `pool.replace`
+- `pool.resilver.config`
+- `pool.resilver.update`
+- `pool.scan`
+- `pool.scrub.create`
+- `pool.scrub.query`
+- `pool.scrub.update`
+- `pool.snapshot.clone`
+- `pool.snapshot.create`
+- `pool.snapshot.delete`
+- `pool.snapshot.hold`
+- `pool.snapshot.query`
+- `pool.snapshot.release`
+- `pool.snapshot.rollback`
+- `pool.snapshottask.create`
+- `pool.snapshottask.delete`
+- `pool.snapshottask.query`
+- `pool.snapshottask.update`
+- `pool.update`
+- `pool.upgrade`
+- `pool.validate_name`
+- `privilege.create`
+- `privilege.delete`
+- `privilege.query`
+- `privilege.roles`
+- `privilege.update`
+
+## R
+
+- `rdma.capable_protocols`
+- `replication.config.config`
+- `replication.config.update`
+- `replication.count_eligible_manual_snapshots`
+- `replication.create`
+- `replication.delete`
+- `replication.list_naming_schemas`
+- `replication.query`
+- `replication.restore`
+- `replication.run`
+- `replication.target_unmatched_snapshots`
+- `replication.update`
+- `reporting.exporters.create`
+- `reporting.exporters.delete`
+- `reporting.exporters.exporter_schemas`
+- `reporting.exporters.query`
+- `reporting.exporters.update`
+- `reporting.netdata_get_data`
+- `reporting.netdata_graphs`
+- `reporting.realtime`
+- `rsynctask.create`
+- `rsynctask.delete`
+- `rsynctask.query`
+- `rsynctask.run`
+- `rsynctask.update`
+
+## S
+
+- `service.control`
+- `service.query`
+- `service.update`
+- `sharing.nfs.create`
+- `sharing.nfs.delete`
+- `sharing.nfs.query`
+- `sharing.nfs.update`
+- `sharing.smb.create`
+- `sharing.smb.delete`
+- `sharing.smb.getacl`
+- `sharing.smb.query`
+- `sharing.smb.setacl`
+- `sharing.smb.share_precheck`
+- `sharing.smb.update`
+- `sharing.webshare.create`
+- `sharing.webshare.delete`
+- `sharing.webshare.query`
+- `sharing.webshare.update`
+- `smb.bindip_choices`
+- `smb.config`
+- `smb.status`
+- `smb.unixcharset_choices`
+- `smb.update`
+- `snmp.config`
+- `snmp.update`
+- `ssh.bindiface_choices`
+- `ssh.config`
+- `ssh.update`
+- `staticroute.create`
+- `staticroute.delete`
+- `staticroute.query`
+- `staticroute.update`
+- `support.attach_ticket_max_size`
+- `support.config`
+- `support.is_available`
+- `support.is_available_and_enabled`
+- `support.new_ticket`
+- `support.similar_issues`
+- `support.update`
+- `system.advanced.config`
+- `system.advanced.get_gpu_pci_choices`
+- `system.advanced.login_banner`
+- `system.advanced.sed_global_password`
+- `system.advanced.sed_global_password_is_set`
+- `system.advanced.serial_port_choices`
+- `system.advanced.syslog_certificate_authority_choices`
+- `system.advanced.syslog_certificate_choices`
+- `system.advanced.update`
+- `system.advanced.update_gpu_pci_ids`
+- `system.debug`
+- `system.general.config`
+- `system.general.kbdmap_choices`
+- `system.general.timezone_choices`
+- `system.general.ui_address_choices`
+- `system.general.ui_certificate_choices`
+- `system.general.ui_httpsprotocols_choices`
+- `system.general.ui_restart`
+- `system.general.update`
+- `system.host_id`
+- `system.info`
+- `system.license_update`
+- `system.ntpserver.create`
+- `system.ntpserver.delete`
+- `system.ntpserver.query`
+- `system.ntpserver.update`
+- `system.product_type`
+- `system.reboot`
+- `system.reboot.info`
+- `system.security.config`
+- `system.security.info.fips_available`
+- `system.security.update`
+- `system.shutdown`
+- `systemdataset.config`
+- `systemdataset.pool_choices`
+- `systemdataset.update`
+
+## T
+
+- `tn_connect.config`
+- `tn_connect.generate_claim_token`
+- `tn_connect.get_registration_uri`
+- `tn_connect.ips_with_hostnames`
+- `tn_connect.update`
+- `truecommand.config`
+- `truecommand.update`
+- `truenas.accept_eula`
+- `truenas.get_eula`
+- `truenas.is_eula_accepted`
+- `truenas.is_ix_hardware`
+- `truenas.is_production`
+- `truenas.managed_by_truecommand`
+- `truenas.set_production`
+- `tunable.create`
+- `tunable.delete`
+- `tunable.query`
+- `tunable.tunable_type_choices`
+- `tunable.update`
+
+## U
+
+- `update.config`
+- `update.file`
+- `update.profile_choices`
+- `update.run`
+- `update.status`
+- `update.update`
+- `ups.config`
+- `ups.driver_choices`
+- `ups.port_choices`
+- `ups.update`
+- `user.create`
+- `user.delete`
+- `user.get_next_uid`
+- `user.get_user_obj`
+- `user.has_local_administrator_set_up`
+- `user.query`
+- `user.set_password`
+- `user.setup_local_administrator`
+- `user.shell_choices`
+- `user.update`
+
+## V
+
+- `vm.bootloader_options`
+- `vm.clone`
+- `vm.cpu_model_choices`
+- `vm.create`
+- `vm.delete`
+- `vm.device.bind_choices`
+- `vm.device.convert`
+- `vm.device.create`
+- `vm.device.delete`
+- `vm.device.disk_choices`
+- `vm.device.nic_attach_choices`
+- `vm.device.passthrough_device_choices`
+- `vm.device.query`
+- `vm.device.update`
+- `vm.device.usb_controller_choices`
+- `vm.device.usb_passthrough_choices`
+- `vm.device.virtual_size`
+- `vm.get_available_memory`
+- `vm.get_display_devices`
+- `vm.get_display_web_uri`
+- `vm.log_file_download`
+- `vm.maximum_supported_vcpus`
+- `vm.port_wizard`
+- `vm.poweroff`
+- `vm.query`
+- `vm.random_mac`
+- `vm.resolution_choices`
+- `vm.resume`
+- `vm.start`
+- `vm.stop`
+- `vm.update`
+- `vm.virtualization_details`
+- `vmware.create`
+- `vmware.dataset_has_vms`
+- `vmware.delete`
+- `vmware.match_datastores_with_datasets`
+- `vmware.query`
+- `vmware.update`
+
+## W
+
+- `webshare.config`
+- `webshare.update`
+- `webui.crypto.csr_profiles`
+- `webui.crypto.get_certificate_domain_names`
+- `webui.enclosure.dashboard`
+- `webui.main.dashboard.sys_info`
+
+## Usage Pattern
+
+All methods follow the pattern:
+```bash
+midclt call <method> [params_json]
+```
+
+Query methods typically accept:
+```bash
+midclt call <namespace>.query '[[["field", "=", "value"]]]' '{"extra": {...}}'
+```
+
+Create/update methods typically accept:
+```bash
+midclt call <namespace>.create '{"field": "value"}'
+midclt call <namespace>.update <id> '{"field": "value"}'
+```
+
+Delete methods:
+```bash
+midclt call <namespace>.delete <id>
+```
