@@ -12,8 +12,9 @@ provider "truenas" {
   auth_method = "ssh"
 
   ssh {
-    port        = 22
-    user        = "root"
-    private_key = file("~/.ssh/truenas_ed25519")
+    port                 = 22
+    user                 = "root"
+    private_key          = file("~/.ssh/truenas_ed25519")
+    host_key_fingerprint = "SHA256:..."  # ssh-keyscan <host> | ssh-keygen -lf -
   }
 }

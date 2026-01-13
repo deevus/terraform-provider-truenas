@@ -35,9 +35,10 @@ provider "truenas" {
   auth_method = "ssh"
 
   ssh {
-    port        = 22
-    user        = "root"
-    private_key = file("~/.ssh/truenas_ed25519")
+    port                 = 22
+    user                 = "root"
+    private_key          = file("~/.ssh/truenas_ed25519")
+    host_key_fingerprint = "SHA256:..."  # ssh-keyscan <host> | ssh-keygen -lf -
   }
 }
 ```
@@ -59,6 +60,7 @@ provider "truenas" {
 
 Required:
 
+- `host_key_fingerprint` (String) SHA256 fingerprint of the TrueNAS server's SSH host key. Get it with: ssh-keyscan <host> 2>/dev/null | ssh-keygen -lf -
 - `private_key` (String, Sensitive) SSH private key content.
 
 Optional:
@@ -71,11 +73,30 @@ Optional:
 - TrueNAS SCALE or TrueNAS Community
 - SSH access to the TrueNAS server
 - SSH private key for authentication
-- A user with sudo permissions for `midclt` (see setup below)
+- A user with sudo permissions for `midclt`, `rm`, and `rmdir` (see setup below)
+
+## Getting the Host Key Fingerprint
+
+To obtain your TrueNAS server's SSH host key fingerprint:
+
+```bash
+# Scan the server and compute fingerprint (no server access needed)
+ssh-keyscan -p 22 truenas.local 2>/dev/null | ssh-keygen -lf -
+```
+
+This outputs something like:
+```
+3072 SHA256:xyzABC123...= truenas.local (RSA)
+256 SHA256:abcDEF456...= truenas.local (ED25519)
+```
+
+Copy the `SHA256:...` portion for your preferred key type into your provider configuration.
+
+**Alternative:** If Terraform fails to connect, the error message will show the server's actual fingerprint. You can verify it matches by running the `ssh-keyscan` command above.
 
 ## TrueNAS User Setup
 
-For security, it's recommended to create a dedicated `terraform` user instead of using `root`. This user needs sudo access to run `midclt` commands.
+For security, it's recommended to create a dedicated `terraform` user instead of using `root`. This user needs sudo access to run `midclt` commands and file deletion.
 
 ### Create the Terraform User
 
@@ -87,9 +108,7 @@ For security, it's recommended to create a dedicated `terraform` user instead of
    - **Home Directory**: Choose a path on your pool (e.g., `/mnt/storage/users/terraform`)
    - **Authorized Keys**: Paste your public key (e.g., contents of `~/.ssh/terraform_ed25519.pub`)
    - **Shell**: `bash`
-   - **Allowed sudo commands with no password**: `/usr/bin/midclt`
-
-![TrueNAS User Setup](https://raw.githubusercontent.com/deevus/terraform-provider-truenas/main/docs/images/truenas-user-setup.png)
+   - **Allowed sudo commands with no password**: `/usr/bin/midclt, /bin/rm, /bin/rmdir`
 
 ### Configure the Provider
 
@@ -101,8 +120,9 @@ provider "truenas" {
   auth_method = "ssh"
 
   ssh {
-    user        = "terraform"
-    private_key = file("~/.ssh/terraform_ed25519")
+    user                 = "terraform"
+    private_key          = file("~/.ssh/terraform_ed25519")
+    host_key_fingerprint = "SHA256:..."  # ssh-keyscan <host> | ssh-keygen -lf -
   }
 }
 ```
