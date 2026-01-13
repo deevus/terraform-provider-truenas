@@ -265,8 +265,18 @@ func (r *FileResource) Create(ctx context.Context, req resource.CreateRequest, r
 		}
 	}
 
-	// Write the file
-	if err := r.client.WriteFile(ctx, fullPath, []byte(content), mode); err != nil {
+	// Determine uid/gid (-1 means use default/unchanged)
+	uid := -1
+	gid := -1
+	if !data.UID.IsNull() && !data.UID.IsUnknown() {
+		uid = int(data.UID.ValueInt64())
+	}
+	if !data.GID.IsNull() && !data.GID.IsUnknown() {
+		gid = int(data.GID.ValueInt64())
+	}
+
+	// Write the file with ownership
+	if err := r.client.WriteFile(ctx, fullPath, []byte(content), mode, uid, gid); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create File",
 			fmt.Sprintf("Unable to write file %q: %s", fullPath, err.Error()),
@@ -354,8 +364,18 @@ func (r *FileResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	content := data.Content.ValueString()
 	mode := parseMode(data.Mode.ValueString())
 
-	// Write the updated file
-	if err := r.client.WriteFile(ctx, fullPath, []byte(content), mode); err != nil {
+	// Determine uid/gid (-1 means use default/unchanged)
+	uid := -1
+	gid := -1
+	if !data.UID.IsNull() && !data.UID.IsUnknown() {
+		uid = int(data.UID.ValueInt64())
+	}
+	if !data.GID.IsNull() && !data.GID.IsUnknown() {
+		gid = int(data.GID.ValueInt64())
+	}
+
+	// Write the updated file with ownership
+	if err := r.client.WriteFile(ctx, fullPath, []byte(content), mode, uid, gid); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Update File",
 			fmt.Sprintf("Unable to write file %q: %s", fullPath, err.Error()),

@@ -395,7 +395,7 @@ func TestFileResource_Create_WithHostPath(t *testing.T) {
 				mkdirPath = path
 				return nil
 			},
-			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
+			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode, uid, gid int) error {
 				writtenPath = path
 				writtenContent = content
 				return nil
@@ -459,7 +459,7 @@ func TestFileResource_Create_WithStandalonePath(t *testing.T) {
 
 	r := &FileResource{
 		client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
+			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode, uid, gid int) error {
 				writtenPath = path
 				return nil
 			},
@@ -500,7 +500,7 @@ func TestFileResource_Create_WriteError(t *testing.T) {
 			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
 				return nil
 			},
-			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
+			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode, uid, gid int) error {
 				return errors.New("permission denied")
 			},
 		},
@@ -754,7 +754,7 @@ func TestFileResource_Update_ContentChange(t *testing.T) {
 
 	r := &FileResource{
 		client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
+			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode, uid, gid int) error {
 				writtenContent = content
 				return nil
 			},
@@ -818,7 +818,7 @@ func TestFileResource_Update_ContentChange(t *testing.T) {
 func TestFileResource_Update_WriteError(t *testing.T) {
 	r := &FileResource{
 		client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
+			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode, uid, gid int) error {
 				return errors.New("permission denied")
 			},
 		},
@@ -1151,7 +1151,7 @@ func TestFileResource_Create_MkdirError(t *testing.T) {
 func TestFileResource_Update_SetsDefaultsForUnknownComputedAttributes(t *testing.T) {
 	r := &FileResource{
 		client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
+			WriteFileFunc: func(ctx context.Context, path string, content []byte, mode fs.FileMode, uid, gid int) error {
 				return nil
 			},
 		},
