@@ -62,6 +62,37 @@ type propertyValueField struct {
 	Value string `json:"value"`
 }
 
+// queryDataset queries a dataset by ID and returns the response.
+// Returns nil if the dataset is not found.
+func (r *DatasetResource) queryDataset(ctx context.Context, datasetID string) (*datasetQueryResponse, error) {
+	filter := [][]any{{"id", "=", datasetID}}
+	result, err := r.client.Call(ctx, "pool.dataset.query", filter)
+	if err != nil {
+		return nil, err
+	}
+
+	var datasets []datasetQueryResponse
+	if err := json.Unmarshal(result, &datasets); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	if len(datasets) == 0 {
+		return nil, nil
+	}
+
+	return &datasets[0], nil
+}
+
+// mapDatasetToModel maps API response fields to the Terraform model.
+func mapDatasetToModel(ds *datasetQueryResponse, data *DatasetResourceModel) {
+	data.ID = types.StringValue(ds.ID)
+	data.MountPath = types.StringValue(ds.Mountpoint)
+	data.Compression = types.StringValue(ds.Compression.Value)
+	data.Quota = types.StringValue(ds.Quota.Value)
+	data.RefQuota = types.StringValue(ds.RefQuota.Value)
+	data.Atime = types.StringValue(ds.Atime.Value)
+}
+
 // NewDatasetResource creates a new DatasetResource.
 func NewDatasetResource() resource.Resource {
 	return &DatasetResource{}
@@ -117,6 +148,10 @@ func (r *DatasetResource) Schema(ctx context.Context, req resource.SchemaRequest
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
+			// Optional+Computed attributes use UseStateForUnknown() to prevent Terraform
+			// from showing "known after apply" on every plan when the user hasn't specified
+			// a value. After Create, these are always populated from the API response, so
+			// subsequent plans use the known state value instead of showing as unknown.
 			"compression": schema.StringAttribute{
 				Description: "Compression algorithm (e.g., 'lz4', 'zstd', 'off').",
 				Optional:    true,
@@ -235,12 +270,8 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	// Set ID from create response
-	data.ID = types.StringValue(createResp.ID)
-
 	// Query the created dataset to get all computed attributes
-	filter := [][]any{{"id", "=", createResp.ID}}
-	queryResult, err := r.client.Call(ctx, "pool.dataset.query", filter)
+	ds, err := r.queryDataset(ctx, createResp.ID)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Dataset After Create",
@@ -249,16 +280,7 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	var datasets []datasetQueryResponse
-	if err := json.Unmarshal(queryResult, &datasets); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Dataset Query Response",
-			fmt.Sprintf("Unable to parse dataset query response: %s", err.Error()),
-		)
-		return
-	}
-
-	if len(datasets) == 0 {
+	if ds == nil {
 		resp.Diagnostics.AddError(
 			"Dataset Not Found After Create",
 			fmt.Sprintf("Dataset %q was created but could not be found", createResp.ID),
@@ -266,14 +288,8 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	ds := datasets[0]
-
-	// Map all computed attributes from query response
-	data.MountPath = types.StringValue(ds.Mountpoint)
-	data.Compression = types.StringValue(ds.Compression.Value)
-	data.Quota = types.StringValue(ds.Quota.Value)
-	data.RefQuota = types.StringValue(ds.RefQuota.Value)
-	data.Atime = types.StringValue(ds.Atime.Value)
+	// Map all attributes from query response
+	mapDatasetToModel(ds, &data)
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -288,14 +304,9 @@ func (r *DatasetResource) Read(ctx context.Context, req resource.ReadRequest, re
 		return
 	}
 
-	// Use the ID to query the dataset
 	datasetID := data.ID.ValueString()
 
-	// Build filter params: [["id", "=", "pool/path"]]
-	filter := [][]any{{"id", "=", datasetID}}
-
-	// Call the TrueNAS API
-	result, err := r.client.Call(ctx, "pool.dataset.query", filter)
+	ds, err := r.queryDataset(ctx, datasetID)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Dataset",
@@ -304,32 +315,14 @@ func (r *DatasetResource) Read(ctx context.Context, req resource.ReadRequest, re
 		return
 	}
 
-	// Parse the response
-	var datasets []datasetQueryResponse
-	if err := json.Unmarshal(result, &datasets); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Dataset Response",
-			fmt.Sprintf("Unable to parse dataset response: %s", err.Error()),
-		)
-		return
-	}
-
-	// Check if dataset was found
-	if len(datasets) == 0 {
-		// Dataset was deleted outside of Terraform - remove from state
+	// Dataset was deleted outside of Terraform - remove from state
+	if ds == nil {
 		resp.State.RemoveResource(ctx)
 		return
 	}
 
-	ds := datasets[0]
-
 	// Map response to model - always set all computed attributes
-	data.ID = types.StringValue(ds.ID)
-	data.MountPath = types.StringValue(ds.Mountpoint)
-	data.Compression = types.StringValue(ds.Compression.Value)
-	data.Quota = types.StringValue(ds.Quota.Value)
-	data.RefQuota = types.StringValue(ds.RefQuota.Value)
-	data.Atime = types.StringValue(ds.Atime.Value)
+	mapDatasetToModel(ds, &data)
 
 	// Populate pool/path from ID if not set (e.g., after import)
 	// ID format is "pool/path/to/dataset"
@@ -411,12 +404,7 @@ func (r *DatasetResource) Update(ctx context.Context, req resource.UpdateRequest
 	}
 
 	// Map response to model
-	data.ID = types.StringValue(updateResp.ID)
-	data.MountPath = types.StringValue(updateResp.Mountpoint)
-	data.Compression = types.StringValue(updateResp.Compression.Value)
-	data.Quota = types.StringValue(updateResp.Quota.Value)
-	data.RefQuota = types.StringValue(updateResp.RefQuota.Value)
-	data.Atime = types.StringValue(updateResp.Atime.Value)
+	mapDatasetToModel(&updateResp, &data)
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
