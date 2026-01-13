@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -109,6 +109,62 @@ type mockSFTPFile struct {
 	closeFunc func() error
 }
 
+// mockSSHSession is a test double for sshSession interface
+type mockSSHSession struct {
+	runFunc            func(cmd string) error
+	outputFunc         func(cmd string) ([]byte, error)
+	combinedOutputFunc func(cmd string) ([]byte, error)
+	closeFunc          func() error
+}
+
+func (m *mockSSHSession) Run(cmd string) error {
+	if m.runFunc != nil {
+		return m.runFunc(cmd)
+	}
+	return nil
+}
+
+func (m *mockSSHSession) Output(cmd string) ([]byte, error) {
+	if m.outputFunc != nil {
+		return m.outputFunc(cmd)
+	}
+	return nil, nil
+}
+
+func (m *mockSSHSession) CombinedOutput(cmd string) ([]byte, error) {
+	if m.combinedOutputFunc != nil {
+		return m.combinedOutputFunc(cmd)
+	}
+	return nil, nil
+}
+
+func (m *mockSSHSession) Close() error {
+	if m.closeFunc != nil {
+		return m.closeFunc()
+	}
+	return nil
+}
+
+// mockSSHClientWrapper is a test double for sshClientWrapper interface
+type mockSSHClientWrapper struct {
+	newSessionFunc func() (sshSession, error)
+	closeFunc      func() error
+}
+
+func (m *mockSSHClientWrapper) NewSession() (sshSession, error) {
+	if m.newSessionFunc != nil {
+		return m.newSessionFunc()
+	}
+	return nil, nil
+}
+
+func (m *mockSSHClientWrapper) Close() error {
+	if m.closeFunc != nil {
+		return m.closeFunc()
+	}
+	return nil
+}
+
 func (m *mockSFTPFile) Write(p []byte) (int, error) {
 	if m.writeFunc != nil {
 		return m.writeFunc(p)
@@ -138,43 +194,42 @@ func TestSSHClient_WriteFile_Success(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	var writtenContent []byte
-	var writtenPath string
-
-	mockFile := &mockSFTPFile{
-		writeFunc: func(p []byte) (int, error) {
-			writtenContent = p
-			return len(p), nil
+	var capturedCmd string
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			capturedCmd = cmd
+			return []byte("true"), nil
 		},
 	}
 
-	mockSFTP := &mockSFTPClient{
-		createFunc: func(path string) (sftpFile, error) {
-			writtenPath = path
-			return mockFile, nil
-		},
-		chmodFunc: func(path string, mode fs.FileMode) error {
-			return nil
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
 		},
 	}
 
-	client.sftpClient = mockSFTP
-
-	err := client.WriteFile(context.Background(), "/mnt/storage/test.txt", []byte("hello world"), 0644)
+	err := client.WriteFile(context.Background(), "/mnt/storage/test.txt", []byte("hello world"), 0644, 1000, 1000)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if writtenPath != "/mnt/storage/test.txt" {
-		t.Errorf("expected path '/mnt/storage/test.txt', got %q", writtenPath)
+	// Verify filesystem.file_receive was called
+	if !strings.Contains(capturedCmd, "filesystem.file_receive") {
+		t.Errorf("expected command to call filesystem.file_receive, got %q", capturedCmd)
 	}
 
-	if string(writtenContent) != "hello world" {
-		t.Errorf("expected content 'hello world', got %q", string(writtenContent))
+	// Verify path is in the command
+	if !strings.Contains(capturedCmd, "/mnt/storage/test.txt") {
+		t.Error("expected command to contain file path")
+	}
+
+	// Verify base64-encoded content is in the command (hello world -> aGVsbG8gd29ybGQ=)
+	if !strings.Contains(capturedCmd, "aGVsbG8gd29ybGQ=") {
+		t.Error("expected command to contain base64-encoded content")
 	}
 }
 
-func TestSSHClient_WriteFile_CreateError(t *testing.T) {
+func TestSSHClient_WriteFile_Error(t *testing.T) {
 	config := &SSHConfig{
 		Host:       "truenas.local",
 		PrivateKey: testPrivateKey,
@@ -182,76 +237,21 @@ func TestSSHClient_WriteFile_CreateError(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	mockSFTP := &mockSFTPClient{
-		createFunc: func(path string) (sftpFile, error) {
-			return nil, errors.New("permission denied")
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			return []byte("[EPERM] permission denied"), errors.New("exit status 1")
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
-	err := client.WriteFile(context.Background(), "/mnt/storage/test.txt", []byte("hello"), 0644)
+	err := client.WriteFile(context.Background(), "/mnt/storage/test.txt", []byte("hello"), 0644, -1, -1)
 	if err == nil {
-		t.Fatal("expected error for create failure")
-	}
-}
-
-func TestSSHClient_WriteFile_WriteError(t *testing.T) {
-	config := &SSHConfig{
-		Host:       "truenas.local",
-		PrivateKey: testPrivateKey,
-	}
-
-	client, _ := NewSSHClient(config)
-
-	mockFile := &mockSFTPFile{
-		writeFunc: func(p []byte) (int, error) {
-			return 0, errors.New("disk full")
-		},
-	}
-
-	mockSFTP := &mockSFTPClient{
-		createFunc: func(path string) (sftpFile, error) {
-			return mockFile, nil
-		},
-	}
-
-	client.sftpClient = mockSFTP
-
-	err := client.WriteFile(context.Background(), "/mnt/storage/test.txt", []byte("hello"), 0644)
-	if err == nil {
-		t.Fatal("expected error for write failure")
-	}
-}
-
-func TestSSHClient_WriteFile_ChmodError(t *testing.T) {
-	config := &SSHConfig{
-		Host:       "truenas.local",
-		PrivateKey: testPrivateKey,
-	}
-
-	client, _ := NewSSHClient(config)
-
-	mockFile := &mockSFTPFile{
-		writeFunc: func(p []byte) (int, error) {
-			return len(p), nil
-		},
-	}
-
-	mockSFTP := &mockSFTPClient{
-		createFunc: func(path string) (sftpFile, error) {
-			return mockFile, nil
-		},
-		chmodFunc: func(path string, mode fs.FileMode) error {
-			return errors.New("operation not permitted")
-		},
-	}
-
-	client.sftpClient = mockSFTP
-
-	err := client.WriteFile(context.Background(), "/mnt/storage/test.txt", []byte("hello"), 0644)
-	if err == nil {
-		t.Fatal("expected error for chmod failure")
+		t.Fatal("expected error for API failure")
 	}
 }
 
@@ -339,23 +339,31 @@ func TestSSHClient_DeleteFile_Success(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	var deletedPath string
-	mockSFTP := &mockSFTPClient{
-		removeFunc: func(path string) error {
-			deletedPath = path
-			return nil
+	var capturedCmd string
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			capturedCmd = cmd
+			return nil, nil
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.DeleteFile(context.Background(), "/mnt/storage/test.txt")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if deletedPath != "/mnt/storage/test.txt" {
-		t.Errorf("expected path '/mnt/storage/test.txt', got %q", deletedPath)
+	// Verify sudo rm was called with the correct path
+	if !strings.Contains(capturedCmd, "sudo") || !strings.Contains(capturedCmd, "rm") {
+		t.Errorf("expected sudo rm command, got %q", capturedCmd)
+	}
+	if !strings.Contains(capturedCmd, "/mnt/storage/test.txt") {
+		t.Errorf("expected path '/mnt/storage/test.txt' in command, got %q", capturedCmd)
 	}
 }
 
@@ -367,13 +375,17 @@ func TestSSHClient_DeleteFile_NotFound(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	mockSFTP := &mockSFTPClient{
-		removeFunc: func(path string) error {
-			return errors.New("no such file")
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			return []byte("rm: cannot remove '/mnt/storage/missing.txt': No such file or directory"), errors.New("exit status 1")
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.DeleteFile(context.Background(), "/mnt/storage/missing.txt")
 	if err == nil {
@@ -389,13 +401,18 @@ func TestSSHClient_FileExists_True(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	mockSFTP := &mockSFTPClient{
-		statFunc: func(path string) (fs.FileInfo, error) {
-			return &mockFileInfo{}, nil
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			// Return valid JSON response from filesystem.stat
+			return []byte(`{"type": "FILE", "mode": 33188}`), nil
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	exists, err := client.FileExists(context.Background(), "/mnt/storage/test.txt")
 	if err != nil {
@@ -415,13 +432,17 @@ func TestSSHClient_FileExists_False(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	mockSFTP := &mockSFTPClient{
-		statFunc: func(path string) (fs.FileInfo, error) {
-			return nil, os.ErrNotExist
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			return []byte("[ENOENT] Path /mnt/storage/missing.txt not found"), errors.New("exit status 1")
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	exists, err := client.FileExists(context.Background(), "/mnt/storage/missing.txt")
 	if err != nil {
@@ -441,23 +462,31 @@ func TestSSHClient_MkdirAll_Success(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	var createdPath string
-	mockSFTP := &mockSFTPClient{
-		mkdirAllFunc: func(path string) error {
-			createdPath = path
-			return nil
+	var capturedCmd string
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			capturedCmd = cmd
+			return []byte("true"), nil
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.MkdirAll(context.Background(), "/mnt/storage/apps/myapp/config", 0755)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if createdPath != "/mnt/storage/apps/myapp/config" {
-		t.Errorf("expected path '/mnt/storage/apps/myapp/config', got %q", createdPath)
+	// Verify filesystem.mkdir was called
+	if !strings.Contains(capturedCmd, "filesystem.mkdir") {
+		t.Errorf("expected filesystem.mkdir in command, got %q", capturedCmd)
+	}
+	if !strings.Contains(capturedCmd, "/mnt/storage/apps/myapp/config") {
+		t.Errorf("expected path in command, got %q", capturedCmd)
 	}
 }
 
@@ -469,13 +498,17 @@ func TestSSHClient_MkdirAll_PermissionDenied(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	mockSFTP := &mockSFTPClient{
-		mkdirAllFunc: func(path string) error {
-			return errors.New("permission denied")
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			return []byte("[EPERM] Permission denied"), errors.New("exit status 1")
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.MkdirAll(context.Background(), "/mnt/storage/protected", 0755)
 	if err == nil {
@@ -483,7 +516,7 @@ func TestSSHClient_MkdirAll_PermissionDenied(t *testing.T) {
 	}
 }
 
-func TestSSHClient_MkdirAll_AppliesMode(t *testing.T) {
+func TestSSHClient_MkdirAll_IncludesMode(t *testing.T) {
 	config := &SSHConfig{
 		Host:       "truenas.local",
 		PrivateKey: testPrivateKey,
@@ -491,33 +524,28 @@ func TestSSHClient_MkdirAll_AppliesMode(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	var chmodPath string
-	var chmodMode fs.FileMode
-
-	mockSFTP := &mockSFTPClient{
-		mkdirAllFunc: func(path string) error {
-			return nil
-		},
-		chmodFunc: func(path string, mode fs.FileMode) error {
-			chmodPath = path
-			chmodMode = mode
-			return nil
+	var capturedCmd string
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			capturedCmd = cmd
+			return []byte("true"), nil
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.MkdirAll(context.Background(), "/mnt/storage/apps/config", 0750)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if chmodPath != "/mnt/storage/apps/config" {
-		t.Errorf("expected chmod path '/mnt/storage/apps/config', got %q", chmodPath)
-	}
-
-	if chmodMode != 0750 {
-		t.Errorf("expected chmod mode 0750, got %o", chmodMode)
+	// Verify mode is included in the command (0750 in octal string format)
+	if !strings.Contains(capturedCmd, "0750") {
+		t.Errorf("expected mode '0750' in command, got %q", capturedCmd)
 	}
 }
 
@@ -583,23 +611,31 @@ func TestSSHClient_RemoveDir_Success(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	var removedPath string
-	mockSFTP := &mockSFTPClient{
-		removeDirFunc: func(path string) error {
-			removedPath = path
-			return nil
+	var capturedCmd string
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			capturedCmd = cmd
+			return nil, nil
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.RemoveDir(context.Background(), "/mnt/storage/apps/myapp")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if removedPath != "/mnt/storage/apps/myapp" {
-		t.Errorf("expected path '/mnt/storage/apps/myapp', got %q", removedPath)
+	// Verify sudo rmdir was called
+	if !strings.Contains(capturedCmd, "sudo") || !strings.Contains(capturedCmd, "rmdir") {
+		t.Errorf("expected sudo rmdir command, got %q", capturedCmd)
+	}
+	if !strings.Contains(capturedCmd, "/mnt/storage/apps/myapp") {
+		t.Errorf("expected path in command, got %q", capturedCmd)
 	}
 }
 
@@ -611,13 +647,17 @@ func TestSSHClient_RemoveDir_NotEmpty(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	mockSFTP := &mockSFTPClient{
-		removeDirFunc: func(path string) error {
-			return errors.New("directory not empty")
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			return []byte("rmdir: failed to remove '/mnt/storage/apps/myapp': Directory not empty"), errors.New("exit status 1")
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.RemoveDir(context.Background(), "/mnt/storage/apps/myapp")
 	if err == nil {
@@ -633,13 +673,17 @@ func TestSSHClient_RemoveDir_NotFound(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	mockSFTP := &mockSFTPClient{
-		removeDirFunc: func(path string) error {
-			return errors.New("no such file or directory")
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			return []byte("rmdir: failed to remove '/mnt/storage/missing': No such file or directory"), errors.New("exit status 1")
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.RemoveDir(context.Background(), "/mnt/storage/missing")
 	if err == nil {
@@ -655,23 +699,31 @@ func TestSSHClient_RemoveAll_Success(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	var removedPath string
-	mockSFTP := &mockSFTPClient{
-		removeAllFunc: func(path string) error {
-			removedPath = path
-			return nil
+	var capturedCmd string
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			capturedCmd = cmd
+			return nil, nil
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.RemoveAll(context.Background(), "/mnt/storage/apps/myapp")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if removedPath != "/mnt/storage/apps/myapp" {
-		t.Errorf("expected path '/mnt/storage/apps/myapp', got %q", removedPath)
+	// Verify sudo rm -rf was called
+	if !strings.Contains(capturedCmd, "sudo") || !strings.Contains(capturedCmd, "rm") || !strings.Contains(capturedCmd, "-rf") {
+		t.Errorf("expected sudo rm -rf command, got %q", capturedCmd)
+	}
+	if !strings.Contains(capturedCmd, "/mnt/storage/apps/myapp") {
+		t.Errorf("expected path in command, got %q", capturedCmd)
 	}
 }
 
@@ -683,13 +735,17 @@ func TestSSHClient_RemoveAll_PermissionDenied(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	mockSFTP := &mockSFTPClient{
-		removeAllFunc: func(path string) error {
-			return errors.New("permission denied")
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			return []byte("rm: cannot remove '/mnt/storage/protected': Permission denied"), errors.New("exit status 1")
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.RemoveAll(context.Background(), "/mnt/storage/protected")
 	if err == nil {
@@ -705,30 +761,34 @@ func TestSSHClient_Chown_Success(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	var chownPath string
-	var chownUID, chownGID int
-	mockSFTP := &mockSFTPClient{
-		chownFunc: func(path string, uid, gid int) error {
-			chownPath = path
-			chownUID = uid
-			chownGID = gid
-			return nil
+	var capturedCmd string
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			capturedCmd = cmd
+			return nil, nil
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.Chown(context.Background(), "/mnt/storage/apps/config.yaml", 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if chownPath != "/mnt/storage/apps/config.yaml" {
-		t.Errorf("expected path '/mnt/storage/apps/config.yaml', got %q", chownPath)
+	// Verify filesystem.chown was called with the -j flag
+	if !strings.Contains(capturedCmd, "filesystem.chown") {
+		t.Errorf("expected filesystem.chown in command, got %q", capturedCmd)
 	}
-
-	if chownUID != 0 || chownGID != 0 {
-		t.Errorf("expected uid=0 gid=0, got uid=%d gid=%d", chownUID, chownGID)
+	if !strings.Contains(capturedCmd, "-j") {
+		t.Errorf("expected -j flag in command, got %q", capturedCmd)
+	}
+	if !strings.Contains(capturedCmd, "/mnt/storage/apps/config.yaml") {
+		t.Errorf("expected path in command, got %q", capturedCmd)
 	}
 }
 
@@ -740,13 +800,17 @@ func TestSSHClient_Chown_PermissionDenied(t *testing.T) {
 
 	client, _ := NewSSHClient(config)
 
-	mockSFTP := &mockSFTPClient{
-		chownFunc: func(path string, uid, gid int) error {
-			return errors.New("operation not permitted")
+	mockSession := &mockSSHSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			return []byte("[EPERM] Operation not permitted"), errors.New("exit status 1")
 		},
 	}
 
-	client.sftpClient = mockSFTP
+	client.clientWrapper = &mockSSHClientWrapper{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSession, nil
+		},
+	}
 
 	err := client.Chown(context.Background(), "/mnt/storage/protected.txt", 1000, 1000)
 	if err == nil {
