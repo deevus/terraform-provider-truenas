@@ -10,22 +10,52 @@ Get file/directory information.
 midclt call filesystem.stat "/mnt/tank/data"
 ```
 
-Returns:
-- `size` - File size in bytes
-- `mode` - Unix permission mode
-- `uid` - Owner user ID
-- `gid` - Owner group ID
-- `atime` - Access time
-- `mtime` - Modification time
-- `ctime` - Change time
-- `dev` - Device ID
-- `inode` - Inode number
-- `nlink` - Number of hard links
-- `user` - Owner username
-- `group` - Owner group name
-- `acl` - ACL enabled flag
-- `is_mountpoint` - Whether path is a mountpoint
-- `is_ctldir` - Whether path is a .zfs control directory
+<!-- Source: internal/resources/host_path.go:39-43 -->
+**Response Schema:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| mode | integer | Unix permission mode (includes file type bits) |
+| uid | integer | Owner user ID |
+| gid | integer | Owner group ID |
+| size | integer | File size in bytes |
+| atime | float | Access time (Unix timestamp) |
+| mtime | float | Modification time (Unix timestamp) |
+| ctime | float | Change time (Unix timestamp) |
+| dev | integer | Device ID |
+| inode | integer | Inode number |
+| nlink | integer | Number of hard links |
+| user | string | Owner username |
+| group | string | Owner group name |
+| acl | boolean | ACL enabled flag |
+| is_mountpoint | boolean | Whether path is a mountpoint |
+| is_ctldir | boolean | Whether path is a .zfs control directory |
+
+**Note:** `mode` is numeric and includes file type bits. Use `mode & 0777` for permissions only.
+
+<details>
+<summary>Example Response</summary>
+
+```json
+{
+  "mode": 16877,
+  "uid": 1000,
+  "gid": 1000,
+  "size": 4096,
+  "atime": 1234567890.0,
+  "mtime": 1234567890.0,
+  "ctime": 1234567890.0,
+  "dev": 65024,
+  "inode": 123456,
+  "nlink": 2,
+  "user": "admin",
+  "group": "admin",
+  "acl": false,
+  "is_mountpoint": false,
+  "is_ctldir": false
+}
+```
+</details>
 
 ### filesystem.statfs
 Get filesystem statistics.
@@ -99,6 +129,21 @@ midclt call filesystem.setperm '{
   }
 }'
 ```
+
+<!-- Source: internal/resources/host_path.go:275-285 -->
+**Request Schema:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| path | string | Target file/directory path |
+| mode | string | Unix permission mode (e.g., "755") |
+| uid | integer | Owner user ID |
+| gid | integer | Owner group ID |
+| options.stripacl | boolean | Remove ACL entries |
+| options.recursive | boolean | Apply to all children |
+| options.traverse | boolean | Cross filesystem boundaries |
+
+**Note:** When `options.recursive` is true, this becomes a job-based operation. Use `midclt -j` or poll `core.get_jobs` for completion.
 
 ## ACL Operations
 
