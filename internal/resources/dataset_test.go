@@ -249,13 +249,25 @@ func TestDatasetResource_Create_Success(t *testing.T) {
 	r := &DatasetResource{
 		client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedParams = params
-				return json.RawMessage(`{
+				if method == "pool.dataset.create" {
+					capturedMethod = method
+					capturedParams = params
+					return json.RawMessage(`{
+						"id": "storage/apps",
+						"name": "storage/apps",
+						"mountpoint": "/mnt/storage/apps"
+					}`), nil
+				}
+				// pool.dataset.query - returns array with full dataset info
+				return json.RawMessage(`[{
 					"id": "storage/apps",
 					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps"
-				}`), nil
+					"mountpoint": "/mnt/storage/apps",
+					"compression": {"value": "lz4"},
+					"quota": {"value": "0"},
+					"refquota": {"value": "0"},
+					"atime": {"value": "on"}
+				}]`), nil
 			},
 		},
 	}
@@ -349,12 +361,24 @@ func TestDatasetResource_Create_WithParentName(t *testing.T) {
 	r := &DatasetResource{
 		client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedParams = params
-				return json.RawMessage(`{
+				if method == "pool.dataset.create" {
+					capturedParams = params
+					return json.RawMessage(`{
+						"id": "tank/data/apps",
+						"name": "tank/data/apps",
+						"mountpoint": "/mnt/tank/data/apps"
+					}`), nil
+				}
+				// pool.dataset.query - returns array with full dataset info
+				return json.RawMessage(`[{
 					"id": "tank/data/apps",
 					"name": "tank/data/apps",
-					"mountpoint": "/mnt/tank/data/apps"
-				}`), nil
+					"mountpoint": "/mnt/tank/data/apps",
+					"compression": {"value": "lz4"},
+					"quota": {"value": "0"},
+					"refquota": {"value": "0"},
+					"atime": {"value": "on"}
+				}]`), nil
 			},
 		},
 	}
@@ -435,6 +459,126 @@ func TestDatasetResource_Create_APIError(t *testing.T) {
 
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("expected error for API error")
+	}
+}
+
+func TestDatasetResource_Create_QueryAPIError(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.dataset.create" {
+					return json.RawMessage(`{
+						"id": "storage/apps",
+						"name": "storage/apps",
+						"mountpoint": "/mnt/storage/apps"
+					}`), nil
+				}
+				// pool.dataset.query fails
+				return nil, errors.New("connection refused")
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+	planValue := createDatasetResourceModel(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil)
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when query fails after create")
+	}
+}
+
+func TestDatasetResource_Create_QueryInvalidJSON(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.dataset.create" {
+					return json.RawMessage(`{
+						"id": "storage/apps",
+						"name": "storage/apps",
+						"mountpoint": "/mnt/storage/apps"
+					}`), nil
+				}
+				// pool.dataset.query returns invalid JSON
+				return json.RawMessage(`not valid json`), nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+	planValue := createDatasetResourceModel(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil)
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when query returns invalid JSON")
+	}
+}
+
+func TestDatasetResource_Create_DatasetNotFoundAfterCreate(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.dataset.create" {
+					return json.RawMessage(`{
+						"id": "storage/apps",
+						"name": "storage/apps",
+						"mountpoint": "/mnt/storage/apps"
+					}`), nil
+				}
+				// pool.dataset.query returns empty array
+				return json.RawMessage(`[]`), nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+	planValue := createDatasetResourceModel(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil)
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when dataset not found after create")
 	}
 }
 
@@ -1047,12 +1191,24 @@ func TestDatasetResource_Create_AllOptions(t *testing.T) {
 	r := &DatasetResource{
 		client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedParams = params
-				return json.RawMessage(`{
+				if method == "pool.dataset.create" {
+					capturedParams = params
+					return json.RawMessage(`{
+						"id": "storage/apps",
+						"name": "storage/apps",
+						"mountpoint": "/mnt/storage/apps"
+					}`), nil
+				}
+				// pool.dataset.query - returns array with full dataset info
+				return json.RawMessage(`[{
 					"id": "storage/apps",
 					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps"
-				}`), nil
+					"mountpoint": "/mnt/storage/apps",
+					"compression": {"value": "zstd"},
+					"quota": {"value": "10G"},
+					"refquota": {"value": "5G"},
+					"atime": {"value": "on"}
+				}]`), nil
 			},
 		},
 	}
@@ -1735,11 +1891,11 @@ func TestDatasetResource_Schema_AtimeIsComputed(t *testing.T) {
 }
 
 // Test that Read preserves null compression when not set in config
-func TestDatasetResource_Read_PreservesNullCompression(t *testing.T) {
+func TestDatasetResource_Read_PopulatesComputedAttributes(t *testing.T) {
 	r := &DatasetResource{
 		client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// API returns default values even when user didn't set them
+				// API returns actual server values
 				return json.RawMessage(`[{
 					"id": "storage/apps",
 					"name": "storage/apps",
@@ -1755,7 +1911,7 @@ func TestDatasetResource_Read_PreservesNullCompression(t *testing.T) {
 
 	schemaResp := getDatasetResourceSchema(t)
 
-	// State has null compression (user never specified it)
+	// State has null computed values (e.g., after import or first read)
 	stateValue := createDatasetResourceModel("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", nil, nil, nil, nil, nil)
 
 	req := resource.ReadRequest{
@@ -1783,64 +1939,18 @@ func TestDatasetResource_Read_PreservesNullCompression(t *testing.T) {
 		t.Fatalf("failed to get state: %v", diags)
 	}
 
-	// Compression should remain null since user never specified it
-	// (This is the drift-prevention behavior we want)
-	if !model.Compression.IsNull() {
-		t.Errorf("expected compression to remain null when not specified in config, got %q", model.Compression.ValueString())
+	// All computed attributes should be populated from API response
+	if model.Compression.ValueString() != "LZ4" {
+		t.Errorf("expected compression 'LZ4', got %q", model.Compression.ValueString())
 	}
-}
-
-// Test that Read preserves null atime when not set in config
-func TestDatasetResource_Read_PreservesNullAtime(t *testing.T) {
-	r := &DatasetResource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "LZ4"},
-					"quota": {"value": "0"},
-					"refquota": {"value": "0"},
-					"atime": {"value": "OFF"}
-				}]`), nil
-			},
-		},
+	if model.Quota.ValueString() != "0" {
+		t.Errorf("expected quota '0', got %q", model.Quota.ValueString())
 	}
-
-	schemaResp := getDatasetResourceSchema(t)
-
-	// State has null atime (user never specified it)
-	stateValue := createDatasetResourceModel("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", nil, nil, nil, nil, nil)
-
-	req := resource.ReadRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
+	if model.RefQuota.ValueString() != "0" {
+		t.Errorf("expected refquota '0', got %q", model.RefQuota.ValueString())
 	}
-
-	resp := &resource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Read(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-
-	var model DatasetResourceModel
-	diags := resp.State.Get(context.Background(), &model)
-	if diags.HasError() {
-		t.Fatalf("failed to get state: %v", diags)
-	}
-
-	// Atime should remain null since user never specified it
-	if !model.Atime.IsNull() {
-		t.Errorf("expected atime to remain null when not specified in config, got %q", model.Atime.ValueString())
+	if model.Atime.ValueString() != "OFF" {
+		t.Errorf("expected atime 'OFF', got %q", model.Atime.ValueString())
 	}
 }
 

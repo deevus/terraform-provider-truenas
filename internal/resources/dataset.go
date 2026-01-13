@@ -235,9 +235,45 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	// Map response to model
+	// Set ID from create response
 	data.ID = types.StringValue(createResp.ID)
-	data.MountPath = types.StringValue(createResp.Mountpoint)
+
+	// Query the created dataset to get all computed attributes
+	filter := [][]any{{"id", "=", createResp.ID}}
+	queryResult, err := r.client.Call(ctx, "pool.dataset.query", filter)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Read Dataset After Create",
+			fmt.Sprintf("Dataset was created but unable to read it: %s", err.Error()),
+		)
+		return
+	}
+
+	var datasets []datasetQueryResponse
+	if err := json.Unmarshal(queryResult, &datasets); err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Parse Dataset Query Response",
+			fmt.Sprintf("Unable to parse dataset query response: %s", err.Error()),
+		)
+		return
+	}
+
+	if len(datasets) == 0 {
+		resp.Diagnostics.AddError(
+			"Dataset Not Found After Create",
+			fmt.Sprintf("Dataset %q was created but could not be found", createResp.ID),
+		)
+		return
+	}
+
+	ds := datasets[0]
+
+	// Map all computed attributes from query response
+	data.MountPath = types.StringValue(ds.Mountpoint)
+	data.Compression = types.StringValue(ds.Compression.Value)
+	data.Quota = types.StringValue(ds.Quota.Value)
+	data.RefQuota = types.StringValue(ds.RefQuota.Value)
+	data.Atime = types.StringValue(ds.Atime.Value)
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -287,24 +323,13 @@ func (r *DatasetResource) Read(ctx context.Context, req resource.ReadRequest, re
 
 	ds := datasets[0]
 
-	// Map response to model
+	// Map response to model - always set all computed attributes
 	data.ID = types.StringValue(ds.ID)
 	data.MountPath = types.StringValue(ds.Mountpoint)
-
-	// Only update optional+computed attributes if they were previously set
-	// This prevents drift when user didn't specify these values
-	if !data.Compression.IsNull() {
-		data.Compression = types.StringValue(ds.Compression.Value)
-	}
-	if !data.Quota.IsNull() {
-		data.Quota = types.StringValue(ds.Quota.Value)
-	}
-	if !data.RefQuota.IsNull() {
-		data.RefQuota = types.StringValue(ds.RefQuota.Value)
-	}
-	if !data.Atime.IsNull() {
-		data.Atime = types.StringValue(ds.Atime.Value)
-	}
+	data.Compression = types.StringValue(ds.Compression.Value)
+	data.Quota = types.StringValue(ds.Quota.Value)
+	data.RefQuota = types.StringValue(ds.RefQuota.Value)
+	data.Atime = types.StringValue(ds.Atime.Value)
 
 	// Populate pool/path from ID if not set (e.g., after import)
 	// ID format is "pool/path/to/dataset"
