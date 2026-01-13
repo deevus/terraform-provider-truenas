@@ -218,7 +218,7 @@ func createDatasetResourceModel(id, pool, path, parent, name, mountPath, compres
 
 // createDatasetResourceModelWithPerms creates a tftypes.Value for the dataset resource model with permissions
 func createDatasetResourceModelWithPerms(id, pool, path, parent, name, mountPath, compression, quota, refquota, atime, forceDestroy, mode, uid, gid interface{}) tftypes.Value {
-	return createDatasetResourceModelFull(id, pool, path, parent, name, mountPath, nil, compression, quota, refquota, atime, forceDestroy, mode, uid, gid)
+	return createDatasetResourceModelFull(id, pool, path, parent, name, mountPath, mountPath, compression, quota, refquota, atime, forceDestroy, mode, uid, gid)
 }
 
 // createDatasetResourceModelFull creates a tftypes.Value for the dataset resource model with all fields
