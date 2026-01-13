@@ -23,8 +23,9 @@ provider "truenas" {
   auth_method = "ssh"
 
   ssh {
-    user        = "terraform"
-    private_key = file("~/.ssh/terraform_ed25519")
+    user                 = "terraform"
+    private_key          = file("~/.ssh/terraform_ed25519")
+    host_key_fingerprint = "SHA256:..."  # ssh-keyscan <host> | ssh-keygen -lf -
   }
 }
 
@@ -47,7 +48,7 @@ Full documentation is available on the [Terraform Registry](https://registry.ter
 ## Requirements
 
 - TrueNAS SCALE or TrueNAS Community
-- SSH access with a user configured for `midclt` (see [User Setup](https://registry.terraform.io/providers/deevus/truenas/latest/docs#truenas-user-setup))
+- SSH access with a user configured for `midclt`, `rm`, and `rmdir` (see [User Setup](https://registry.terraform.io/providers/deevus/truenas/latest/docs#truenas-user-setup))
 
 ## License
 
