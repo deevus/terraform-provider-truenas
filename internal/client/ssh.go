@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"regexp"
 	"strings"
 	"sync"
@@ -22,10 +23,11 @@ var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07`)
 
 // SSHConfig holds configuration for SSH connection to TrueNAS.
 type SSHConfig struct {
-	Host       string
-	Port       int
-	User       string
-	PrivateKey string
+	Host               string
+	Port               int
+	User               string
+	PrivateKey         string
+	HostKeyFingerprint string
 }
 
 // Validate validates the SSHConfig and sets defaults.
@@ -35,6 +37,9 @@ func (c *SSHConfig) Validate() error {
 	}
 	if c.PrivateKey == "" {
 		return errors.New("private_key is required")
+	}
+	if c.HostKeyFingerprint == "" {
+		return errors.New("host_key_fingerprint is required")
 	}
 
 	// Set defaults
@@ -55,6 +60,20 @@ func parsePrivateKey(key string) (ssh.Signer, error) {
 		return nil, err
 	}
 	return signer, nil
+}
+
+// verifyHostKey creates a HostKeyCallback that validates against the configured fingerprint.
+func verifyHostKey(expectedFingerprint string) ssh.HostKeyCallback {
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		fingerprint := ssh.FingerprintSHA256(key)
+		if fingerprint != expectedFingerprint {
+			return fmt.Errorf(
+				"host key verification failed for %s: expected %s, got %s",
+				hostname, expectedFingerprint, fingerprint,
+			)
+		}
+		return nil
+	}
 }
 
 // sshDialer abstracts SSH connection for testing.
@@ -212,10 +231,7 @@ func (c *SSHClient) connect() error {
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
-		// TODO: InsecureIgnoreHostKey is insecure and should be replaced with
-		// proper host key verification in production. Consider adding known_hosts
-		// file support or host key fingerprint configuration.
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: verifyHostKey(c.config.HostKeyFingerprint),
 	}
 
 	addr := fmt.Sprintf("%s:%d", c.config.Host, c.config.Port)
