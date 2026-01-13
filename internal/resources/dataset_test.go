@@ -213,6 +213,11 @@ func getDatasetResourceSchema(t *testing.T) resource.SchemaResponse {
 
 // createDatasetResourceModel creates a tftypes.Value for the dataset resource model
 func createDatasetResourceModel(id, pool, path, parent, name, mountPath, compression, quota, refquota, atime, forceDestroy interface{}) tftypes.Value {
+	return createDatasetResourceModelWithPerms(id, pool, path, parent, name, mountPath, compression, quota, refquota, atime, forceDestroy, nil, nil, nil)
+}
+
+// createDatasetResourceModelWithPerms creates a tftypes.Value for the dataset resource model with permissions
+func createDatasetResourceModelWithPerms(id, pool, path, parent, name, mountPath, compression, quota, refquota, atime, forceDestroy, mode, uid, gid interface{}) tftypes.Value {
 	return tftypes.NewValue(tftypes.Object{
 		AttributeTypes: map[string]tftypes.Type{
 			"id":            tftypes.String,
@@ -225,6 +230,9 @@ func createDatasetResourceModel(id, pool, path, parent, name, mountPath, compres
 			"quota":         tftypes.String,
 			"refquota":      tftypes.String,
 			"atime":         tftypes.String,
+			"mode":          tftypes.String,
+			"uid":           tftypes.Number,
+			"gid":           tftypes.Number,
 			"force_destroy": tftypes.Bool,
 		},
 	}, map[string]tftypes.Value{
@@ -238,6 +246,9 @@ func createDatasetResourceModel(id, pool, path, parent, name, mountPath, compres
 		"quota":         tftypes.NewValue(tftypes.String, quota),
 		"refquota":      tftypes.NewValue(tftypes.String, refquota),
 		"atime":         tftypes.NewValue(tftypes.String, atime),
+		"mode":          tftypes.NewValue(tftypes.String, mode),
+		"uid":           tftypes.NewValue(tftypes.Number, uid),
+		"gid":           tftypes.NewValue(tftypes.Number, gid),
 		"force_destroy": tftypes.NewValue(tftypes.Bool, forceDestroy),
 	})
 }
@@ -1625,28 +1636,36 @@ func TestDatasetResource_Create_PlanParseError(t *testing.T) {
 	// Create an invalid plan value with wrong type
 	planValue := tftypes.NewValue(tftypes.Object{
 		AttributeTypes: map[string]tftypes.Type{
-			"id":          tftypes.String,
-			"pool":        tftypes.Number, // Wrong type!
-			"path":        tftypes.String,
-			"parent":      tftypes.String,
-			"name":        tftypes.String,
-			"mount_path":  tftypes.String,
-			"compression": tftypes.String,
-			"quota":       tftypes.String,
-			"refquota":    tftypes.String,
-			"atime":       tftypes.String,
+			"id":            tftypes.String,
+			"pool":          tftypes.Number, // Wrong type!
+			"path":          tftypes.String,
+			"parent":        tftypes.String,
+			"name":          tftypes.String,
+			"mount_path":    tftypes.String,
+			"compression":   tftypes.String,
+			"quota":         tftypes.String,
+			"refquota":      tftypes.String,
+			"atime":         tftypes.String,
+			"mode":          tftypes.String,
+			"uid":           tftypes.Number,
+			"gid":           tftypes.Number,
+			"force_destroy": tftypes.Bool,
 		},
 	}, map[string]tftypes.Value{
-		"id":          tftypes.NewValue(tftypes.String, nil),
-		"pool":        tftypes.NewValue(tftypes.Number, 123), // Wrong type!
-		"path":        tftypes.NewValue(tftypes.String, "apps"),
-		"parent":      tftypes.NewValue(tftypes.String, nil),
-		"name":        tftypes.NewValue(tftypes.String, nil),
-		"mount_path":  tftypes.NewValue(tftypes.String, nil),
-		"compression": tftypes.NewValue(tftypes.String, nil),
-		"quota":       tftypes.NewValue(tftypes.String, nil),
-		"refquota":    tftypes.NewValue(tftypes.String, nil),
-		"atime":       tftypes.NewValue(tftypes.String, nil),
+		"id":            tftypes.NewValue(tftypes.String, nil),
+		"pool":          tftypes.NewValue(tftypes.Number, 123), // Wrong type!
+		"path":          tftypes.NewValue(tftypes.String, "apps"),
+		"parent":        tftypes.NewValue(tftypes.String, nil),
+		"name":          tftypes.NewValue(tftypes.String, nil),
+		"mount_path":    tftypes.NewValue(tftypes.String, nil),
+		"compression":   tftypes.NewValue(tftypes.String, nil),
+		"quota":         tftypes.NewValue(tftypes.String, nil),
+		"refquota":      tftypes.NewValue(tftypes.String, nil),
+		"atime":         tftypes.NewValue(tftypes.String, nil),
+		"mode":          tftypes.NewValue(tftypes.String, nil),
+		"uid":           tftypes.NewValue(tftypes.Number, nil),
+		"gid":           tftypes.NewValue(tftypes.Number, nil),
+		"force_destroy": tftypes.NewValue(tftypes.Bool, nil),
 	})
 
 	req := resource.CreateRequest{
@@ -1680,28 +1699,36 @@ func TestDatasetResource_Read_StateParseError(t *testing.T) {
 	// Create an invalid state value with wrong type
 	stateValue := tftypes.NewValue(tftypes.Object{
 		AttributeTypes: map[string]tftypes.Type{
-			"id":          tftypes.Number, // Wrong type!
-			"pool":        tftypes.String,
-			"path":        tftypes.String,
-			"parent":      tftypes.String,
-			"name":        tftypes.String,
-			"mount_path":  tftypes.String,
-			"compression": tftypes.String,
-			"quota":       tftypes.String,
-			"refquota":    tftypes.String,
-			"atime":       tftypes.String,
+			"id":            tftypes.Number, // Wrong type!
+			"pool":          tftypes.String,
+			"path":          tftypes.String,
+			"parent":        tftypes.String,
+			"name":          tftypes.String,
+			"mount_path":    tftypes.String,
+			"compression":   tftypes.String,
+			"quota":         tftypes.String,
+			"refquota":      tftypes.String,
+			"atime":         tftypes.String,
+			"mode":          tftypes.String,
+			"uid":           tftypes.Number,
+			"gid":           tftypes.Number,
+			"force_destroy": tftypes.Bool,
 		},
 	}, map[string]tftypes.Value{
-		"id":          tftypes.NewValue(tftypes.Number, 123), // Wrong type!
-		"pool":        tftypes.NewValue(tftypes.String, "storage"),
-		"path":        tftypes.NewValue(tftypes.String, "apps"),
-		"parent":      tftypes.NewValue(tftypes.String, nil),
-		"name":        tftypes.NewValue(tftypes.String, nil),
-		"mount_path":  tftypes.NewValue(tftypes.String, "/mnt/storage/apps"),
-		"compression": tftypes.NewValue(tftypes.String, "lz4"),
-		"quota":       tftypes.NewValue(tftypes.String, nil),
-		"refquota":    tftypes.NewValue(tftypes.String, nil),
-		"atime":       tftypes.NewValue(tftypes.String, nil),
+		"id":            tftypes.NewValue(tftypes.Number, 123), // Wrong type!
+		"pool":          tftypes.NewValue(tftypes.String, "storage"),
+		"path":          tftypes.NewValue(tftypes.String, "apps"),
+		"parent":        tftypes.NewValue(tftypes.String, nil),
+		"name":          tftypes.NewValue(tftypes.String, nil),
+		"mount_path":    tftypes.NewValue(tftypes.String, "/mnt/storage/apps"),
+		"compression":   tftypes.NewValue(tftypes.String, "lz4"),
+		"quota":         tftypes.NewValue(tftypes.String, nil),
+		"refquota":      tftypes.NewValue(tftypes.String, nil),
+		"atime":         tftypes.NewValue(tftypes.String, nil),
+		"mode":          tftypes.NewValue(tftypes.String, nil),
+		"uid":           tftypes.NewValue(tftypes.Number, nil),
+		"gid":           tftypes.NewValue(tftypes.Number, nil),
+		"force_destroy": tftypes.NewValue(tftypes.Bool, nil),
 	})
 
 	req := resource.ReadRequest{
@@ -1748,6 +1775,9 @@ func TestDatasetResource_Update_PlanParseError(t *testing.T) {
 			"quota":         tftypes.String,
 			"refquota":      tftypes.String,
 			"atime":         tftypes.String,
+			"mode":          tftypes.String,
+			"uid":           tftypes.Number,
+			"gid":           tftypes.Number,
 			"force_destroy": tftypes.Bool,
 		},
 	}, map[string]tftypes.Value{
@@ -1761,6 +1791,9 @@ func TestDatasetResource_Update_PlanParseError(t *testing.T) {
 		"quota":         tftypes.NewValue(tftypes.String, nil),
 		"refquota":      tftypes.NewValue(tftypes.String, nil),
 		"atime":         tftypes.NewValue(tftypes.String, nil),
+		"mode":          tftypes.NewValue(tftypes.String, nil),
+		"uid":           tftypes.NewValue(tftypes.Number, nil),
+		"gid":           tftypes.NewValue(tftypes.Number, nil),
 		"force_destroy": tftypes.NewValue(tftypes.Bool, nil),
 	})
 
@@ -1809,6 +1842,9 @@ func TestDatasetResource_Update_StateParseError(t *testing.T) {
 			"quota":         tftypes.String,
 			"refquota":      tftypes.String,
 			"atime":         tftypes.String,
+			"mode":          tftypes.String,
+			"uid":           tftypes.Number,
+			"gid":           tftypes.Number,
 			"force_destroy": tftypes.Bool,
 		},
 	}, map[string]tftypes.Value{
@@ -1822,6 +1858,9 @@ func TestDatasetResource_Update_StateParseError(t *testing.T) {
 		"quota":         tftypes.NewValue(tftypes.String, nil),
 		"refquota":      tftypes.NewValue(tftypes.String, nil),
 		"atime":         tftypes.NewValue(tftypes.String, nil),
+		"mode":          tftypes.NewValue(tftypes.String, nil),
+		"uid":           tftypes.NewValue(tftypes.Number, nil),
+		"gid":           tftypes.NewValue(tftypes.Number, nil),
 		"force_destroy": tftypes.NewValue(tftypes.Bool, nil),
 	})
 
@@ -1975,6 +2014,9 @@ func TestDatasetResource_Delete_StateParseError(t *testing.T) {
 			"quota":         tftypes.String,
 			"refquota":      tftypes.String,
 			"atime":         tftypes.String,
+			"mode":          tftypes.String,
+			"uid":           tftypes.Number,
+			"gid":           tftypes.Number,
 			"force_destroy": tftypes.Bool,
 		},
 	}, map[string]tftypes.Value{
@@ -1988,6 +2030,9 @@ func TestDatasetResource_Delete_StateParseError(t *testing.T) {
 		"quota":         tftypes.NewValue(tftypes.String, nil),
 		"refquota":      tftypes.NewValue(tftypes.String, nil),
 		"atime":         tftypes.NewValue(tftypes.String, nil),
+		"mode":          tftypes.NewValue(tftypes.String, nil),
+		"uid":           tftypes.NewValue(tftypes.Number, nil),
+		"gid":           tftypes.NewValue(tftypes.Number, nil),
 		"force_destroy": tftypes.NewValue(tftypes.Bool, nil),
 	})
 
@@ -2008,5 +2053,245 @@ func TestDatasetResource_Delete_StateParseError(t *testing.T) {
 
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("expected error for state parse error")
+	}
+}
+
+// Test Create with permissions
+func TestDatasetResource_Create_WithPermissions(t *testing.T) {
+	var setpermCalled bool
+	var setpermParams map[string]any
+
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.dataset.create" {
+					return json.RawMessage(`{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps"}`), nil
+				}
+				if method == "pool.dataset.query" {
+					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0"},"refquota":{"value":"0"},"atime":{"value":"off"}}]`), nil
+				}
+				return nil, nil
+			},
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "filesystem.setperm" {
+					setpermCalled = true
+					setpermParams = params.(map[string]any)
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	planValue := createDatasetResourceModelWithPerms(nil, "storage", "apps", nil, nil, nil, "lz4", nil, nil, nil, nil, "755", int64(1000), int64(1000))
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if !setpermCalled {
+		t.Fatal("expected filesystem.setperm to be called")
+	}
+
+	if setpermParams["path"] != "/mnt/storage/apps" {
+		t.Errorf("expected path '/mnt/storage/apps', got %v", setpermParams["path"])
+	}
+
+	if setpermParams["mode"] != "755" {
+		t.Errorf("expected mode '755', got %v", setpermParams["mode"])
+	}
+
+	if setpermParams["uid"] != int64(1000) {
+		t.Errorf("expected uid 1000, got %v", setpermParams["uid"])
+	}
+
+	if setpermParams["gid"] != int64(1000) {
+		t.Errorf("expected gid 1000, got %v", setpermParams["gid"])
+	}
+}
+
+// Test Create without permissions does not call setperm
+func TestDatasetResource_Create_NoPermissions(t *testing.T) {
+	var setpermCalled bool
+
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.dataset.create" {
+					return json.RawMessage(`{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps"}`), nil
+				}
+				if method == "pool.dataset.query" {
+					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0"},"refquota":{"value":"0"},"atime":{"value":"off"}}]`), nil
+				}
+				return nil, nil
+			},
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "filesystem.setperm" {
+					setpermCalled = true
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// No permissions specified (nil for mode, uid, gid)
+	planValue := createDatasetResourceModel(nil, "storage", "apps", nil, nil, nil, "lz4", nil, nil, nil, nil)
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if setpermCalled {
+		t.Fatal("filesystem.setperm should not be called when no permissions specified")
+	}
+}
+
+// Test Update with permission changes
+func TestDatasetResource_Update_PermissionChange(t *testing.T) {
+	var setpermCalled bool
+	var setpermParams map[string]any
+
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, nil
+			},
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "filesystem.setperm" {
+					setpermCalled = true
+					setpermParams = params.(map[string]any)
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// State with mode 755, plan with mode 700
+	stateValue := createDatasetResourceModelWithPerms("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", nil, nil, nil, nil, "755", int64(0), int64(0))
+	planValue := createDatasetResourceModelWithPerms("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", nil, nil, nil, nil, "700", int64(0), int64(0))
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if !setpermCalled {
+		t.Fatal("expected filesystem.setperm to be called for permission change")
+	}
+
+	if setpermParams["mode"] != "700" {
+		t.Errorf("expected mode '700', got %v", setpermParams["mode"])
+	}
+}
+
+// Test Read reads permissions from filesystem.stat
+func TestDatasetResource_Read_WithPermissions(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.dataset.query" {
+					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0"},"refquota":{"value":"0"},"atime":{"value":"off"}}]`), nil
+				}
+				if method == "filesystem.stat" {
+					// Return mode 0755 (493 in decimal), uid 1000, gid 1000
+					return json.RawMessage(`{"mode":16877,"uid":1000,"gid":1000}`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// State has permissions configured, so Read should update them from filesystem.stat
+	stateValue := createDatasetResourceModelWithPerms("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", nil, nil, nil, nil, "700", int64(0), int64(0))
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify the state was updated with new permission values
+	var data DatasetResourceModel
+	resp.State.Get(context.Background(), &data)
+
+	// 16877 & 0777 = 493 = 0755 in octal
+	if data.Mode.ValueString() != "755" {
+		t.Errorf("expected mode '755', got %v", data.Mode.ValueString())
+	}
+
+	if data.UID.ValueInt64() != 1000 {
+		t.Errorf("expected uid 1000, got %v", data.UID.ValueInt64())
+	}
+
+	if data.GID.ValueInt64() != 1000 {
+		t.Errorf("expected gid 1000, got %v", data.GID.ValueInt64())
 	}
 }

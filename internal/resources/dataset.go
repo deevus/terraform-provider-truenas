@@ -36,6 +36,9 @@ type DatasetResourceModel struct {
 	Quota        types.String `tfsdk:"quota"`
 	RefQuota     types.String `tfsdk:"refquota"`
 	Atime        types.String `tfsdk:"atime"`
+	Mode         types.String `tfsdk:"mode"`
+	UID          types.Int64  `tfsdk:"uid"`
+	GID          types.Int64  `tfsdk:"gid"`
 	ForceDestroy types.Bool   `tfsdk:"force_destroy"`
 }
 
@@ -60,6 +63,13 @@ type datasetQueryResponse struct {
 // propertyValueField represents the nested property value in API responses.
 type propertyValueField struct {
 	Value string `json:"value"`
+}
+
+// datasetStatResponse represents the JSON response from filesystem.stat.
+type datasetStatResponse struct {
+	Mode int64 `json:"mode"`
+	UID  int64 `json:"uid"`
+	GID  int64 `json:"gid"`
 }
 
 // queryDataset queries a dataset by ID and returns the response.
@@ -184,6 +194,18 @@ func (r *DatasetResource) Schema(ctx context.Context, req resource.SchemaRequest
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
+			"mode": schema.StringAttribute{
+				Description: "Unix mode for the dataset mountpoint (e.g., '755'). Sets permissions via filesystem.setperm after creation.",
+				Optional:    true,
+			},
+			"uid": schema.Int64Attribute{
+				Description: "Owner user ID for the dataset mountpoint.",
+				Optional:    true,
+			},
+			"gid": schema.Int64Attribute{
+				Description: "Owner group ID for the dataset mountpoint.",
+				Optional:    true,
+			},
 			"force_destroy": schema.BoolAttribute{
 				Description: "When destroying this resource, also delete all child datasets. Defaults to false.",
 				Optional:    true,
@@ -291,6 +313,20 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 	// Map all attributes from query response
 	mapDatasetToModel(ds, &data)
 
+	// Set permissions on the mountpoint if mode/uid/gid are specified
+	// This allows SFTP operations (like host_path creation) to work with NFSv4 ACLs
+	if r.hasPermissions(&data) {
+		permParams := r.buildPermParams(&data, ds.Mountpoint)
+		_, err := r.client.CallAndWait(ctx, "filesystem.setperm", permParams)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Set Dataset Permissions",
+				fmt.Sprintf("Dataset was created but unable to set permissions on mountpoint %q: %s", ds.Mountpoint, err.Error()),
+			)
+			return
+		}
+	}
+
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -334,6 +370,14 @@ func (r *DatasetResource) Read(ctx context.Context, req resource.ReadRequest, re
 		}
 	}
 
+	// Read mountpoint permissions if configured (for drift detection)
+	if err := r.readMountpointPermissions(ctx, ds.Mountpoint, &data); err != nil {
+		resp.Diagnostics.AddWarning(
+			"Unable to Read Mountpoint Permissions",
+			fmt.Sprintf("Could not read permissions for %q: %s", ds.Mountpoint, err.Error()),
+		)
+	}
+
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -354,7 +398,7 @@ func (r *DatasetResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
-	// Build update params - only include changed values
+	// Build update params - only include changed dataset properties
 	updateParams := map[string]any{}
 
 	if !data.Compression.Equal(state.Compression) && !data.Compression.IsNull() {
@@ -373,38 +417,57 @@ func (r *DatasetResource) Update(ctx context.Context, req resource.UpdateRequest
 		updateParams["atime"] = data.Atime.ValueString()
 	}
 
-	// If no changes, copy computed values from state and save
-	if len(updateParams) == 0 {
-		data.MountPath = state.MountPath
-		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-		return
-	}
+	// Check if permissions changed
+	permChanged := !data.Mode.Equal(state.Mode) ||
+		!data.UID.Equal(state.UID) ||
+		!data.GID.Equal(state.GID)
 
-	// Call the TrueNAS API with positional args [id, params_object]
 	datasetID := data.ID.ValueString()
-	params := []any{datasetID, updateParams}
+	mountPath := state.MountPath.ValueString()
 
-	result, err := r.client.Call(ctx, "pool.dataset.update", params)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Update Dataset",
-			fmt.Sprintf("Unable to update dataset %q: %s", datasetID, err.Error()),
-		)
-		return
+	// Update dataset properties if changed
+	if len(updateParams) > 0 {
+		params := []any{datasetID, updateParams}
+
+		result, err := r.client.Call(ctx, "pool.dataset.update", params)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Update Dataset",
+				fmt.Sprintf("Unable to update dataset %q: %s", datasetID, err.Error()),
+			)
+			return
+		}
+
+		// Parse the response
+		var updateResp datasetQueryResponse
+		if err := json.Unmarshal(result, &updateResp); err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Parse Dataset Response",
+				fmt.Sprintf("Unable to parse dataset update response: %s", err.Error()),
+			)
+			return
+		}
+
+		// Map response to model
+		mapDatasetToModel(&updateResp, &data)
+		mountPath = updateResp.Mountpoint
+	} else {
+		// Copy computed values from state
+		data.MountPath = state.MountPath
 	}
 
-	// Parse the response
-	var updateResp datasetQueryResponse
-	if err := json.Unmarshal(result, &updateResp); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Dataset Response",
-			fmt.Sprintf("Unable to parse dataset update response: %s", err.Error()),
-		)
-		return
+	// Update permissions if changed
+	if permChanged && r.hasPermissions(&data) {
+		permParams := r.buildPermParams(&data, mountPath)
+		_, err := r.client.CallAndWait(ctx, "filesystem.setperm", permParams)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Update Dataset Permissions",
+				fmt.Sprintf("Unable to set permissions on mountpoint %q: %s", mountPath, err.Error()),
+			)
+			return
+		}
 	}
-
-	// Map response to model
-	mapDatasetToModel(&updateResp, &data)
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -468,4 +531,64 @@ func getFullName(data *DatasetResourceModel) string {
 
 	// Invalid configuration
 	return ""
+}
+
+// hasPermissions returns true if any permission attribute (mode, uid, gid) is set.
+func (r *DatasetResource) hasPermissions(data *DatasetResourceModel) bool {
+	return (!data.Mode.IsNull() && !data.Mode.IsUnknown()) ||
+		(!data.UID.IsNull() && !data.UID.IsUnknown()) ||
+		(!data.GID.IsNull() && !data.GID.IsUnknown())
+}
+
+// buildPermParams builds the parameters for filesystem.setperm.
+func (r *DatasetResource) buildPermParams(data *DatasetResourceModel, mountPath string) map[string]any {
+	params := map[string]any{
+		"path": mountPath,
+	}
+
+	if !data.Mode.IsNull() && !data.Mode.IsUnknown() {
+		params["mode"] = data.Mode.ValueString()
+	}
+
+	if !data.UID.IsNull() && !data.UID.IsUnknown() {
+		params["uid"] = data.UID.ValueInt64()
+	}
+
+	if !data.GID.IsNull() && !data.GID.IsUnknown() {
+		params["gid"] = data.GID.ValueInt64()
+	}
+
+	return params
+}
+
+// readMountpointPermissions reads the current permissions from the mountpoint
+// and updates the model if permissions were configured.
+func (r *DatasetResource) readMountpointPermissions(ctx context.Context, mountPath string, data *DatasetResourceModel) error {
+	// Only read permissions if they were configured
+	if !r.hasPermissions(data) {
+		return nil
+	}
+
+	result, err := r.client.Call(ctx, "filesystem.stat", mountPath)
+	if err != nil {
+		return fmt.Errorf("unable to stat mountpoint %q: %w", mountPath, err)
+	}
+
+	var statResp datasetStatResponse
+	if err := json.Unmarshal(result, &statResp); err != nil {
+		return fmt.Errorf("unable to parse stat response: %w", err)
+	}
+
+	// Only update attributes that were configured (preserve user intent)
+	if !data.Mode.IsNull() {
+		data.Mode = types.StringValue(fmt.Sprintf("%o", statResp.Mode&0777))
+	}
+	if !data.UID.IsNull() {
+		data.UID = types.Int64Value(statResp.UID)
+	}
+	if !data.GID.IsNull() {
+		data.GID = types.Int64Value(statResp.GID)
+	}
+
+	return nil
 }
