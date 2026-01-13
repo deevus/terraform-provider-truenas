@@ -116,7 +116,7 @@ func (r *DatasetResource) Metadata(ctx context.Context, req resource.MetadataReq
 
 func (r *DatasetResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Manages a TrueNAS dataset.",
+		Description: "Manages a TrueNAS dataset. Use nested datasets instead of host_path for app storage.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Description: "Dataset identifier (pool/path).",
@@ -126,21 +126,21 @@ func (r *DatasetResource) Schema(ctx context.Context, req resource.SchemaRequest
 				},
 			},
 			"pool": schema.StringAttribute{
-				Description: "Pool name. Use with 'path' attribute.",
+				Description: "Pool name. Use with 'path' attribute for pool-relative paths.",
 				Optional:    true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"path": schema.StringAttribute{
-				Description: "Dataset path within the pool. Use with 'pool' attribute.",
+				Description: "Dataset path. With 'pool': relative path in pool. With 'parent': child dataset name.",
 				Optional:    true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"parent": schema.StringAttribute{
-				Description: "Parent dataset path (e.g., 'tank/data'). Use with 'name' attribute.",
+				Description: "Parent dataset ID (e.g., 'tank/data'). Use with 'path' attribute.",
 				Optional:    true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
