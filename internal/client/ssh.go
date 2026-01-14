@@ -216,6 +216,14 @@ func NewSSHClient(config *SSHConfig) (*SSHClient, error) {
 	}, nil
 }
 
+// acquireSession blocks until a session slot is available and returns a release function.
+func (c *SSHClient) acquireSession() func() {
+	c.sessionSem <- struct{}{}
+	return func() {
+		<-c.sessionSem
+	}
+}
+
 // connect establishes the SSH connection if not already connected.
 func (c *SSHClient) connect() error {
 	c.mu.Lock()

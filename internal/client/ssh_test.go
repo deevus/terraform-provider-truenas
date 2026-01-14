@@ -958,3 +958,45 @@ func TestNewSSHClient_SessionSemaphore(t *testing.T) {
 		})
 	}
 }
+
+func TestSSHClient_AcquireSession(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		PrivateKey:         testPrivateKey,
+		HostKeyFingerprint: testHostKeyFingerprint,
+		MaxSessions:        2,
+	}
+	client, err := NewSSHClient(config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Initially empty
+	if len(client.sessionSem) != 0 {
+		t.Errorf("sessionSem should be empty, got %d", len(client.sessionSem))
+	}
+
+	// Acquire first slot
+	release1 := client.acquireSession()
+	if len(client.sessionSem) != 1 {
+		t.Errorf("sessionSem should have 1 item, got %d", len(client.sessionSem))
+	}
+
+	// Acquire second slot
+	release2 := client.acquireSession()
+	if len(client.sessionSem) != 2 {
+		t.Errorf("sessionSem should have 2 items, got %d", len(client.sessionSem))
+	}
+
+	// Release first slot
+	release1()
+	if len(client.sessionSem) != 1 {
+		t.Errorf("sessionSem should have 1 item after release, got %d", len(client.sessionSem))
+	}
+
+	// Release second slot
+	release2()
+	if len(client.sessionSem) != 0 {
+		t.Errorf("sessionSem should be empty after both releases, got %d", len(client.sessionSem))
+	}
+}
