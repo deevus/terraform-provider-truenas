@@ -65,6 +65,7 @@ Required:
 
 Optional:
 
+- `max_sessions` (Number) Maximum concurrent SSH sessions. Defaults to 10. Increase for large deployments, decrease if you see connection errors.
 - `port` (Number) SSH port. Defaults to 22.
 - `user` (String) SSH username. Defaults to 'root'.
 
