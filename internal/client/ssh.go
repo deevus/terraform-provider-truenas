@@ -28,7 +28,7 @@ type SSHConfig struct {
 	User               string
 	PrivateKey         string
 	HostKeyFingerprint string
-	MaxSessions        int // Maximum concurrent SSH sessions (0 = default of 10)
+	MaxSessions        int // Maximum concurrent SSH sessions (0 = default of 5)
 }
 
 // Validate validates the SSHConfig and sets defaults.
@@ -206,7 +206,7 @@ func NewSSHClient(config *SSHConfig) (*SSHClient, error) {
 
 	maxSessions := config.MaxSessions
 	if maxSessions <= 0 {
-		maxSessions = 10 // default
+		maxSessions = 5 // default
 	}
 
 	return &SSHClient{

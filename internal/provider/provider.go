@@ -85,7 +85,7 @@ func (p *TrueNASProvider) Schema(ctx context.Context, req provider.SchemaRequest
 						Sensitive: false,
 					},
 					"max_sessions": schema.Int64Attribute{
-						Description: "Maximum concurrent SSH sessions. Defaults to 10. " +
+						Description: "Maximum concurrent SSH sessions. Defaults to 5. " +
 							"Increase for large deployments, decrease if you see connection errors.",
 						Optional: true,
 					},

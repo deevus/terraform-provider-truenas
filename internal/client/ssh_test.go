@@ -938,8 +938,8 @@ func TestNewSSHClient_SessionSemaphore(t *testing.T) {
 		maxSessions      int
 		wantSemaphoreCap int
 	}{
-		{"default when zero", 0, 10},
-		{"default when negative", -5, 10},
+		{"default when zero", 0, 5},
+		{"default when negative", -5, 5},
 		{"custom value", 25, 25},
 		{"small value", 3, 3},
 	}
