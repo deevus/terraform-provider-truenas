@@ -390,6 +390,13 @@ func (r *HostPathResource) buildPermParams(data *HostPathResourceModel) map[stri
 
 	if !data.Mode.IsNull() && !data.Mode.IsUnknown() {
 		params["mode"] = data.Mode.ValueString()
+	} else {
+		// TrueNAS API requires either 'mode' or 'options.stripacl' to be set.
+		// When only changing ownership (uid/gid), we set stripacl=false to
+		// preserve existing permissions and ACLs.
+		params["options"] = map[string]any{
+			"stripacl": false,
+		}
 	}
 
 	if !data.UID.IsNull() && !data.UID.IsUnknown() {
