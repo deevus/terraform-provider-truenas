@@ -1511,6 +1511,123 @@ func TestAppResource_Update_ReconcileStateFromStoppedToRunning(t *testing.T) {
 	}
 }
 
+func TestAppResource_Read_PreservesDesiredState(t *testing.T) {
+	r := &AppResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				// API reports RUNNING state, but user wants it STOPPED
+				return json.RawMessage(`[{
+					"name": "myapp",
+					"state": "RUNNING",
+					"custom_app": true,
+					"config": {}
+				}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Prior state has desired_state = "STOPPED" (user intentionally wants it stopped)
+	// but API returns state = "RUNNING" (maybe it was started externally)
+	stateValue := createAppResourceModelValue("myapp", "myapp", true, nil, "STOPPED", float64(180), "STOPPED")
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model AppResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	// desired_state should be preserved from prior state (not reset to current state)
+	if model.DesiredState.ValueString() != "STOPPED" {
+		t.Errorf("expected desired_state 'STOPPED' to be preserved, got %q", model.DesiredState.ValueString())
+	}
+
+	// state_timeout should be preserved from prior state
+	if model.StateTimeout.ValueInt64() != 180 {
+		t.Errorf("expected state_timeout 180 to be preserved, got %d", model.StateTimeout.ValueInt64())
+	}
+
+	// state should reflect actual API state
+	if model.State.ValueString() != "RUNNING" {
+		t.Errorf("expected state 'RUNNING' from API, got %q", model.State.ValueString())
+	}
+}
+
+func TestAppResource_Read_DefaultsDesiredStateWhenNull(t *testing.T) {
+	r := &AppResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"name": "myapp",
+					"state": "RUNNING",
+					"custom_app": true,
+					"config": {}
+				}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Prior state has null desired_state (like after import)
+	stateValue := createAppResourceModelValue("myapp", "myapp", true, nil, nil, nil, nil)
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model AppResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	// When desired_state is null, it should default to current state from API
+	if model.DesiredState.ValueString() != "RUNNING" {
+		t.Errorf("expected desired_state to default to 'RUNNING', got %q", model.DesiredState.ValueString())
+	}
+
+	// When state_timeout is null, it should default to 120
+	if model.StateTimeout.ValueInt64() != 120 {
+		t.Errorf("expected state_timeout to default to 120, got %d", model.StateTimeout.ValueInt64())
+	}
+}
+
 func TestAppResource_Create_WithDesiredStateStopped(t *testing.T) {
 	var methods []string
 	r := &AppResource{

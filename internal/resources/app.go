@@ -262,6 +262,10 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		return
 	}
 
+	// Preserve user-specified values from prior state (these are not returned by API)
+	priorDesiredState := data.DesiredState
+	priorStateTimeout := data.StateTimeout
+
 	// Use the name to query the app
 	appName := data.Name.ValueString()
 
@@ -326,8 +330,19 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		data.ComposeConfig = customtypes.NewYAMLStringNull()
 	}
 
-	// TODO: Sync storage, network, and labels from active_workloads
-	// The API returns a different structure than expected, skipping for now
+	// Restore user-specified values from prior state
+	data.DesiredState = priorDesiredState
+	data.StateTimeout = priorStateTimeout
+
+	// Default desired_state if null/unknown (e.g., after import)
+	if data.DesiredState.IsNull() || data.DesiredState.IsUnknown() {
+		data.DesiredState = types.StringValue(app.State)
+	}
+
+	// Default state_timeout if null/unknown
+	if data.StateTimeout.IsNull() || data.StateTimeout.IsUnknown() {
+		data.StateTimeout = types.Int64Value(120)
+	}
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
