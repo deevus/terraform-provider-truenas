@@ -195,3 +195,60 @@ func TestParseError_StripTracebackSameLine(t *testing.T) {
 		t.Errorf("expected 'Some error', got %q", err.Message)
 	}
 }
+
+func TestTrueNASError_Error_WithLogsExcerpt(t *testing.T) {
+	err := &TrueNASError{
+		Code:        "EFAULT",
+		Message:     "Failed 'up' action for 'myapp' app",
+		LogsExcerpt: "Container myapp  Creating\nError response from daemon: image not found",
+	}
+
+	errStr := err.Error()
+
+	if !strings.Contains(errStr, "Failed 'up' action") {
+		t.Error("expected error string to contain message")
+	}
+	if !strings.Contains(errStr, "Job logs:") {
+		t.Error("expected error string to contain 'Job logs:'")
+	}
+	if !strings.Contains(errStr, "image not found") {
+		t.Error("expected error string to contain logs excerpt")
+	}
+}
+
+func TestTrueNASError_Error_WithLogsExcerptAndSuggestion(t *testing.T) {
+	err := &TrueNASError{
+		Code:        "EFAULT",
+		Message:     "Failed 'up' action for 'myapp' app",
+		LogsExcerpt: "Error response from daemon: image not found",
+		Suggestion:  "Check compose_config and image availability.",
+	}
+
+	errStr := err.Error()
+	expected := "Failed 'up' action for 'myapp' app\n\nJob logs:\nError response from daemon: image not found\n\nSuggestion: Check compose_config and image availability."
+
+	if errStr != expected {
+		t.Errorf("expected:\n%q\n\ngot:\n%q", expected, errStr)
+	}
+}
+
+func TestTrueNASError_Error_EmptyLogsExcerpt(t *testing.T) {
+	err := &TrueNASError{
+		Code:        "EFAULT",
+		Message:     "Failed 'up' action",
+		LogsExcerpt: "",
+		Suggestion:  "try this",
+	}
+
+	errStr := err.Error()
+
+	// Should not contain "Job logs:" when excerpt is empty
+	if strings.Contains(errStr, "Job logs:") {
+		t.Error("expected error string to NOT contain 'Job logs:' when excerpt is empty")
+	}
+
+	expected := "Failed 'up' action\n\nSuggestion: try this"
+	if errStr != expected {
+		t.Errorf("expected %q, got %q", expected, errStr)
+	}
+}

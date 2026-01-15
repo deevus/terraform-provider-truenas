@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -511,6 +512,58 @@ func TestJobPoller_ContextCanceledBeforePoll(t *testing.T) {
 
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestJobPoller_FailureWithLogsExcerpt(t *testing.T) {
+	// Job fails with logs_excerpt - verify it's included in the error
+	mock := &MockClient{
+		CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			return json.RawMessage(`[{
+				"id": 42,
+				"state": "FAILED",
+				"error": "[EFAULT] Failed 'up' action for 'myapp' app",
+				"logs_excerpt": "Container myapp  Creating\nError response from daemon: image not found",
+				"logs_path": "/var/log/jobs/42.log"
+			}]`), nil
+		},
+	}
+
+	poller := NewJobPoller(mock, &JobPollerConfig{
+		InitialInterval: 1 * time.Millisecond,
+		MaxInterval:     10 * time.Millisecond,
+		Multiplier:      2.0,
+	})
+
+	_, err := poller.Wait(context.Background(), 42, 5*time.Second)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var tnErr *TrueNASError
+	if !errors.As(err, &tnErr) {
+		t.Fatalf("expected TrueNASError, got %T", err)
+	}
+
+	if tnErr.Code != "EFAULT" {
+		t.Errorf("expected error code EFAULT, got %s", tnErr.Code)
+	}
+
+	if tnErr.LogsExcerpt == "" {
+		t.Error("expected LogsExcerpt to be populated")
+	}
+
+	if !strings.Contains(tnErr.LogsExcerpt, "image not found") {
+		t.Errorf("expected LogsExcerpt to contain 'image not found', got %s", tnErr.LogsExcerpt)
+	}
+
+	// Verify logs appear in error string
+	errStr := err.Error()
+	if !strings.Contains(errStr, "Job logs:") {
+		t.Error("expected error string to contain 'Job logs:'")
+	}
+	if !strings.Contains(errStr, "image not found") {
+		t.Error("expected error string to contain logs excerpt content")
 	}
 }
 
