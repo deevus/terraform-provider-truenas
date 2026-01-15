@@ -51,5 +51,4 @@ release:
     - glob: 'terraform-registry-manifest.json'
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
 changelog:
-  use: git-cliff
-  sort: asc
+  disable: true
