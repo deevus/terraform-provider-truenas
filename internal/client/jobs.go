@@ -19,10 +19,12 @@ const (
 
 // Job represents a TrueNAS job from the middleware.
 type Job struct {
-	ID     int64           `json:"id"`
-	State  JobState        `json:"state"`
-	Error  string          `json:"error,omitempty"`
-	Result json.RawMessage `json:"result,omitempty"`
+	ID          int64           `json:"id"`
+	State       JobState        `json:"state"`
+	Error       string          `json:"error,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
+	LogsExcerpt string          `json:"logs_excerpt,omitempty"`
+	LogsPath    string          `json:"logs_path,omitempty"`
 }
 
 // JobPollerConfig configures the polling behavior.
@@ -88,7 +90,9 @@ func (p *JobPoller) Wait(ctx context.Context, jobID int64, timeout time.Duration
 		case JobStateSuccess:
 			return job.Result, nil
 		case JobStateFailed:
-			return nil, ParseTrueNASError(job.Error)
+			err := ParseTrueNASError(job.Error)
+			err.LogsExcerpt = job.LogsExcerpt
+			return nil, err
 		case JobStateRunning, JobStateWaiting:
 			// Continue polling
 		default:
