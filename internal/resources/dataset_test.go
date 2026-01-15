@@ -2525,3 +2525,291 @@ func TestDatasetResource_Read_WithPermissions(t *testing.T) {
 		t.Errorf("expected gid 1000, got %v", data.GID.ValueInt64())
 	}
 }
+
+// Test Read after import populates pool/path from ID
+func TestDatasetResource_Read_AfterImport_PopulatesPoolAndPath(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"id": "tank/data/apps",
+					"name": "tank/data/apps",
+					"mountpoint": "/mnt/tank/data/apps",
+					"compression": {"value": "lz4"},
+					"quota": {"value": "0"},
+					"refquota": {"value": "0"},
+					"atime": {"value": "on"}
+				}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// After import, only ID is set - pool, path, parent, and name are all null
+	stateValue := createDatasetResourceModel("tank/data/apps", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model DatasetResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	// Pool and Path should be populated from the ID
+	if model.Pool.ValueString() != "tank" {
+		t.Errorf("expected Pool 'tank', got %q", model.Pool.ValueString())
+	}
+	if model.Path.ValueString() != "data/apps" {
+		t.Errorf("expected Path 'data/apps', got %q", model.Path.ValueString())
+	}
+}
+
+// Test Read after import with simple pool-level dataset
+func TestDatasetResource_Read_AfterImport_SimpleDataset(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"id": "tank/apps",
+					"name": "tank/apps",
+					"mountpoint": "/mnt/tank/apps",
+					"compression": {"value": "lz4"},
+					"quota": {"value": "0"},
+					"refquota": {"value": "0"},
+					"atime": {"value": "on"}
+				}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// After import, only ID is set
+	stateValue := createDatasetResourceModel("tank/apps", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model DatasetResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	// Pool and Path should be populated from the ID
+	if model.Pool.ValueString() != "tank" {
+		t.Errorf("expected Pool 'tank', got %q", model.Pool.ValueString())
+	}
+	if model.Path.ValueString() != "apps" {
+		t.Errorf("expected Path 'apps', got %q", model.Path.ValueString())
+	}
+}
+
+// Test Read does NOT override pool/path when already set (not import scenario)
+func TestDatasetResource_Read_DoesNotOverridePoolPathWhenSet(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"id": "tank/data/apps",
+					"name": "tank/data/apps",
+					"mountpoint": "/mnt/tank/data/apps",
+					"compression": {"value": "lz4"},
+					"quota": {"value": "0"},
+					"refquota": {"value": "0"},
+					"atime": {"value": "on"}
+				}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// Normal read - pool and path are already set from config
+	stateValue := createDatasetResourceModel("tank/data/apps", "tank", "data/apps", nil, nil, "/mnt/tank/data/apps", "lz4", nil, nil, nil, nil)
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model DatasetResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	// Pool and Path should remain unchanged
+	if model.Pool.ValueString() != "tank" {
+		t.Errorf("expected Pool 'tank', got %q", model.Pool.ValueString())
+	}
+	if model.Path.ValueString() != "data/apps" {
+		t.Errorf("expected Path 'data/apps', got %q", model.Path.ValueString())
+	}
+}
+
+// Test Read with permissions returns warning on filesystem.stat error
+func TestDatasetResource_Read_PermissionsStatError_ReturnsWarning(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.dataset.query" {
+					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0"},"refquota":{"value":"0"},"atime":{"value":"off"}}]`), nil
+				}
+				if method == "filesystem.stat" {
+					return nil, errors.New("permission denied")
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// State has permissions configured, so Read will try to call filesystem.stat
+	stateValue := createDatasetResourceModelWithPerms("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", nil, nil, nil, nil, "755", int64(1000), int64(1000))
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	// Should NOT have errors - but should have a warning
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Should have a warning about permissions
+	if resp.Diagnostics.WarningsCount() == 0 {
+		t.Fatal("expected warning for filesystem.stat error")
+	}
+
+	// Verify warning message content
+	var foundWarning bool
+	for _, diag := range resp.Diagnostics {
+		if diag.Severity().String() == "Warning" && diag.Summary() == "Unable to Read Mountpoint Permissions" {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Error("expected warning with summary 'Unable to Read Mountpoint Permissions'")
+	}
+
+	// State should still be set (read succeeded, just permissions reading failed)
+	var model DatasetResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	if model.ID.ValueString() != "storage/apps" {
+		t.Errorf("expected ID 'storage/apps', got %q", model.ID.ValueString())
+	}
+}
+
+// Test Read with permissions returns warning on invalid JSON from filesystem.stat
+func TestDatasetResource_Read_PermissionsInvalidJSON_ReturnsWarning(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.dataset.query" {
+					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0"},"refquota":{"value":"0"},"atime":{"value":"off"}}]`), nil
+				}
+				if method == "filesystem.stat" {
+					return json.RawMessage(`not valid json`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// State has permissions configured
+	stateValue := createDatasetResourceModelWithPerms("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", nil, nil, nil, nil, "755", nil, nil)
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	// Should NOT have errors - but should have a warning
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Should have a warning
+	if resp.Diagnostics.WarningsCount() == 0 {
+		t.Fatal("expected warning for invalid JSON from filesystem.stat")
+	}
+}

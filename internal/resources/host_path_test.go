@@ -10,6 +10,7 @@ import (
 	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
@@ -1718,6 +1719,167 @@ func TestHostPathResource_Delete_ForceDestroy_SetpermFails(t *testing.T) {
 
 	if !removeAllCalled {
 		t.Error("expected RemoveAll to be called even after setperm failure")
+	}
+}
+
+// Test buildPermParams with only mode set (no UID/GID)
+func TestHostPathResource_buildPermParams_OnlyMode(t *testing.T) {
+	r := &HostPathResource{}
+
+	data := &HostPathResourceModel{
+		Path: types.StringValue("/mnt/tank/apps/myapp"),
+		Mode: types.StringValue("755"),
+		UID:  types.Int64Null(),
+		GID:  types.Int64Null(),
+	}
+
+	params := r.buildPermParams(data)
+
+	if params["path"] != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", params["path"])
+	}
+
+	if params["mode"] != "755" {
+		t.Errorf("expected mode '755', got %v", params["mode"])
+	}
+
+	// Should NOT have options.stripacl when mode is set
+	if _, ok := params["options"]; ok {
+		t.Error("expected no 'options' when mode is set")
+	}
+
+	// Should NOT have uid or gid
+	if _, ok := params["uid"]; ok {
+		t.Error("expected no 'uid' when uid is null")
+	}
+	if _, ok := params["gid"]; ok {
+		t.Error("expected no 'gid' when gid is null")
+	}
+}
+
+// Test buildPermParams with only UID set (no mode, no GID) - exercises the stripacl fallback
+func TestHostPathResource_buildPermParams_OnlyUID(t *testing.T) {
+	r := &HostPathResource{}
+
+	data := &HostPathResourceModel{
+		Path: types.StringValue("/mnt/tank/apps/myapp"),
+		Mode: types.StringNull(),
+		UID:  types.Int64Value(1000),
+		GID:  types.Int64Null(),
+	}
+
+	params := r.buildPermParams(data)
+
+	if params["path"] != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", params["path"])
+	}
+
+	// Should NOT have mode
+	if _, ok := params["mode"]; ok {
+		t.Error("expected no 'mode' when mode is null")
+	}
+
+	// Should have options.stripacl=false when mode is null
+	options, ok := params["options"].(map[string]any)
+	if !ok {
+		t.Fatal("expected 'options' map when mode is null")
+	}
+	if options["stripacl"] != false {
+		t.Errorf("expected stripacl=false, got %v", options["stripacl"])
+	}
+
+	// Should have uid
+	if params["uid"] != int64(1000) {
+		t.Errorf("expected uid 1000, got %v", params["uid"])
+	}
+
+	// Should NOT have gid
+	if _, ok := params["gid"]; ok {
+		t.Error("expected no 'gid' when gid is null")
+	}
+}
+
+// Test buildPermParams with only GID set (no mode, no UID) - exercises the stripacl fallback
+func TestHostPathResource_buildPermParams_OnlyGID(t *testing.T) {
+	r := &HostPathResource{}
+
+	data := &HostPathResourceModel{
+		Path: types.StringValue("/mnt/tank/apps/myapp"),
+		Mode: types.StringNull(),
+		UID:  types.Int64Null(),
+		GID:  types.Int64Value(2000),
+	}
+
+	params := r.buildPermParams(data)
+
+	if params["path"] != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", params["path"])
+	}
+
+	// Should NOT have mode
+	if _, ok := params["mode"]; ok {
+		t.Error("expected no 'mode' when mode is null")
+	}
+
+	// Should have options.stripacl=false when mode is null
+	options, ok := params["options"].(map[string]any)
+	if !ok {
+		t.Fatal("expected 'options' map when mode is null")
+	}
+	if options["stripacl"] != false {
+		t.Errorf("expected stripacl=false, got %v", options["stripacl"])
+	}
+
+	// Should NOT have uid
+	if _, ok := params["uid"]; ok {
+		t.Error("expected no 'uid' when uid is null")
+	}
+
+	// Should have gid
+	if params["gid"] != int64(2000) {
+		t.Errorf("expected gid 2000, got %v", params["gid"])
+	}
+}
+
+// Test buildPermParams with UID and GID set but no mode - exercises the stripacl fallback
+func TestHostPathResource_buildPermParams_UIDAndGID_NoMode(t *testing.T) {
+	r := &HostPathResource{}
+
+	data := &HostPathResourceModel{
+		Path: types.StringValue("/mnt/tank/apps/myapp"),
+		Mode: types.StringNull(),
+		UID:  types.Int64Value(1000),
+		GID:  types.Int64Value(2000),
+	}
+
+	params := r.buildPermParams(data)
+
+	if params["path"] != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", params["path"])
+	}
+
+	// Should NOT have mode
+	if _, ok := params["mode"]; ok {
+		t.Error("expected no 'mode' when mode is null")
+	}
+
+	// Should have options.stripacl=false when mode is null
+	options, ok := params["options"].(map[string]any)
+	if !ok {
+		t.Fatal("expected 'options' map when mode is null")
+	}
+	if options["stripacl"] != false {
+		t.Errorf("expected stripacl=false, got %v", options["stripacl"])
+	}
+
+	// Should have uid
+	if params["uid"] != int64(1000) {
+		t.Errorf("expected uid 1000, got %v", params["uid"])
+	}
+
+	// Should have gid
+	if params["gid"] != int64(2000) {
+		t.Errorf("expected gid 2000, got %v", params["gid"])
 	}
 }
 

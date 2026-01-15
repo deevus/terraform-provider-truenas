@@ -1505,6 +1505,61 @@ func TestFileResource_Delete_ForceDestroyNil(t *testing.T) {
 	}
 }
 
+// parseMode tests
+
+func TestParseMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     string
+		expected fs.FileMode
+	}{
+		{
+			name:     "valid octal mode 0644",
+			mode:     "0644",
+			expected: fs.FileMode(0644),
+		},
+		{
+			name:     "valid octal mode 0755",
+			mode:     "0755",
+			expected: fs.FileMode(0755),
+		},
+		{
+			name:     "valid octal mode 0600",
+			mode:     "0600",
+			expected: fs.FileMode(0600),
+		},
+		{
+			name:     "empty mode string defaults to 0644",
+			mode:     "",
+			expected: fs.FileMode(0644),
+		},
+		{
+			name:     "invalid octal format defaults to 0644",
+			mode:     "invalid",
+			expected: fs.FileMode(0644),
+		},
+		{
+			name:     "non-octal digits default to 0644",
+			mode:     "0999",
+			expected: fs.FileMode(0644),
+		},
+		{
+			name:     "decimal number parsed as octal",
+			mode:     "644",
+			expected: fs.FileMode(0644),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := parseMode(tc.mode)
+			if result != tc.expected {
+				t.Errorf("parseMode(%q) = %o, expected %o", tc.mode, result, tc.expected)
+			}
+		})
+	}
+}
+
 // Test Delete with force_destroy=true continues even if Chown fails (warning only)
 func TestFileResource_Delete_ForceDestroy_ChownFailsContinues(t *testing.T) {
 	var deleteFileCalled bool

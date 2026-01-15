@@ -8,6 +8,34 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+func TestCaseInsensitiveStatePlanModifier_Description(t *testing.T) {
+	modifier := caseInsensitiveStatePlanModifier()
+
+	description := modifier.Description(context.Background())
+
+	if description == "" {
+		t.Error("expected non-empty description")
+	}
+	expected := "Treats state values as equal regardless of case."
+	if description != expected {
+		t.Errorf("expected description %q, got %q", expected, description)
+	}
+}
+
+func TestCaseInsensitiveStatePlanModifier_MarkdownDescription(t *testing.T) {
+	modifier := caseInsensitiveStatePlanModifier()
+
+	description := modifier.MarkdownDescription(context.Background())
+
+	if description == "" {
+		t.Error("expected non-empty markdown description")
+	}
+	expected := "Treats state values as equal regardless of case (e.g., `running` == `RUNNING`)."
+	if description != expected {
+		t.Errorf("expected markdown description %q, got %q", expected, description)
+	}
+}
+
 func TestCaseInsensitiveStatePlanModifier_PlanModifyString(t *testing.T) {
 	tests := []struct {
 		name          string

@@ -132,3 +132,58 @@ func TestWaitForStableState_Timeout(t *testing.T) {
 		t.Errorf("expected error to mention DEPLOYING state, got: %v", err)
 	}
 }
+
+func TestWaitForStableState_ContextCancelled(t *testing.T) {
+	callCount := 0
+	queryFunc := func(ctx context.Context, name string) (string, error) {
+		callCount++
+		return AppStateStarting, nil // Never becomes stable
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately before first poll
+
+	_, err := waitForStableState(ctx, "myapp", 30*time.Second, queryFunc)
+
+	if err == nil {
+		t.Fatal("expected context cancellation error")
+	}
+	if err != context.Canceled {
+		t.Errorf("expected context.Canceled, got: %v", err)
+	}
+}
+
+func TestWaitForStableState_ShortTimeoutUsesShortPollInterval(t *testing.T) {
+	callCount := 0
+	queryFunc := func(ctx context.Context, name string) (string, error) {
+		callCount++
+		if callCount < 3 {
+			return AppStateStarting, nil
+		}
+		return AppStateRunning, nil
+	}
+
+	ctx := context.Background()
+	// Use a timeout shorter than the default 5s poll interval
+	// This triggers the timeout < pollInterval branch (line 67-68)
+	timeout := 100 * time.Millisecond
+
+	start := time.Now()
+	state, err := waitForStableState(ctx, "myapp", timeout, queryFunc)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state != AppStateRunning {
+		t.Errorf("expected state %q, got %q", AppStateRunning, state)
+	}
+	if callCount != 3 {
+		t.Errorf("expected 3 calls, got %d", callCount)
+	}
+	// Verify it used the short poll interval (timeout/10 = 10ms)
+	// Should complete much faster than 5s default poll interval
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("expected fast completion with short poll interval, took %v", elapsed)
+	}
+}
