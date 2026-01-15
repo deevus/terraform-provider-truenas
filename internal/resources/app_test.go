@@ -1436,6 +1436,81 @@ func TestAppResource_reconcileDesiredState_NoChangeNeeded(t *testing.T) {
 	}
 }
 
+func TestAppResource_Update_ReconcileStateFromStoppedToRunning(t *testing.T) {
+	var methods []string
+	queryCount := 0
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				methods = append(methods, method)
+				return nil, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				queryCount++
+				// First query: return STOPPED (simulating external change)
+				// Second query (after start): return RUNNING
+				if queryCount == 1 {
+					return json.RawMessage(`[{"name": "myapp", "state": "STOPPED"}]`), nil
+				}
+				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Current state: STOPPED, desired: RUNNING
+	stateValue := createAppResourceModelValue("myapp", "myapp", true, nil, "RUNNING", float64(120), "STOPPED")
+	planValue := createAppResourceModelValue("myapp", "myapp", true, nil, "RUNNING", float64(120), nil)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify app.start was called
+	foundStart := false
+	for _, m := range methods {
+		if m == "app.start" {
+			foundStart = true
+			break
+		}
+	}
+	if !foundStart {
+		t.Errorf("expected app.start to be called, got methods: %v", methods)
+	}
+
+	// Verify warning was added about drift
+	hasWarning := false
+	for _, d := range resp.Diagnostics.Warnings() {
+		if strings.Contains(d.Summary(), "externally changed") {
+			hasWarning = true
+			break
+		}
+	}
+	if !hasWarning {
+		t.Error("expected drift warning to be added")
+	}
+}
+
 func TestAppResource_Create_WithDesiredStateStopped(t *testing.T) {
 	var methods []string
 	r := &AppResource{

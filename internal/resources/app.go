@@ -335,6 +335,7 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 
 func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data AppResourceModel
+	var stateData AppResourceModel
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -342,56 +343,96 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		return
 	}
 
-	// Build update params
-	updateParams := r.buildUpdateParams(ctx, &data)
-
-	// Call the TrueNAS API with positional args [name, params_object]
-	appName := data.Name.ValueString()
-	params := []any{appName, updateParams}
-
-	// Call app.update and wait for completion - ignore the response as it contains
-	// unparseable progress output mixed with JSON
-	_, err := r.client.CallAndWait(ctx, "app.update", params)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Update App",
-			fmt.Sprintf("Unable to update app %q: %s", appName, err.Error()),
-		)
+	// Read current state data to detect compose_config changes
+	resp.Diagnostics.Append(req.State.Get(ctx, &stateData)...)
+	if resp.Diagnostics.HasError() {
 		return
+	}
+
+	appName := data.Name.ValueString()
+
+	// Handle compose_config changes first (if any)
+	// Check if compose_config changed by comparing old and new values
+	composeConfigChanged := !data.ComposeConfig.Equal(stateData.ComposeConfig)
+	if composeConfigChanged {
+		updateParams := r.buildUpdateParams(ctx, &data)
+		params := []any{appName, updateParams}
+
+		// Call app.update and wait for completion
+		_, err := r.client.CallAndWait(ctx, "app.update", params)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Update App",
+				fmt.Sprintf("Unable to update app %q: %s", appName, err.Error()),
+			)
+			return
+		}
 	}
 
 	// Query the app to get current state
-	filter := [][]any{{"name", "=", appName}}
-	result, err := r.client.Call(ctx, "app.query", filter)
+	currentState, err := r.queryAppState(ctx, appName)
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unable to Query App After Update",
-			fmt.Sprintf("Unable to query app %q after update: %s", appName, err.Error()),
+			"Unable to Query App State",
+			fmt.Sprintf("Unable to query app %q state: %s", appName, err.Error()),
 		)
 		return
 	}
 
-	var apps []appAPIResponse
-	if err := json.Unmarshal(result, &apps); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse App Response",
-			fmt.Sprintf("Unable to parse app query response: %s", err.Error()),
-		)
-		return
+	// Get timeout from plan
+	timeout := time.Duration(data.StateTimeout.ValueInt64()) * time.Second
+	if timeout == 0 {
+		timeout = 120 * time.Second
 	}
 
-	if len(apps) == 0 {
-		resp.Diagnostics.AddError(
-			"App Not Found After Update",
-			fmt.Sprintf("App %q was not found after update", appName),
-		)
-		return
+	// Wait for transitional states to complete before reconciling
+	if !isStableState(currentState) {
+		queryFunc := func(ctx context.Context, n string) (string, error) {
+			return r.queryAppState(ctx, n)
+		}
+
+		stableState, err := waitForStableState(ctx, appName, timeout, queryFunc)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Timeout Waiting for App State",
+				err.Error(),
+			)
+			return
+		}
+		currentState = stableState
 	}
 
-	// Map response to model
-	app := apps[0]
-	data.ID = types.StringValue(app.Name)
-	data.State = types.StringValue(app.State)
+	// Reconcile desired_state - this adds drift warnings if state was externally changed
+	desiredState := data.DesiredState.ValueString()
+	if desiredState == "" {
+		desiredState = AppStateRunning
+	}
+	normalizedDesired := normalizeDesiredState(desiredState)
+
+	if currentState != normalizedDesired {
+		err := r.reconcileDesiredState(ctx, appName, currentState, normalizedDesired, timeout, resp)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Reconcile App State",
+				err.Error(),
+			)
+			return
+		}
+		// Query final state after reconciliation
+		currentState, err = r.queryAppState(ctx, appName)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Query App State After Reconciliation",
+				fmt.Sprintf("Unable to query app %q state: %s", appName, err.Error()),
+			)
+			return
+		}
+	}
+
+	// Map final state to model
+	data.ID = types.StringValue(appName)
+	data.State = types.StringValue(currentState)
+	data.DesiredState = types.StringValue(normalizedDesired)
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
