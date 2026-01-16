@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.5.0] - 2026-01-16
+
+
+### Added
+
+- **snapshot:** Add resource scaffold and schema
+- **snapshot:** Implement Create with hold support
+- **snapshot:** Implement Read with not-found handling
+- **snapshot:** Implement Update for hold/release
+- **snapshot:** Implement Delete with hold release and error tests
+- **snapshots:** Add data source scaffold and schema
+- **snapshots:** Implement data source with filtering
+- **dataset:** Add snapshot_id for clone creation
+
+### Documentation
+
+- Add snapshot resource design
+- Add snapshot implementation plan
+- Add snapshot resource and data source documentation
+- Add version-aware API resolution design
+
+### Fixed
+
+- Version-aware API resolution and desired_state normalization
+- Parse system.version as raw string, not JSON
+- **snapshot:** Correct API field mapping for name and hold detection
+- **app:** Add UseStateForUnknown to state attribute
+- **app:** Smart plan modifier for computed state attribute
+
+### Testing
+
+- **snapshot:** Add schema and configure tests
+- **snapshot:** Add ImportState test
+- **provider:** Update expected counts for snapshot resource and data source
+- Add comprehensive error handling and edge case tests for snapshot operations
+
 ## [0.4.0] - 2026-01-15
 
 
