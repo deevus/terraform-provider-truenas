@@ -120,7 +120,7 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 				Description: "Application state (RUNNING, STOPPED, etc.).",
 				Computed:    true,
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
+					computedStatePlanModifier(),
 				},
 			},
 		},
