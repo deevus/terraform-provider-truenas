@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/deevus/terraform-provider-truenas/internal/api"
 	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -38,28 +39,6 @@ type SnapshotResourceModel struct {
 	ReferencedBytes types.Int64  `tfsdk:"referenced_bytes"`
 }
 
-// snapshotQueryResponse represents the JSON response from pool.snapshot.query.
-type snapshotQueryResponse struct {
-	ID         string                     `json:"id"`
-	Name       string                     `json:"name"`
-	Dataset    string                     `json:"dataset"`
-	Holds      map[string]any             `json:"holds"`
-	Properties snapshotPropertiesResponse `json:"properties"`
-}
-
-type snapshotPropertiesResponse struct {
-	CreateTXG  propertyValue `json:"createtxg"`
-	Used       parsedValue   `json:"used"`
-	Referenced parsedValue   `json:"referenced"`
-}
-
-type propertyValue struct {
-	Value string `json:"value"`
-}
-
-type parsedValue struct {
-	Parsed int64 `json:"parsed"`
-}
 
 // NewSnapshotResource creates a new SnapshotResource.
 func NewSnapshotResource() resource.Resource {
@@ -154,14 +133,20 @@ func (r *SnapshotResource) Configure(ctx context.Context, req resource.Configure
 
 // querySnapshot queries a snapshot by ID and returns the response.
 // Returns nil if the snapshot is not found.
-func (r *SnapshotResource) querySnapshot(ctx context.Context, snapshotID string) (*snapshotQueryResponse, error) {
+func (r *SnapshotResource) querySnapshot(ctx context.Context, snapshotID string) (*api.SnapshotResponse, error) {
+	version, err := r.client.GetVersion(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get version: %w", err)
+	}
+
+	method := api.ResolveSnapshotMethod(version, api.MethodSnapshotQuery)
 	filter := [][]any{{"id", "=", snapshotID}}
-	result, err := r.client.Call(ctx, "pool.snapshot.query", filter)
+	result, err := r.client.Call(ctx, method, filter)
 	if err != nil {
 		return nil, err
 	}
 
-	var snapshots []snapshotQueryResponse
+	var snapshots []api.SnapshotResponse
 	if err := json.Unmarshal(result, &snapshots); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
@@ -174,11 +159,11 @@ func (r *SnapshotResource) querySnapshot(ctx context.Context, snapshotID string)
 }
 
 // mapSnapshotToModel maps API response fields to the Terraform model.
-func mapSnapshotToModel(snap *snapshotQueryResponse, data *SnapshotResourceModel) {
+func mapSnapshotToModel(snap *api.SnapshotResponse, data *SnapshotResourceModel) {
 	data.ID = types.StringValue(snap.ID)
 	data.DatasetID = types.StringValue(snap.Dataset)
 	data.Name = types.StringValue(snap.Name)
-	data.Hold = types.BoolValue(len(snap.Holds) > 0)
+	data.Hold = types.BoolValue(snap.HasHold())
 	data.CreateTXG = types.StringValue(snap.Properties.CreateTXG.Value)
 	data.UsedBytes = types.Int64Value(snap.Properties.Used.Parsed)
 	data.ReferencedBytes = types.Int64Value(snap.Properties.Referenced.Parsed)
@@ -189,6 +174,16 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Get TrueNAS version for API method resolution
+	version, err := r.client.GetVersion(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"TrueNAS Version Detection Failed",
+			err.Error(),
+		)
 		return
 	}
 
@@ -203,7 +198,8 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 	}
 
 	// Create the snapshot
-	_, err := r.client.Call(ctx, "pool.snapshot.create", params)
+	method := api.ResolveSnapshotMethod(version, api.MethodSnapshotCreate)
+	_, err = r.client.Call(ctx, method, params)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Snapshot",
@@ -217,7 +213,8 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 
 	// If hold is requested, apply it
 	if !data.Hold.IsNull() && data.Hold.ValueBool() {
-		_, err := r.client.Call(ctx, "pool.snapshot.hold", snapshotID)
+		holdMethod := api.ResolveSnapshotMethod(version, api.MethodSnapshotHold)
+		_, err := r.client.Call(ctx, holdMethod, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Hold Snapshot",
@@ -288,6 +285,16 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
+	// Get TrueNAS version for API method resolution
+	version, err := r.client.GetVersion(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"TrueNAS Version Detection Failed",
+			err.Error(),
+		)
+		return
+	}
+
 	snapshotID := state.ID.ValueString()
 
 	// Handle hold changes
@@ -296,7 +303,8 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 
 	if stateHold && !planHold {
 		// Release hold
-		_, err := r.client.Call(ctx, "pool.snapshot.release", snapshotID)
+		method := api.ResolveSnapshotMethod(version, api.MethodSnapshotRelease)
+		_, err := r.client.Call(ctx, method, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Release Snapshot Hold",
@@ -306,7 +314,8 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 		}
 	} else if !stateHold && planHold {
 		// Apply hold
-		_, err := r.client.Call(ctx, "pool.snapshot.hold", snapshotID)
+		method := api.ResolveSnapshotMethod(version, api.MethodSnapshotHold)
+		_, err := r.client.Call(ctx, method, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Hold Snapshot",
@@ -348,11 +357,22 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
+	// Get TrueNAS version for API method resolution
+	version, err := r.client.GetVersion(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"TrueNAS Version Detection Failed",
+			err.Error(),
+		)
+		return
+	}
+
 	snapshotID := data.ID.ValueString()
 
 	// If held, release first
 	if data.Hold.ValueBool() {
-		_, err := r.client.Call(ctx, "pool.snapshot.release", snapshotID)
+		method := api.ResolveSnapshotMethod(version, api.MethodSnapshotRelease)
+		_, err := r.client.Call(ctx, method, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Release Snapshot Hold",
@@ -363,7 +383,8 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 
 	// Delete the snapshot
-	_, err := r.client.Call(ctx, "pool.snapshot.delete", snapshotID)
+	method := api.ResolveSnapshotMethod(version, api.MethodSnapshotDelete)
+	_, err = r.client.Call(ctx, method, snapshotID)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete Snapshot",

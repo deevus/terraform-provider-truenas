@@ -4,10 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+
+	"github.com/deevus/terraform-provider-truenas/internal/api"
 )
 
 // Client defines the interface for communicating with TrueNAS.
 type Client interface {
+	// GetVersion returns the TrueNAS version. Probes once and caches.
+	GetVersion(ctx context.Context) (api.Version, error)
+
 	// Call executes a midclt command and returns the parsed JSON response.
 	Call(ctx context.Context, method string, params any) (json.RawMessage, error)
 
@@ -48,6 +53,7 @@ type Client interface {
 
 // MockClient is a test double for Client.
 type MockClient struct {
+	GetVersionFunc     func(ctx context.Context) (api.Version, error)
 	CallFunc           func(ctx context.Context, method string, params any) (json.RawMessage, error)
 	CallAndWaitFunc    func(ctx context.Context, method string, params any) (json.RawMessage, error)
 	WriteFileFunc      func(ctx context.Context, path string, content []byte, mode fs.FileMode, uid, gid int) error
@@ -60,6 +66,13 @@ type MockClient struct {
 	ChmodRecursiveFunc func(ctx context.Context, path string, mode fs.FileMode) error
 	MkdirAllFunc       func(ctx context.Context, path string, mode fs.FileMode) error
 	CloseFunc          func() error
+}
+
+func (m *MockClient) GetVersion(ctx context.Context) (api.Version, error) {
+	if m.GetVersionFunc != nil {
+		return m.GetVersionFunc(ctx)
+	}
+	return api.Version{}, nil
 }
 
 func (m *MockClient) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/deevus/terraform-provider-truenas/internal/api"
 	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -117,25 +118,21 @@ func (d *SnapshotsDataSource) Configure(ctx context.Context, req datasource.Conf
 	d.client = c
 }
 
-// snapshotsQueryResponse represents a snapshot from pool.snapshot.query.
-type snapshotsQueryResponse struct {
-	ID         string                     `json:"id"`
-	Name       string                     `json:"name"`
-	Dataset    string                     `json:"dataset"`
-	Holds      map[string]bool            `json:"holds"`
-	Properties snapshotPropertiesResponse `json:"properties"`
-}
-
-type snapshotPropertiesResponse struct {
-	Used       parsedValue `json:"used"`
-	Referenced parsedValue `json:"referenced"`
-}
-
 func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var data SnapshotsDataSourceModel
 
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Get TrueNAS version for API method resolution
+	version, err := d.client.GetVersion(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"TrueNAS Version Detection Failed",
+			err.Error(),
+		)
 		return
 	}
 
@@ -153,7 +150,8 @@ func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadReque
 		}
 	}
 
-	result, err := d.client.Call(ctx, "pool.snapshot.query", filter)
+	method := api.ResolveSnapshotMethod(version, api.MethodSnapshotQuery)
+	result, err := d.client.Call(ctx, method, filter)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Snapshots",
@@ -162,7 +160,7 @@ func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	var snapshots []snapshotsQueryResponse
+	var snapshots []api.SnapshotResponse
 	if err := json.Unmarshal(result, &snapshots); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Parse Snapshots Response",
@@ -197,7 +195,7 @@ func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadReque
 			DatasetID:       types.StringValue(snap.Dataset),
 			UsedBytes:       types.Int64Value(snap.Properties.Used.Parsed),
 			ReferencedBytes: types.Int64Value(snap.Properties.Referenced.Parsed),
-			Hold:            types.BoolValue(len(snap.Holds) > 0),
+			Hold:            types.BoolValue(snap.HasHold()),
 		})
 	}
 

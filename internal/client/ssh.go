@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"al.essio.dev/pkg/shellescape"
+	"github.com/deevus/terraform-provider-truenas/internal/api"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -192,6 +193,11 @@ type SSHClient struct {
 	dialer        sshDialer
 	mu            sync.Mutex
 	sessionSem    chan struct{} // limits concurrent SSH sessions
+
+	// Version caching
+	version     api.Version
+	versionErr  error
+	versionOnce sync.Once
 }
 
 // Compile-time check that SSHClient implements Client.
@@ -393,6 +399,26 @@ func (c *SSHClient) Close() error {
 	c.client = nil
 	c.clientWrapper = nil
 	return err
+}
+
+// GetVersion returns the TrueNAS version. Probes once and caches the result.
+func (c *SSHClient) GetVersion(ctx context.Context) (api.Version, error) {
+	c.versionOnce.Do(func() {
+		result, err := c.Call(ctx, "system.version", nil)
+		if err != nil {
+			c.versionErr = fmt.Errorf("failed to detect TrueNAS version: %w", err)
+			return
+		}
+
+		var raw string
+		if err := json.Unmarshal(result, &raw); err != nil {
+			c.versionErr = fmt.Errorf("failed to parse version response: %w", err)
+			return
+		}
+
+		c.version, c.versionErr = api.ParseVersion(raw)
+	})
+	return c.version, c.versionErr
 }
 
 // connectSFTP establishes the SFTP connection if not already connected.

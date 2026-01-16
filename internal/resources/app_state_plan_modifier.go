@@ -24,17 +24,15 @@ func (m *caseInsensitiveStateModifier) MarkdownDescription(ctx context.Context) 
 }
 
 func (m *caseInsensitiveStateModifier) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
-	// If state is null/unknown or plan is null/unknown, don't modify
-	if req.StateValue.IsNull() || req.StateValue.IsUnknown() ||
-		req.PlanValue.IsNull() || req.PlanValue.IsUnknown() {
+	// If plan is null/unknown, don't modify
+	if req.PlanValue.IsNull() || req.PlanValue.IsUnknown() {
 		return
 	}
 
-	// If normalized values are equal, use state value to prevent spurious diffs
-	stateNormalized := normalizeDesiredState(req.StateValue.ValueString())
+	// Always normalize the plan value to uppercase to ensure consistency
+	// between what Terraform plans and what the provider returns after apply.
+	// This prevents "inconsistent result after apply" errors when users
+	// specify lowercase values like "stopped" but the API returns "STOPPED".
 	planNormalized := normalizeDesiredState(req.PlanValue.ValueString())
-
-	if stateNormalized == planNormalized {
-		resp.PlanValue = types.StringValue(req.StateValue.ValueString())
-	}
+	resp.PlanValue = types.StringValue(planNormalized)
 }

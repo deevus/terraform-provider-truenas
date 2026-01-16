@@ -38,29 +38,40 @@ func TestCaseInsensitiveStatePlanModifier_MarkdownDescription(t *testing.T) {
 
 func TestCaseInsensitiveStatePlanModifier_PlanModifyString(t *testing.T) {
 	tests := []struct {
-		name          string
-		stateValue    string
-		planValue     string
-		expectedPlan  string
-		expectUnknown bool
+		name         string
+		stateValue   types.String
+		planValue    types.String
+		expectedPlan string
 	}{
 		{
-			name:         "lowercase to uppercase - no change needed",
-			stateValue:   "RUNNING",
-			planValue:    "running",
-			expectedPlan: "RUNNING", // Should preserve state value
+			name:         "lowercase to uppercase normalization",
+			stateValue:   types.StringValue("RUNNING"),
+			planValue:    types.StringValue("running"),
+			expectedPlan: "RUNNING", // Normalized to uppercase
 		},
 		{
 			name:         "same case - no change",
-			stateValue:   "STOPPED",
-			planValue:    "STOPPED",
+			stateValue:   types.StringValue("STOPPED"),
+			planValue:    types.StringValue("STOPPED"),
 			expectedPlan: "STOPPED",
 		},
 		{
-			name:         "actual state change",
-			stateValue:   "RUNNING",
-			planValue:    "stopped",
-			expectedPlan: "stopped", // Different state, keep plan value
+			name:         "state change - normalized to uppercase",
+			stateValue:   types.StringValue("RUNNING"),
+			planValue:    types.StringValue("stopped"),
+			expectedPlan: "STOPPED", // Normalized to uppercase
+		},
+		{
+			name:         "initial create - null state",
+			stateValue:   types.StringNull(),
+			planValue:    types.StringValue("stopped"),
+			expectedPlan: "STOPPED", // Normalized to uppercase
+		},
+		{
+			name:         "null plan - no change",
+			stateValue:   types.StringValue("RUNNING"),
+			planValue:    types.StringNull(),
+			expectedPlan: "", // Null stays null
 		},
 	}
 
@@ -69,16 +80,20 @@ func TestCaseInsensitiveStatePlanModifier_PlanModifyString(t *testing.T) {
 			modifier := caseInsensitiveStatePlanModifier()
 
 			req := planmodifier.StringRequest{
-				StateValue: types.StringValue(tc.stateValue),
-				PlanValue:  types.StringValue(tc.planValue),
+				StateValue: tc.stateValue,
+				PlanValue:  tc.planValue,
 			}
 			resp := &planmodifier.StringResponse{
-				PlanValue: types.StringValue(tc.planValue),
+				PlanValue: tc.planValue,
 			}
 
 			modifier.PlanModifyString(context.Background(), req, resp)
 
-			if resp.PlanValue.ValueString() != tc.expectedPlan {
+			if tc.planValue.IsNull() {
+				if !resp.PlanValue.IsNull() {
+					t.Errorf("expected null plan value, got %q", resp.PlanValue.ValueString())
+				}
+			} else if resp.PlanValue.ValueString() != tc.expectedPlan {
 				t.Errorf("expected plan value %q, got %q", tc.expectedPlan, resp.PlanValue.ValueString())
 			}
 		})
