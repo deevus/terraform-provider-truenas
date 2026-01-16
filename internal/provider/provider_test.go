@@ -167,9 +167,9 @@ func TestProvider_DataSources(t *testing.T) {
 		t.Error("expected non-nil data sources slice")
 	}
 
-	// Verify we have the expected data sources
-	if len(dataSources) != 2 {
-		t.Errorf("expected 2 data sources, got %d", len(dataSources))
+	// Verify we have the expected data sources (pool, dataset, snapshots)
+	if len(dataSources) != 3 {
+		t.Errorf("expected 3 data sources, got %d", len(dataSources))
 	}
 
 	// Verify the return type
@@ -194,9 +194,9 @@ func TestProvider_Resources(t *testing.T) {
 		t.Error("expected non-nil resources slice")
 	}
 
-	// Verify the expected number of resources
-	if len(resources) != 4 {
-		t.Errorf("expected 4 resources, got %d", len(resources))
+	// Verify the expected number of resources (dataset, host_path, app, file, snapshot)
+	if len(resources) != 5 {
+		t.Errorf("expected 5 resources, got %d", len(resources))
 	}
 
 	// Verify the return type
