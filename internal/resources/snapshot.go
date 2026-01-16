@@ -341,8 +341,36 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 }
 
 func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	// TODO: implement
-	resp.Diagnostics.AddError("Not Implemented", "Delete not yet implemented")
+	var data SnapshotResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	snapshotID := data.ID.ValueString()
+
+	// If held, release first
+	if data.Hold.ValueBool() {
+		_, err := r.client.Call(ctx, "pool.snapshot.release", snapshotID)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Release Snapshot Hold",
+				fmt.Sprintf("Unable to release hold before delete: %s", err.Error()),
+			)
+			return
+		}
+	}
+
+	// Delete the snapshot
+	_, err := r.client.Call(ctx, "pool.snapshot.delete", snapshotID)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Delete Snapshot",
+			fmt.Sprintf("Unable to delete snapshot %q: %s", snapshotID, err.Error()),
+		)
+		return
+	}
 }
 
 func (r *SnapshotResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

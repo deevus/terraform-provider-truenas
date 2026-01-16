@@ -649,3 +649,239 @@ func TestSnapshotResource_Update_ReleaseToHold(t *testing.T) {
 		t.Error("expected pool.snapshot.hold to be called")
 	}
 }
+
+func TestSnapshotResource_Delete_Success(t *testing.T) {
+	var deleteCalled bool
+	var deleteID string
+
+	r := &SnapshotResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.snapshot.delete" {
+					deleteCalled = true
+					deleteID = params.(string)
+					return json.RawMessage(`true`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getSnapshotResourceSchema(t)
+	stateValue := createSnapshotResourceModelValue(snapshotModelParams{
+		ID:              "tank/data@snap1",
+		DatasetID:       "tank/data",
+		Name:            "snap1",
+		Hold:            false,
+		Recursive:       false,
+		CreateTXG:       "12345",
+		UsedBytes:       float64(1024),
+		ReferencedBytes: float64(2048),
+	})
+
+	req := resource.DeleteRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.DeleteResponse{}
+
+	r.Delete(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if !deleteCalled {
+		t.Error("expected pool.snapshot.delete to be called")
+	}
+
+	if deleteID != "tank/data@snap1" {
+		t.Errorf("expected delete ID 'tank/data@snap1', got %q", deleteID)
+	}
+}
+
+func TestSnapshotResource_Delete_WithHold(t *testing.T) {
+	var methods []string
+
+	r := &SnapshotResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				methods = append(methods, method)
+				return json.RawMessage(`true`), nil
+			},
+		},
+	}
+
+	schemaResp := getSnapshotResourceSchema(t)
+	stateValue := createSnapshotResourceModelValue(snapshotModelParams{
+		ID:              "tank/data@snap1",
+		DatasetID:       "tank/data",
+		Name:            "snap1",
+		Hold:            true,
+		Recursive:       false,
+		CreateTXG:       "12345",
+		UsedBytes:       float64(1024),
+		ReferencedBytes: float64(2048),
+	})
+
+	req := resource.DeleteRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.DeleteResponse{}
+
+	r.Delete(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify release was called before delete
+	releaseIdx := -1
+	deleteIdx := -1
+	for i, m := range methods {
+		if m == "pool.snapshot.release" {
+			releaseIdx = i
+		}
+		if m == "pool.snapshot.delete" {
+			deleteIdx = i
+		}
+	}
+
+	if releaseIdx == -1 {
+		t.Error("expected pool.snapshot.release to be called")
+	}
+	if deleteIdx == -1 {
+		t.Error("expected pool.snapshot.delete to be called")
+	}
+	if releaseIdx > deleteIdx {
+		t.Error("expected release to be called before delete")
+	}
+}
+
+func TestSnapshotResource_Create_InvalidJSONResponse(t *testing.T) {
+	r := &SnapshotResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.snapshot.create" {
+					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
+				}
+				if method == "pool.snapshot.query" {
+					return json.RawMessage(`invalid json`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getSnapshotResourceSchema(t)
+	planValue := createSnapshotResourceModelValue(snapshotModelParams{
+		DatasetID: "tank/data",
+		Name:      "snap1",
+		Hold:      false,
+		Recursive: false,
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for invalid JSON response")
+	}
+}
+
+func TestSnapshotResource_Read_APIError(t *testing.T) {
+	r := &SnapshotResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("connection refused")
+			},
+		},
+	}
+
+	schemaResp := getSnapshotResourceSchema(t)
+	stateValue := createSnapshotResourceModelValue(snapshotModelParams{
+		ID:              "tank/data@snap1",
+		DatasetID:       "tank/data",
+		Name:            "snap1",
+		Hold:            false,
+		Recursive:       false,
+		CreateTXG:       "12345",
+		UsedBytes:       float64(1024),
+		ReferencedBytes: float64(2048),
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
+}
+
+func TestSnapshotResource_Delete_APIError(t *testing.T) {
+	r := &SnapshotResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("snapshot is busy")
+			},
+		},
+	}
+
+	schemaResp := getSnapshotResourceSchema(t)
+	stateValue := createSnapshotResourceModelValue(snapshotModelParams{
+		ID:              "tank/data@snap1",
+		DatasetID:       "tank/data",
+		Name:            "snap1",
+		Hold:            false,
+		Recursive:       false,
+		CreateTXG:       "12345",
+		UsedBytes:       float64(1024),
+		ReferencedBytes: float64(2048),
+	})
+
+	req := resource.DeleteRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.DeleteResponse{}
+
+	r.Delete(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
+}
