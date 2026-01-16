@@ -151,6 +151,15 @@ func TestDatasetResource_Schema(t *testing.T) {
 	if !forceDestroyAttr.IsOptional() {
 		t.Error("expected 'force_destroy' attribute to be optional")
 	}
+
+	// Verify snapshot_id attribute exists and is optional
+	snapshotIDAttr, ok := resp.Schema.Attributes["snapshot_id"]
+	if !ok {
+		t.Fatal("expected 'snapshot_id' attribute in schema")
+	}
+	if !snapshotIDAttr.IsOptional() {
+		t.Error("expected 'snapshot_id' attribute to be optional")
+	}
 }
 
 func TestDatasetResource_Configure_Success(t *testing.T) {
@@ -223,6 +232,11 @@ func createDatasetResourceModelWithPerms(id, pool, path, parent, name, mountPath
 
 // createDatasetResourceModelFull creates a tftypes.Value for the dataset resource model with all fields
 func createDatasetResourceModelFull(id, pool, path, parent, name, mountPath, fullPath, compression, quota, refquota, atime, forceDestroy, mode, uid, gid interface{}) tftypes.Value {
+	return createDatasetResourceModelWithSnapshot(id, pool, path, parent, name, mountPath, fullPath, compression, quota, refquota, atime, forceDestroy, mode, uid, gid, nil)
+}
+
+// createDatasetResourceModelWithSnapshot creates a tftypes.Value for the dataset resource model with all fields including snapshot_id
+func createDatasetResourceModelWithSnapshot(id, pool, path, parent, name, mountPath, fullPath, compression, quota, refquota, atime, forceDestroy, mode, uid, gid, snapshotID interface{}) tftypes.Value {
 	return tftypes.NewValue(tftypes.Object{
 		AttributeTypes: map[string]tftypes.Type{
 			"id":            tftypes.String,
@@ -240,6 +254,7 @@ func createDatasetResourceModelFull(id, pool, path, parent, name, mountPath, ful
 			"uid":           tftypes.Number,
 			"gid":           tftypes.Number,
 			"force_destroy": tftypes.Bool,
+			"snapshot_id":   tftypes.String,
 		},
 	}, map[string]tftypes.Value{
 		"id":            tftypes.NewValue(tftypes.String, id),
@@ -257,7 +272,43 @@ func createDatasetResourceModelFull(id, pool, path, parent, name, mountPath, ful
 		"uid":           tftypes.NewValue(tftypes.Number, uid),
 		"gid":           tftypes.NewValue(tftypes.Number, gid),
 		"force_destroy": tftypes.NewValue(tftypes.Bool, forceDestroy),
+		"snapshot_id":   tftypes.NewValue(tftypes.String, snapshotID),
 	})
+}
+
+// datasetModelParams holds parameters for creating test model values.
+// Using a struct instead of many individual parameters per the 3-param rule.
+type datasetModelParams struct {
+	ID           interface{}
+	Pool         interface{}
+	Path         interface{}
+	Parent       interface{}
+	Name         interface{}
+	MountPath    interface{}
+	FullPath     interface{}
+	Compression  interface{}
+	Quota        interface{}
+	RefQuota     interface{}
+	Atime        interface{}
+	ForceDestroy interface{}
+	Mode         interface{}
+	UID          interface{}
+	GID          interface{}
+	SnapshotID   interface{}
+}
+
+// createDatasetResourceModelValue creates a tftypes.Value from datasetModelParams
+func createDatasetResourceModelValue(p datasetModelParams) tftypes.Value {
+	// Use MountPath for FullPath if FullPath is not set
+	fullPath := p.FullPath
+	if fullPath == nil {
+		fullPath = p.MountPath
+	}
+	return createDatasetResourceModelWithSnapshot(
+		p.ID, p.Pool, p.Path, p.Parent, p.Name, p.MountPath, fullPath,
+		p.Compression, p.Quota, p.RefQuota, p.Atime, p.ForceDestroy,
+		p.Mode, p.UID, p.GID, p.SnapshotID,
+	)
 }
 
 func TestDatasetResource_Create_Success(t *testing.T) {
@@ -2811,5 +2862,125 @@ func TestDatasetResource_Read_PermissionsInvalidJSON_ReturnsWarning(t *testing.T
 	// Should have a warning
 	if resp.Diagnostics.WarningsCount() == 0 {
 		t.Fatal("expected warning for invalid JSON from filesystem.stat")
+	}
+}
+
+func TestDatasetResource_Create_WithSnapshotId(t *testing.T) {
+	var cloneCalled bool
+	var cloneParams map[string]any
+	var createCalled bool
+
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.snapshot.clone" {
+					cloneCalled = true
+					cloneParams = params.(map[string]any)
+					return json.RawMessage(`{"id": "tank/restored"}`), nil
+				}
+				if method == "pool.dataset.create" {
+					createCalled = true
+					return json.RawMessage(`{"id": "tank/restored"}`), nil
+				}
+				if method == "pool.dataset.query" {
+					return json.RawMessage(`[{
+						"id": "tank/restored",
+						"name": "restored",
+						"mountpoint": "/mnt/tank/restored",
+						"compression": {"value": "lz4"},
+						"quota": {"value": "0"},
+						"refquota": {"value": "0"},
+						"atime": {"value": "on"}
+					}]`), nil
+				}
+				if method == "filesystem.stat" {
+					return json.RawMessage(`{"mode": 493, "uid": 0, "gid": 0}`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+	planValue := createDatasetResourceModelValue(datasetModelParams{
+		Pool:       "tank",
+		Path:       "restored",
+		SnapshotID: "tank/data@snap1",
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify pool.snapshot.clone was called
+	if !cloneCalled {
+		t.Error("expected pool.snapshot.clone to be called")
+	}
+
+	// Verify pool.dataset.create was NOT called
+	if createCalled {
+		t.Error("expected pool.dataset.create to NOT be called when snapshot_id is set")
+	}
+
+	if cloneParams["snapshot"] != "tank/data@snap1" {
+		t.Errorf("expected snapshot 'tank/data@snap1', got %v", cloneParams["snapshot"])
+	}
+
+	if cloneParams["dataset_dst"] != "tank/restored" {
+		t.Errorf("expected dataset_dst 'tank/restored', got %v", cloneParams["dataset_dst"])
+	}
+}
+
+func TestDatasetResource_Create_WithSnapshotId_APIError(t *testing.T) {
+	r := &DatasetResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.snapshot.clone" {
+					return nil, errors.New("snapshot not found")
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getDatasetResourceSchema(t)
+	planValue := createDatasetResourceModelValue(datasetModelParams{
+		Pool:       "tank",
+		Path:       "restored",
+		SnapshotID: "tank/data@nonexistent",
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for clone API error")
 	}
 }

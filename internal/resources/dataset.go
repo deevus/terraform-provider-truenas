@@ -41,6 +41,7 @@ type DatasetResourceModel struct {
 	UID          types.Int64  `tfsdk:"uid"`
 	GID          types.Int64  `tfsdk:"gid"`
 	ForceDestroy types.Bool   `tfsdk:"force_destroy"`
+	SnapshotID   types.String `tfsdk:"snapshot_id"`
 }
 
 // datasetCreateResponse represents the JSON response from pool.dataset.create.
@@ -221,6 +222,13 @@ func (r *DatasetResource) Schema(ctx context.Context, req resource.SchemaRequest
 				Description: "When destroying this resource, also delete all child datasets. Defaults to false.",
 				Optional:    true,
 			},
+			"snapshot_id": schema.StringAttribute{
+				Description: "Create dataset as clone from this snapshot. Mutually exclusive with other creation options.",
+				Optional:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
 		},
 	}
 }
@@ -259,6 +267,61 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 			"Invalid Configuration",
 			"Either 'pool' with 'path', or 'parent' with 'path' (or deprecated 'name') must be provided.",
 		)
+		return
+	}
+
+	// If snapshot_id is set, use clone instead of create
+	if !data.SnapshotID.IsNull() && data.SnapshotID.ValueString() != "" {
+		cloneParams := map[string]any{
+			"snapshot":    data.SnapshotID.ValueString(),
+			"dataset_dst": fullName,
+		}
+
+		_, err := r.client.Call(ctx, "pool.snapshot.clone", cloneParams)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Clone Snapshot",
+				fmt.Sprintf("Unable to clone snapshot to dataset: %s", err.Error()),
+			)
+			return
+		}
+
+		// Query the cloned dataset to get all computed attributes
+		ds, err := r.queryDataset(ctx, fullName)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Read Dataset After Clone",
+				fmt.Sprintf("Dataset was cloned but unable to read it: %s", err.Error()),
+			)
+			return
+		}
+
+		if ds == nil {
+			resp.Diagnostics.AddError(
+				"Dataset Not Found After Clone",
+				fmt.Sprintf("Dataset %q was cloned but could not be found", fullName),
+			)
+			return
+		}
+
+		// Map all attributes from query response
+		mapDatasetToModel(ds, &data)
+
+		// Set permissions on the mountpoint if mode/uid/gid are specified
+		if r.hasPermissions(&data) {
+			permParams := r.buildPermParams(&data, ds.Mountpoint)
+			_, err := r.client.CallAndWait(ctx, "filesystem.setperm", permParams)
+			if err != nil {
+				resp.Diagnostics.AddError(
+					"Unable to Set Dataset Permissions",
+					fmt.Sprintf("Dataset was cloned but unable to set permissions on mountpoint %q: %s", ds.Mountpoint, err.Error()),
+				)
+				return
+			}
+		}
+
+		// Save data into Terraform state
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}
 
