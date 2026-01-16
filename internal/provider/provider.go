@@ -159,6 +159,7 @@ func (p *TrueNASProvider) DataSources(ctx context.Context) []func() datasource.D
 	return []func() datasource.DataSource{
 		datasources.NewPoolDataSource,
 		datasources.NewDatasetDataSource,
+		datasources.NewSnapshotsDataSource,
 	}
 }
 
