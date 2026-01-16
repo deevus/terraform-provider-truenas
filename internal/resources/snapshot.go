@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
@@ -35,6 +36,29 @@ type SnapshotResourceModel struct {
 	CreateTXG       types.String `tfsdk:"createtxg"`
 	UsedBytes       types.Int64  `tfsdk:"used_bytes"`
 	ReferencedBytes types.Int64  `tfsdk:"referenced_bytes"`
+}
+
+// snapshotQueryResponse represents the JSON response from pool.snapshot.query.
+type snapshotQueryResponse struct {
+	ID         string                     `json:"id"`
+	Name       string                     `json:"name"`
+	Dataset    string                     `json:"dataset"`
+	Holds      map[string]any             `json:"holds"`
+	Properties snapshotPropertiesResponse `json:"properties"`
+}
+
+type snapshotPropertiesResponse struct {
+	CreateTXG  propertyValue `json:"createtxg"`
+	Used       parsedValue   `json:"used"`
+	Referenced parsedValue   `json:"referenced"`
+}
+
+type propertyValue struct {
+	Value string `json:"value"`
+}
+
+type parsedValue struct {
+	Parsed int64 `json:"parsed"`
 }
 
 // NewSnapshotResource creates a new SnapshotResource.
@@ -128,9 +152,102 @@ func (r *SnapshotResource) Configure(ctx context.Context, req resource.Configure
 	r.client = c
 }
 
+// querySnapshot queries a snapshot by ID and returns the response.
+// Returns nil if the snapshot is not found.
+func (r *SnapshotResource) querySnapshot(ctx context.Context, snapshotID string) (*snapshotQueryResponse, error) {
+	filter := [][]any{{"id", "=", snapshotID}}
+	result, err := r.client.Call(ctx, "pool.snapshot.query", filter)
+	if err != nil {
+		return nil, err
+	}
+
+	var snapshots []snapshotQueryResponse
+	if err := json.Unmarshal(result, &snapshots); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	if len(snapshots) == 0 {
+		return nil, nil
+	}
+
+	return &snapshots[0], nil
+}
+
+// mapSnapshotToModel maps API response fields to the Terraform model.
+func mapSnapshotToModel(snap *snapshotQueryResponse, data *SnapshotResourceModel) {
+	data.ID = types.StringValue(snap.ID)
+	data.DatasetID = types.StringValue(snap.Dataset)
+	data.Name = types.StringValue(snap.Name)
+	data.Hold = types.BoolValue(len(snap.Holds) > 0)
+	data.CreateTXG = types.StringValue(snap.Properties.CreateTXG.Value)
+	data.UsedBytes = types.Int64Value(snap.Properties.Used.Parsed)
+	data.ReferencedBytes = types.Int64Value(snap.Properties.Referenced.Parsed)
+}
+
 func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	// TODO: implement
-	resp.Diagnostics.AddError("Not Implemented", "Create not yet implemented")
+	var data SnapshotResourceModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Build create params
+	params := map[string]any{
+		"dataset": data.DatasetID.ValueString(),
+		"name":    data.Name.ValueString(),
+	}
+
+	if !data.Recursive.IsNull() && data.Recursive.ValueBool() {
+		params["recursive"] = true
+	}
+
+	// Create the snapshot
+	_, err := r.client.Call(ctx, "pool.snapshot.create", params)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Create Snapshot",
+			fmt.Sprintf("Unable to create snapshot: %s", err.Error()),
+		)
+		return
+	}
+
+	// Build snapshot ID
+	snapshotID := fmt.Sprintf("%s@%s", data.DatasetID.ValueString(), data.Name.ValueString())
+
+	// If hold is requested, apply it
+	if !data.Hold.IsNull() && data.Hold.ValueBool() {
+		_, err := r.client.Call(ctx, "pool.snapshot.hold", snapshotID)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Hold Snapshot",
+				fmt.Sprintf("Snapshot created but failed to apply hold: %s", err.Error()),
+			)
+			return
+		}
+	}
+
+	// Query the snapshot to get computed fields
+	snap, err := r.querySnapshot(ctx, snapshotID)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Read Snapshot",
+			fmt.Sprintf("Snapshot created but unable to read: %s", err.Error()),
+		)
+		return
+	}
+
+	if snap == nil {
+		resp.Diagnostics.AddError(
+			"Snapshot Not Found",
+			"Snapshot was created but could not be found.",
+		)
+		return
+	}
+
+	mapSnapshotToModel(snap, &data)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *SnapshotResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {

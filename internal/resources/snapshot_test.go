@@ -2,10 +2,13 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
@@ -197,4 +200,184 @@ func createSnapshotResourceModelValue(p snapshotModelParams) tftypes.Value {
 		"used_bytes":       tftypes.NewValue(tftypes.Number, p.UsedBytes),
 		"referenced_bytes": tftypes.NewValue(tftypes.Number, p.ReferencedBytes),
 	})
+}
+
+func TestSnapshotResource_Create_Success(t *testing.T) {
+	var capturedMethod string
+	var capturedParams any
+
+	r := &SnapshotResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "pool.snapshot.create" {
+					capturedMethod = method
+					capturedParams = params
+					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
+				}
+				if method == "pool.snapshot.query" {
+					return json.RawMessage(`[{
+						"id": "tank/data@snap1",
+						"name": "snap1",
+						"dataset": "tank/data",
+						"properties": {
+							"createtxg": {"value": "12345"},
+							"used": {"parsed": 1024},
+							"referenced": {"parsed": 2048}
+						}
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getSnapshotResourceSchema(t)
+	planValue := createSnapshotResourceModelValue(snapshotModelParams{
+		DatasetID: "tank/data",
+		Name:      "snap1",
+		Hold:      false,
+		Recursive: false,
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "pool.snapshot.create" {
+		t.Errorf("expected method 'pool.snapshot.create', got %q", capturedMethod)
+	}
+
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	if params["dataset"] != "tank/data" {
+		t.Errorf("expected dataset 'tank/data', got %v", params["dataset"])
+	}
+	if params["name"] != "snap1" {
+		t.Errorf("expected name 'snap1', got %v", params["name"])
+	}
+}
+
+func TestSnapshotResource_Create_WithHold(t *testing.T) {
+	var methods []string
+
+	r := &SnapshotResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				methods = append(methods, method)
+				if method == "pool.snapshot.create" {
+					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
+				}
+				if method == "pool.snapshot.hold" {
+					return json.RawMessage(`true`), nil
+				}
+				if method == "pool.snapshot.query" {
+					return json.RawMessage(`[{
+						"id": "tank/data@snap1",
+						"name": "snap1",
+						"dataset": "tank/data",
+						"properties": {
+							"createtxg": {"value": "12345"},
+							"used": {"parsed": 1024},
+							"referenced": {"parsed": 2048}
+						}
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getSnapshotResourceSchema(t)
+	planValue := createSnapshotResourceModelValue(snapshotModelParams{
+		DatasetID: "tank/data",
+		Name:      "snap1",
+		Hold:      true,
+		Recursive: false,
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify pool.snapshot.hold was called
+	holdCalled := false
+	for _, m := range methods {
+		if m == "pool.snapshot.hold" {
+			holdCalled = true
+			break
+		}
+	}
+	if !holdCalled {
+		t.Error("expected pool.snapshot.hold to be called when hold=true")
+	}
+}
+
+func TestSnapshotResource_Create_APIError(t *testing.T) {
+	r := &SnapshotResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("snapshot already exists")
+			},
+		},
+	}
+
+	schemaResp := getSnapshotResourceSchema(t)
+	planValue := createSnapshotResourceModelValue(snapshotModelParams{
+		DatasetID: "tank/data",
+		Name:      "snap1",
+		Hold:      false,
+		Recursive: false,
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
 }
