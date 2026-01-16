@@ -28,6 +28,7 @@ Manages a TrueNAS dataset. Use nested datasets instead of host_path for app stor
 - `pool` (String) Pool name. Use with 'path' attribute for pool-relative paths.
 - `quota` (String) Dataset quota (e.g., '10G', '1T').
 - `refquota` (String) Dataset reference quota (e.g., '10G', '1T').
+- `snapshot_id` (String) Create dataset as clone from this snapshot.
 - `uid` (Number) Owner user ID for the dataset mountpoint.
 
 ### Read-Only
@@ -35,3 +36,13 @@ Manages a TrueNAS dataset. Use nested datasets instead of host_path for app stor
 - `full_path` (String) Full filesystem path to the mounted dataset (e.g., '/mnt/tank/data').
 - `id` (String) Dataset identifier (pool/path).
 - `mount_path` (String, Deprecated) Filesystem mount path.
+
+## Creating from Snapshot (Clone)
+
+```hcl
+resource "truenas_dataset" "restored" {
+  pool        = "tank"
+  path        = "apps/restored"
+  snapshot_id = truenas_snapshot.backup.id
+}
+```
