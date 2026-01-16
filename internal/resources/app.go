@@ -119,6 +119,9 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			"state": schema.StringAttribute{
 				Description: "Application state (RUNNING, STOPPED, etc.).",
 				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 		},
 	}
