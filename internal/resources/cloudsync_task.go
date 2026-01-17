@@ -516,7 +516,40 @@ func (r *CloudSyncTaskResource) mapTaskToModel(task *api.CloudSyncTaskResponse, 
 }
 
 func (r *CloudSyncTaskResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	// TODO: Implement
+	var data CloudSyncTaskResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	id, err := strconv.ParseInt(data.ID.ValueString(), 10, 64)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Invalid ID",
+			fmt.Sprintf("Unable to parse ID %q: %s", data.ID.ValueString(), err.Error()),
+		)
+		return
+	}
+
+	task, err := r.queryTask(ctx, id)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Read Task",
+			fmt.Sprintf("Unable to query task: %s", err.Error()),
+		)
+		return
+	}
+
+	if task == nil {
+		// Task was deleted outside Terraform
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
+	r.mapTaskToModel(task, &data)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *CloudSyncTaskResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {

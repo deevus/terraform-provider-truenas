@@ -510,3 +510,116 @@ func TestCloudSyncTaskResource_Create_S3_Success(t *testing.T) {
 		t.Errorf("expected ID '10', got %q", resultData.ID.ValueString())
 	}
 }
+
+func TestCloudSyncTaskResource_Read_Success(t *testing.T) {
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"id": 10,
+					"description": "Daily Backup",
+					"path": "/mnt/tank/data",
+					"credentials": 5,
+					"attributes": {"bucket": "my-bucket", "folder": "/backups/"},
+					"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"},
+					"direction": "PUSH",
+					"transfer_mode": "SYNC",
+					"encryption": false,
+					"snapshot": false,
+					"transfers": 4,
+					"bwlimit": "",
+					"exclude": [],
+					"follow_symlinks": false,
+					"create_empty_src_dirs": false,
+					"enabled": true
+				}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	stateValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:          "10",
+		Description: "Daily Backup",
+		Path:        "/mnt/tank/data",
+		Credentials: 5,
+		Direction:   "push",
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify state was updated
+	var resultData CloudSyncTaskResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.Description.ValueString() != "Daily Backup" {
+		t.Errorf("expected description 'Daily Backup', got %q", resultData.Description.ValueString())
+	}
+}
+
+func TestCloudSyncTaskResource_Read_NotFound(t *testing.T) {
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[]`), nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	stateValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:          "10",
+		Description: "Deleted Task",
+		Path:        "/mnt/tank/data",
+		Credentials: 5,
+		Direction:   "push",
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// State should be removed (resource not found)
+	if !resp.State.Raw.IsNull() {
+		t.Error("expected state to be removed when resource not found")
+	}
+}
