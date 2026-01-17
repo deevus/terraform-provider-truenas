@@ -808,3 +808,256 @@ func TestCloudSyncCredentialsResource_Delete_APIError(t *testing.T) {
 		t.Fatal("expected error for API error")
 	}
 }
+
+func TestCloudSyncCredentialsResource_Create_B2_Success(t *testing.T) {
+	var capturedParams any
+
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.credentials.create" {
+					capturedParams = params
+					return json.RawMessage(`{"id": 6}`), nil
+				}
+				if method == "cloudsync.credentials.query" {
+					return json.RawMessage(`[{
+						"id": 6,
+						"name": "Backblaze",
+						"provider": "B2",
+						"attributes": {
+							"account": "account123",
+							"key": "key456"
+						}
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		Name: "Backblaze",
+		B2: &b2BlockParams{
+			Account: "account123",
+			Key:     "key456",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	if params["name"] != "Backblaze" {
+		t.Errorf("expected name 'Backblaze', got %v", params["name"])
+	}
+	if params["provider"] != "B2" {
+		t.Errorf("expected provider 'B2', got %v", params["provider"])
+	}
+
+	// Verify attributes were passed correctly
+	attrs, ok := params["attributes"].(map[string]any)
+	if !ok {
+		t.Fatal("expected attributes to be map[string]any")
+	}
+	if attrs["account"] != "account123" {
+		t.Errorf("expected account 'account123', got %v", attrs["account"])
+	}
+	if attrs["key"] != "key456" {
+		t.Errorf("expected key 'key456', got %v", attrs["key"])
+	}
+
+	// Verify state was set correctly
+	var resultData CloudSyncCredentialsResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "6" {
+		t.Errorf("expected ID '6', got %q", resultData.ID.ValueString())
+	}
+}
+
+func TestCloudSyncCredentialsResource_Create_GCS_Success(t *testing.T) {
+	var capturedParams any
+
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.credentials.create" {
+					capturedParams = params
+					return json.RawMessage(`{"id": 7}`), nil
+				}
+				if method == "cloudsync.credentials.query" {
+					return json.RawMessage(`[{
+						"id": 7,
+						"name": "GCS",
+						"provider": "GOOGLE_CLOUD_STORAGE",
+						"attributes": {
+							"service_account_credentials": "{\"type\": \"service_account\"}"
+						}
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		Name: "GCS",
+		GCS: &gcsBlockParams{
+			ServiceAccountCredentials: `{"type": "service_account"}`,
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	if params["name"] != "GCS" {
+		t.Errorf("expected name 'GCS', got %v", params["name"])
+	}
+	if params["provider"] != "GOOGLE_CLOUD_STORAGE" {
+		t.Errorf("expected provider 'GOOGLE_CLOUD_STORAGE', got %v", params["provider"])
+	}
+
+	// Verify attributes were passed correctly
+	attrs, ok := params["attributes"].(map[string]any)
+	if !ok {
+		t.Fatal("expected attributes to be map[string]any")
+	}
+	if attrs["service_account_credentials"] != `{"type": "service_account"}` {
+		t.Errorf("expected service_account_credentials '{\"type\": \"service_account\"}', got %v", attrs["service_account_credentials"])
+	}
+
+	// Verify state was set correctly
+	var resultData CloudSyncCredentialsResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "7" {
+		t.Errorf("expected ID '7', got %q", resultData.ID.ValueString())
+	}
+}
+
+func TestCloudSyncCredentialsResource_Create_Azure_Success(t *testing.T) {
+	var capturedParams any
+
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.credentials.create" {
+					capturedParams = params
+					return json.RawMessage(`{"id": 8}`), nil
+				}
+				if method == "cloudsync.credentials.query" {
+					return json.RawMessage(`[{
+						"id": 8,
+						"name": "Azure",
+						"provider": "AZUREBLOB",
+						"attributes": {
+							"account": "storageaccount",
+							"key": "accountkey"
+						}
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		Name: "Azure",
+		Azure: &azureBlockParams{
+			Account: "storageaccount",
+			Key:     "accountkey",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	if params["name"] != "Azure" {
+		t.Errorf("expected name 'Azure', got %v", params["name"])
+	}
+	if params["provider"] != "AZUREBLOB" {
+		t.Errorf("expected provider 'AZUREBLOB', got %v", params["provider"])
+	}
+
+	// Verify attributes were passed correctly
+	attrs, ok := params["attributes"].(map[string]any)
+	if !ok {
+		t.Fatal("expected attributes to be map[string]any")
+	}
+	if attrs["account"] != "storageaccount" {
+		t.Errorf("expected account 'storageaccount', got %v", attrs["account"])
+	}
+	if attrs["key"] != "accountkey" {
+		t.Errorf("expected key 'accountkey', got %v", attrs["key"])
+	}
+
+	// Verify state was set correctly
+	var resultData CloudSyncCredentialsResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "8" {
+		t.Errorf("expected ID '8', got %q", resultData.ID.ValueString())
+	}
+}
