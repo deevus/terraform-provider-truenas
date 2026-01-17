@@ -512,6 +512,403 @@ func TestCloudSyncTaskResource_Create_S3_Success(t *testing.T) {
 	}
 }
 
+func TestCloudSyncTaskResource_Create_B2_Success(t *testing.T) {
+	var capturedMethod string
+	var capturedParams any
+
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.create" {
+					capturedMethod = method
+					capturedParams = params
+					return json.RawMessage(`{"id": 11}`), nil
+				}
+				if method == "cloudsync.query" {
+					return json.RawMessage(`[{
+						"id": 11,
+						"description": "B2 Backup",
+						"path": "/mnt/tank/b2data",
+						"credentials": 6,
+						"attributes": {"bucket": "b2-bucket", "folder": "/b2-backups/"},
+						"schedule": {"minute": "30", "hour": "2", "dom": "*", "month": "*", "dow": "*"},
+						"direction": "PUSH",
+						"transfer_mode": "COPY",
+						"encryption": false,
+						"snapshot": false,
+						"transfers": 8,
+						"follow_symlinks": false,
+						"create_empty_src_dirs": false,
+						"enabled": true
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		Description:  "B2 Backup",
+		Path:         "/mnt/tank/b2data",
+		Credentials:  6,
+		Direction:    "push",
+		TransferMode: "copy",
+		Transfers:    8,
+		Enabled:      true,
+		Schedule: &scheduleBlockParams{
+			Minute: "30",
+			Hour:   "2",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		B2: &taskB2BlockParams{
+			Bucket: "b2-bucket",
+			Folder: "/b2-backups/",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cloudsync.create" {
+		t.Errorf("expected method 'cloudsync.create', got %q", capturedMethod)
+	}
+
+	// Verify params
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	if params["description"] != "B2 Backup" {
+		t.Errorf("expected description 'B2 Backup', got %v", params["description"])
+	}
+	if params["path"] != "/mnt/tank/b2data" {
+		t.Errorf("expected path '/mnt/tank/b2data', got %v", params["path"])
+	}
+	if params["direction"] != "PUSH" {
+		t.Errorf("expected direction 'PUSH', got %v", params["direction"])
+	}
+	if params["transfer_mode"] != "COPY" {
+		t.Errorf("expected transfer_mode 'COPY', got %v", params["transfer_mode"])
+	}
+
+	// Verify schedule
+	schedule, ok := params["schedule"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
+	}
+	if schedule["minute"] != "30" {
+		t.Errorf("expected schedule minute '30', got %v", schedule["minute"])
+	}
+	if schedule["hour"] != "2" {
+		t.Errorf("expected schedule hour '2', got %v", schedule["hour"])
+	}
+
+	// Verify attributes (bucket/folder for B2)
+	attributes, ok := params["attributes"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected attributes to be map[string]any, got %T", params["attributes"])
+	}
+	if attributes["bucket"] != "b2-bucket" {
+		t.Errorf("expected attributes bucket 'b2-bucket', got %v", attributes["bucket"])
+	}
+	if attributes["folder"] != "/b2-backups/" {
+		t.Errorf("expected attributes folder '/b2-backups/', got %v", attributes["folder"])
+	}
+
+	// Verify state was set
+	var resultData CloudSyncTaskResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "11" {
+		t.Errorf("expected ID '11', got %q", resultData.ID.ValueString())
+	}
+}
+
+func TestCloudSyncTaskResource_Create_GCS_Success(t *testing.T) {
+	var capturedMethod string
+	var capturedParams any
+
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.create" {
+					capturedMethod = method
+					capturedParams = params
+					return json.RawMessage(`{"id": 12}`), nil
+				}
+				if method == "cloudsync.query" {
+					return json.RawMessage(`[{
+						"id": 12,
+						"description": "GCS Backup",
+						"path": "/mnt/tank/gcsdata",
+						"credentials": 7,
+						"attributes": {"bucket": "gcs-bucket", "folder": "/gcs-backups/"},
+						"schedule": {"minute": "15", "hour": "4", "dom": "*", "month": "*", "dow": "*"},
+						"direction": "PULL",
+						"transfer_mode": "MOVE",
+						"encryption": false,
+						"snapshot": false,
+						"transfers": 2,
+						"follow_symlinks": false,
+						"create_empty_src_dirs": false,
+						"enabled": true
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		Description:  "GCS Backup",
+		Path:         "/mnt/tank/gcsdata",
+		Credentials:  7,
+		Direction:    "pull",
+		TransferMode: "move",
+		Transfers:    2,
+		Enabled:      true,
+		Schedule: &scheduleBlockParams{
+			Minute: "15",
+			Hour:   "4",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		GCS: &taskGCSBlockParams{
+			Bucket: "gcs-bucket",
+			Folder: "/gcs-backups/",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cloudsync.create" {
+		t.Errorf("expected method 'cloudsync.create', got %q", capturedMethod)
+	}
+
+	// Verify params
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	if params["description"] != "GCS Backup" {
+		t.Errorf("expected description 'GCS Backup', got %v", params["description"])
+	}
+	if params["path"] != "/mnt/tank/gcsdata" {
+		t.Errorf("expected path '/mnt/tank/gcsdata', got %v", params["path"])
+	}
+	if params["direction"] != "PULL" {
+		t.Errorf("expected direction 'PULL', got %v", params["direction"])
+	}
+	if params["transfer_mode"] != "MOVE" {
+		t.Errorf("expected transfer_mode 'MOVE', got %v", params["transfer_mode"])
+	}
+
+	// Verify schedule
+	schedule, ok := params["schedule"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
+	}
+	if schedule["minute"] != "15" {
+		t.Errorf("expected schedule minute '15', got %v", schedule["minute"])
+	}
+	if schedule["hour"] != "4" {
+		t.Errorf("expected schedule hour '4', got %v", schedule["hour"])
+	}
+
+	// Verify attributes (bucket/folder for GCS)
+	attributes, ok := params["attributes"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected attributes to be map[string]any, got %T", params["attributes"])
+	}
+	if attributes["bucket"] != "gcs-bucket" {
+		t.Errorf("expected attributes bucket 'gcs-bucket', got %v", attributes["bucket"])
+	}
+	if attributes["folder"] != "/gcs-backups/" {
+		t.Errorf("expected attributes folder '/gcs-backups/', got %v", attributes["folder"])
+	}
+
+	// Verify state was set
+	var resultData CloudSyncTaskResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "12" {
+		t.Errorf("expected ID '12', got %q", resultData.ID.ValueString())
+	}
+}
+
+func TestCloudSyncTaskResource_Create_Azure_Success(t *testing.T) {
+	var capturedMethod string
+	var capturedParams any
+
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.create" {
+					capturedMethod = method
+					capturedParams = params
+					return json.RawMessage(`{"id": 13}`), nil
+				}
+				if method == "cloudsync.query" {
+					return json.RawMessage(`[{
+						"id": 13,
+						"description": "Azure Backup",
+						"path": "/mnt/tank/azuredata",
+						"credentials": 8,
+						"attributes": {"container": "azure-container", "folder": "/azure-backups/"},
+						"schedule": {"minute": "45", "hour": "6", "dom": "*", "month": "*", "dow": "*"},
+						"direction": "PUSH",
+						"transfer_mode": "SYNC",
+						"encryption": false,
+						"snapshot": true,
+						"transfers": 6,
+						"follow_symlinks": false,
+						"create_empty_src_dirs": false,
+						"enabled": true
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		Description:  "Azure Backup",
+		Path:         "/mnt/tank/azuredata",
+		Credentials:  8,
+		Direction:    "push",
+		TransferMode: "sync",
+		Transfers:    6,
+		Snapshot:     true,
+		Enabled:      true,
+		Schedule: &scheduleBlockParams{
+			Minute: "45",
+			Hour:   "6",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		Azure: &taskAzureBlockParams{
+			Container: "azure-container",
+			Folder:    "/azure-backups/",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cloudsync.create" {
+		t.Errorf("expected method 'cloudsync.create', got %q", capturedMethod)
+	}
+
+	// Verify params
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	if params["description"] != "Azure Backup" {
+		t.Errorf("expected description 'Azure Backup', got %v", params["description"])
+	}
+	if params["path"] != "/mnt/tank/azuredata" {
+		t.Errorf("expected path '/mnt/tank/azuredata', got %v", params["path"])
+	}
+	if params["direction"] != "PUSH" {
+		t.Errorf("expected direction 'PUSH', got %v", params["direction"])
+	}
+	if params["transfer_mode"] != "SYNC" {
+		t.Errorf("expected transfer_mode 'SYNC', got %v", params["transfer_mode"])
+	}
+	if params["snapshot"] != true {
+		t.Errorf("expected snapshot true, got %v", params["snapshot"])
+	}
+
+	// Verify schedule
+	schedule, ok := params["schedule"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
+	}
+	if schedule["minute"] != "45" {
+		t.Errorf("expected schedule minute '45', got %v", schedule["minute"])
+	}
+	if schedule["hour"] != "6" {
+		t.Errorf("expected schedule hour '6', got %v", schedule["hour"])
+	}
+
+	// Verify attributes (container/folder for Azure)
+	attributes, ok := params["attributes"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected attributes to be map[string]any, got %T", params["attributes"])
+	}
+	if attributes["container"] != "azure-container" {
+		t.Errorf("expected attributes container 'azure-container', got %v", attributes["container"])
+	}
+	if attributes["folder"] != "/azure-backups/" {
+		t.Errorf("expected attributes folder '/azure-backups/', got %v", attributes["folder"])
+	}
+
+	// Verify state was set
+	var resultData CloudSyncTaskResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "13" {
+		t.Errorf("expected ID '13', got %q", resultData.ID.ValueString())
+	}
+}
+
 func TestCloudSyncTaskResource_Read_Success(t *testing.T) {
 	r := &CloudSyncTaskResource{
 		client: &client.MockClient{
