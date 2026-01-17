@@ -491,3 +491,129 @@ func TestCloudSyncCredentialsResource_Read_NotFound(t *testing.T) {
 		t.Error("expected state to be null when credential not found")
 	}
 }
+
+func TestCloudSyncCredentialsResource_Update_Success(t *testing.T) {
+	var capturedMethod string
+	var capturedID int64
+	var capturedUpdateData map[string]any
+
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.credentials.update" {
+					capturedMethod = method
+					// params is []any{id, updateData}
+					paramsSlice := params.([]any)
+					capturedID = paramsSlice[0].(int64)
+					capturedUpdateData = paramsSlice[1].(map[string]any)
+					return json.RawMessage(`{"id": 5}`), nil
+				}
+				if method == "cloudsync.credentials.query" {
+					return json.RawMessage(`[{
+						"id": 5,
+						"name": "Scaleway Updated",
+						"provider": "S3",
+						"attributes": {
+							"access_key_id": "AKIATEST-UPDATED",
+							"secret_access_key": "newsecret456",
+							"endpoint": "s3.fr-par.scw.cloud",
+							"region": "fr-par"
+						}
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+
+	stateValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		ID:   "5",
+		Name: "Scaleway",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST",
+			SecretAccessKey: "secret123",
+			Endpoint:        "s3.nl-ams.scw.cloud",
+			Region:          "nl-ams",
+		},
+	})
+
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		ID:   "5",
+		Name: "Scaleway Updated",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST-UPDATED",
+			SecretAccessKey: "newsecret456",
+			Endpoint:        "s3.fr-par.scw.cloud",
+			Region:          "fr-par",
+		},
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cloudsync.credentials.update" {
+		t.Errorf("expected method 'cloudsync.credentials.update', got %q", capturedMethod)
+	}
+
+	if capturedID != 5 {
+		t.Errorf("expected ID 5, got %d", capturedID)
+	}
+
+	// Verify updateData was formed correctly
+	if capturedUpdateData["name"] != "Scaleway Updated" {
+		t.Errorf("expected name 'Scaleway Updated', got %v", capturedUpdateData["name"])
+	}
+	if capturedUpdateData["provider"] != "S3" {
+		t.Errorf("expected provider 'S3', got %v", capturedUpdateData["provider"])
+	}
+
+	// Verify attributes were passed correctly
+	attrs, ok := capturedUpdateData["attributes"].(map[string]any)
+	if !ok {
+		t.Fatal("expected attributes to be map[string]any")
+	}
+	if attrs["access_key_id"] != "AKIATEST-UPDATED" {
+		t.Errorf("expected access_key_id 'AKIATEST-UPDATED', got %v", attrs["access_key_id"])
+	}
+	if attrs["secret_access_key"] != "newsecret456" {
+		t.Errorf("expected secret_access_key 'newsecret456', got %v", attrs["secret_access_key"])
+	}
+	if attrs["endpoint"] != "s3.fr-par.scw.cloud" {
+		t.Errorf("expected endpoint 's3.fr-par.scw.cloud', got %v", attrs["endpoint"])
+	}
+	if attrs["region"] != "fr-par" {
+		t.Errorf("expected region 'fr-par', got %v", attrs["region"])
+	}
+
+	// Verify state was set correctly after update
+	var resultData CloudSyncCredentialsResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "5" {
+		t.Errorf("expected ID '5', got %q", resultData.ID.ValueString())
+	}
+	if resultData.Name.ValueString() != "Scaleway Updated" {
+		t.Errorf("expected Name 'Scaleway Updated', got %q", resultData.Name.ValueString())
+	}
+}

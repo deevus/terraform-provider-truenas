@@ -331,7 +331,70 @@ func (r *CloudSyncCredentialsResource) Read(ctx context.Context, req resource.Re
 }
 
 func (r *CloudSyncCredentialsResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// TODO: implement
+	var state CloudSyncCredentialsResourceModel
+	var plan CloudSyncCredentialsResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	id, err := strconv.ParseInt(state.ID.ValueString(), 10, 64)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Invalid ID",
+			fmt.Sprintf("Unable to parse ID %q: %s", state.ID.ValueString(), err.Error()),
+		)
+		return
+	}
+
+	provider, attributes := getProviderAndAttributes(&plan)
+	if provider == "" {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"Exactly one provider block (s3, b2, gcs, or azure) must be specified.",
+		)
+		return
+	}
+
+	updateData := map[string]any{
+		"name":       plan.Name.ValueString(),
+		"provider":   provider,
+		"attributes": attributes,
+	}
+
+	_, err = r.client.Call(ctx, "cloudsync.credentials.update", []any{id, updateData})
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Update Credentials",
+			fmt.Sprintf("Unable to update credentials: %s", err.Error()),
+		)
+		return
+	}
+
+	// Query to refresh state
+	cred, err := r.queryCredential(ctx, id)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Read Credentials",
+			fmt.Sprintf("Credentials updated but unable to read: %s", err.Error()),
+		)
+		return
+	}
+
+	if cred == nil {
+		resp.Diagnostics.AddError(
+			"Credentials Not Found",
+			"Credentials were updated but could not be found.",
+		)
+		return
+	}
+
+	plan.ID = state.ID
+	plan.Name = types.StringValue(cred.Name)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *CloudSyncCredentialsResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
