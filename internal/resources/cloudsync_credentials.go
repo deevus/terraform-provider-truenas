@@ -2,8 +2,10 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
+	"github.com/deevus/terraform-provider-truenas/internal/api"
 	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -167,8 +169,126 @@ func (r *CloudSyncCredentialsResource) Configure(ctx context.Context, req resour
 	r.client = c
 }
 
+// queryCredential queries a credential by ID and returns the response.
+func (r *CloudSyncCredentialsResource) queryCredential(ctx context.Context, id int64) (*api.CloudSyncCredentialResponse, error) {
+	filter := [][]any{{"id", "=", id}}
+	result, err := r.client.Call(ctx, "cloudsync.credentials.query", filter)
+	if err != nil {
+		return nil, err
+	}
+
+	var credentials []api.CloudSyncCredentialResponse
+	if err := json.Unmarshal(result, &credentials); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	if len(credentials) == 0 {
+		return nil, nil
+	}
+
+	return &credentials[0], nil
+}
+
+// getProviderAndAttributes extracts provider type and attributes from the model.
+func getProviderAndAttributes(data *CloudSyncCredentialsResourceModel) (string, map[string]any) {
+	if data.S3 != nil {
+		attrs := map[string]any{
+			"access_key_id":     data.S3.AccessKeyID.ValueString(),
+			"secret_access_key": data.S3.SecretAccessKey.ValueString(),
+		}
+		if !data.S3.Endpoint.IsNull() {
+			attrs["endpoint"] = data.S3.Endpoint.ValueString()
+		}
+		if !data.S3.Region.IsNull() {
+			attrs["region"] = data.S3.Region.ValueString()
+		}
+		return "S3", attrs
+	}
+	if data.B2 != nil {
+		return "B2", map[string]any{
+			"account": data.B2.Account.ValueString(),
+			"key":     data.B2.Key.ValueString(),
+		}
+	}
+	if data.GCS != nil {
+		return "GOOGLE_CLOUD_STORAGE", map[string]any{
+			"service_account_credentials": data.GCS.ServiceAccountCredentials.ValueString(),
+		}
+	}
+	if data.Azure != nil {
+		return "AZUREBLOB", map[string]any{
+			"account": data.Azure.Account.ValueString(),
+			"key":     data.Azure.Key.ValueString(),
+		}
+	}
+	return "", nil
+}
+
 func (r *CloudSyncCredentialsResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	// TODO: implement
+	var data CloudSyncCredentialsResourceModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	provider, attributes := getProviderAndAttributes(&data)
+	if provider == "" {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"Exactly one provider block (s3, b2, gcs, or azure) must be specified.",
+		)
+		return
+	}
+
+	params := map[string]any{
+		"name":       data.Name.ValueString(),
+		"provider":   provider,
+		"attributes": attributes,
+	}
+
+	result, err := r.client.Call(ctx, "cloudsync.credentials.create", params)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Create Cloud Sync Credentials",
+			fmt.Sprintf("Unable to create credentials: %s", err.Error()),
+		)
+		return
+	}
+
+	// Parse response to get ID
+	var createResp struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(result, &createResp); err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Parse Response",
+			fmt.Sprintf("Unable to parse create response: %s", err.Error()),
+		)
+		return
+	}
+
+	// Query to get full state
+	cred, err := r.queryCredential(ctx, createResp.ID)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Read Credentials",
+			fmt.Sprintf("Credentials created but unable to read: %s", err.Error()),
+		)
+		return
+	}
+
+	if cred == nil {
+		resp.Diagnostics.AddError(
+			"Credentials Not Found",
+			"Credentials were created but could not be found.",
+		)
+		return
+	}
+
+	data.ID = types.StringValue(fmt.Sprintf("%d", cred.ID))
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *CloudSyncCredentialsResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {

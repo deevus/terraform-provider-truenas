@@ -2,10 +2,12 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
@@ -281,4 +283,106 @@ func createCloudSyncCredentialsModelValue(p cloudSyncCredentialsModelParams) tft
 		"gcs":   gcsValue,
 		"azure": azureValue,
 	})
+}
+
+func TestCloudSyncCredentialsResource_Create_S3_Success(t *testing.T) {
+	var capturedMethod string
+	var capturedParams any
+
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.credentials.create" {
+					capturedMethod = method
+					capturedParams = params
+					return json.RawMessage(`{"id": 5}`), nil
+				}
+				if method == "cloudsync.credentials.query" {
+					return json.RawMessage(`[{
+						"id": 5,
+						"name": "Scaleway",
+						"provider": "S3",
+						"attributes": {
+							"access_key_id": "AKIATEST",
+							"secret_access_key": "secret123",
+							"endpoint": "s3.nl-ams.scw.cloud",
+							"region": "nl-ams"
+						}
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		Name: "Scaleway",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST",
+			SecretAccessKey: "secret123",
+			Endpoint:        "s3.nl-ams.scw.cloud",
+			Region:          "nl-ams",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cloudsync.credentials.create" {
+		t.Errorf("expected method 'cloudsync.credentials.create', got %q", capturedMethod)
+	}
+
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	if params["name"] != "Scaleway" {
+		t.Errorf("expected name 'Scaleway', got %v", params["name"])
+	}
+	if params["provider"] != "S3" {
+		t.Errorf("expected provider 'S3', got %v", params["provider"])
+	}
+
+	// Verify attributes were passed correctly
+	attrs, ok := params["attributes"].(map[string]any)
+	if !ok {
+		t.Fatal("expected attributes to be map[string]any")
+	}
+	if attrs["access_key_id"] != "AKIATEST" {
+		t.Errorf("expected access_key_id 'AKIATEST', got %v", attrs["access_key_id"])
+	}
+	if attrs["secret_access_key"] != "secret123" {
+		t.Errorf("expected secret_access_key 'secret123', got %v", attrs["secret_access_key"])
+	}
+	if attrs["endpoint"] != "s3.nl-ams.scw.cloud" {
+		t.Errorf("expected endpoint 's3.nl-ams.scw.cloud', got %v", attrs["endpoint"])
+	}
+	if attrs["region"] != "nl-ams" {
+		t.Errorf("expected region 'nl-ams', got %v", attrs["region"])
+	}
+
+	// Verify state was set correctly
+	var resultData CloudSyncCredentialsResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "5" {
+		t.Errorf("expected ID '5', got %q", resultData.ID.ValueString())
+	}
 }
