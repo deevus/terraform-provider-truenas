@@ -312,57 +312,7 @@ func (r *CloudSyncTaskResource) Create(ctx context.Context, req resource.CreateR
 	}
 
 	// Build params
-	params := map[string]any{
-		"description":   data.Description.ValueString(),
-		"path":          data.Path.ValueString(),
-		"credentials":   data.Credentials.ValueInt64(),
-		"direction":     strings.ToUpper(data.Direction.ValueString()),
-		"transfer_mode": strings.ToUpper(data.TransferMode.ValueString()),
-		"snapshot":      data.Snapshot.ValueBool(),
-		"transfers":     data.Transfers.ValueInt64(),
-		"enabled":       data.Enabled.ValueBool(),
-	}
-
-	// Add optional fields
-	if !data.BWLimit.IsNull() && !data.BWLimit.IsUnknown() {
-		params["bwlimit"] = data.BWLimit.ValueString()
-	}
-
-	params["follow_symlinks"] = data.FollowSymlinks.ValueBool()
-	params["create_empty_src_dirs"] = data.CreateEmptySrcDirs.ValueBool()
-
-	// Handle exclude list
-	if !data.Exclude.IsNull() && !data.Exclude.IsUnknown() {
-		var excludeItems []string
-		data.Exclude.ElementsAs(ctx, &excludeItems, false)
-		params["exclude"] = excludeItems
-	}
-
-	// Build schedule
-	if data.Schedule != nil {
-		params["schedule"] = map[string]any{
-			"minute": data.Schedule.Minute.ValueString(),
-			"hour":   data.Schedule.Hour.ValueString(),
-			"dom":    data.Schedule.Dom.ValueString(),
-			"month":  data.Schedule.Month.ValueString(),
-			"dow":    data.Schedule.Dow.ValueString(),
-		}
-	}
-
-	// Build attributes from provider block
-	attributes := getTaskAttributes(&data)
-	params["attributes"] = attributes
-
-	// Handle encryption
-	if data.Encryption != nil {
-		params["encryption"] = true
-		params["encryption_password"] = data.Encryption.Password.ValueString()
-		if !data.Encryption.Salt.IsNull() && !data.Encryption.Salt.IsUnknown() {
-			params["encryption_salt"] = data.Encryption.Salt.ValueString()
-		}
-	} else {
-		params["encryption"] = false
-	}
+	params := buildCloudSyncTaskParams(ctx, &data)
 
 	// Call API
 	result, err := r.client.Call(ctx, "cloudsync.create", params)
@@ -439,6 +389,63 @@ func (r *CloudSyncTaskResource) queryTask(ctx context.Context, id int64) (*api.C
 	}
 
 	return &tasks[0], nil
+}
+
+// buildCloudSyncTaskParams builds the API params from the resource model.
+func buildCloudSyncTaskParams(ctx context.Context, data *CloudSyncTaskResourceModel) map[string]any {
+	params := map[string]any{
+		"description":   data.Description.ValueString(),
+		"path":          data.Path.ValueString(),
+		"credentials":   data.Credentials.ValueInt64(),
+		"direction":     strings.ToUpper(data.Direction.ValueString()),
+		"transfer_mode": strings.ToUpper(data.TransferMode.ValueString()),
+		"snapshot":      data.Snapshot.ValueBool(),
+		"transfers":     data.Transfers.ValueInt64(),
+		"enabled":       data.Enabled.ValueBool(),
+	}
+
+	// Add optional fields
+	if !data.BWLimit.IsNull() && !data.BWLimit.IsUnknown() {
+		params["bwlimit"] = data.BWLimit.ValueString()
+	}
+
+	params["follow_symlinks"] = data.FollowSymlinks.ValueBool()
+	params["create_empty_src_dirs"] = data.CreateEmptySrcDirs.ValueBool()
+
+	// Handle exclude list
+	if !data.Exclude.IsNull() && !data.Exclude.IsUnknown() {
+		var excludeItems []string
+		data.Exclude.ElementsAs(ctx, &excludeItems, false)
+		params["exclude"] = excludeItems
+	}
+
+	// Build schedule
+	if data.Schedule != nil {
+		params["schedule"] = map[string]any{
+			"minute": data.Schedule.Minute.ValueString(),
+			"hour":   data.Schedule.Hour.ValueString(),
+			"dom":    data.Schedule.Dom.ValueString(),
+			"month":  data.Schedule.Month.ValueString(),
+			"dow":    data.Schedule.Dow.ValueString(),
+		}
+	}
+
+	// Build attributes from provider block
+	attributes := getTaskAttributes(data)
+	params["attributes"] = attributes
+
+	// Handle encryption
+	if data.Encryption != nil {
+		params["encryption"] = true
+		params["encryption_password"] = data.Encryption.Password.ValueString()
+		if !data.Encryption.Salt.IsNull() && !data.Encryption.Salt.IsUnknown() {
+			params["encryption_salt"] = data.Encryption.Salt.ValueString()
+		}
+	} else {
+		params["encryption"] = false
+	}
+
+	return params
 }
 
 // getTaskAttributes extracts attributes from the provider block.
@@ -553,7 +560,71 @@ func (r *CloudSyncTaskResource) Read(ctx context.Context, req resource.ReadReque
 }
 
 func (r *CloudSyncTaskResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// TODO: Implement
+	var state CloudSyncTaskResourceModel
+	var plan CloudSyncTaskResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Parse ID from state
+	id, err := strconv.ParseInt(state.ID.ValueString(), 10, 64)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Invalid ID",
+			fmt.Sprintf("Unable to parse ID %q: %s", state.ID.ValueString(), err.Error()),
+		)
+		return
+	}
+
+	// Build update params (same as create params)
+	params := buildCloudSyncTaskParams(ctx, &plan)
+
+	// Call API with []any{id, params}
+	_, err = r.client.Call(ctx, "cloudsync.update", []any{id, params})
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Update Cloud Sync Task",
+			fmt.Sprintf("Unable to update task: %s", err.Error()),
+		)
+		return
+	}
+
+	// Query to get full state
+	task, err := r.queryTask(ctx, id)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Read Task",
+			fmt.Sprintf("Task updated but unable to read: %s", err.Error()),
+		)
+		return
+	}
+
+	if task == nil {
+		resp.Diagnostics.AddError(
+			"Task Not Found",
+			"Task was updated but could not be found.",
+		)
+		return
+	}
+
+	// Set state from response
+	r.mapTaskToModel(task, &plan)
+
+	// Trigger sync if sync_on_change is true
+	if plan.SyncOnChange.ValueBool() {
+		_, err := r.client.Call(ctx, "cloudsync.sync", id)
+		if err != nil {
+			resp.Diagnostics.AddWarning(
+				"Sync Trigger Failed",
+				fmt.Sprintf("Task updated but sync failed to trigger: %s", err.Error()),
+			)
+		}
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *CloudSyncTaskResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

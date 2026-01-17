@@ -623,3 +623,238 @@ func TestCloudSyncTaskResource_Read_NotFound(t *testing.T) {
 		t.Error("expected state to be removed when resource not found")
 	}
 }
+
+func TestCloudSyncTaskResource_Update_Success(t *testing.T) {
+	var capturedMethod string
+	var capturedID int64
+	var capturedUpdateData map[string]any
+
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.update" {
+					capturedMethod = method
+					args := params.([]any)
+					capturedID = args[0].(int64)
+					capturedUpdateData = args[1].(map[string]any)
+					return json.RawMessage(`{"id": 10}`), nil
+				}
+				if method == "cloudsync.query" {
+					return json.RawMessage(`[{
+						"id": 10,
+						"description": "Updated Backup",
+						"path": "/mnt/tank/data",
+						"credentials": 5,
+						"attributes": {"bucket": "my-bucket", "folder": "/new-folder/"},
+						"schedule": {"minute": "30", "hour": "4", "dom": "*", "month": "*", "dow": "*"},
+						"direction": "PUSH",
+						"transfer_mode": "SYNC",
+						"encryption": false,
+						"snapshot": false,
+						"transfers": 4,
+						"follow_symlinks": false,
+						"create_empty_src_dirs": false,
+						"enabled": true
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+
+	// Current state
+	stateValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:          "10",
+		Description: "Daily Backup",
+		Path:        "/mnt/tank/data",
+		Credentials: 5,
+		Direction:   "push",
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+	})
+
+	// Updated plan
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:          "10",
+		Description: "Updated Backup",
+		Path:        "/mnt/tank/data",
+		Credentials: 5,
+		Direction:   "push",
+		Schedule: &scheduleBlockParams{
+			Minute: "30",
+			Hour:   "4",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/new-folder/",
+		},
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cloudsync.update" {
+		t.Errorf("expected method 'cloudsync.update', got %q", capturedMethod)
+	}
+
+	if capturedID != 10 {
+		t.Errorf("expected ID 10, got %d", capturedID)
+	}
+
+	if capturedUpdateData["description"] != "Updated Backup" {
+		t.Errorf("expected description 'Updated Backup', got %v", capturedUpdateData["description"])
+	}
+
+	// Verify state was set
+	var resultData CloudSyncTaskResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.Description.ValueString() != "Updated Backup" {
+		t.Errorf("expected description 'Updated Backup', got %q", resultData.Description.ValueString())
+	}
+}
+
+func TestCloudSyncTaskResource_Update_SyncOnChange(t *testing.T) {
+	var syncCalled bool
+	var syncID int64
+
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.update" {
+					return json.RawMessage(`{"id": 10}`), nil
+				}
+				if method == "cloudsync.sync" {
+					syncCalled = true
+					syncID = params.(int64)
+					return json.RawMessage(`1`), nil
+				}
+				if method == "cloudsync.query" {
+					return json.RawMessage(`[{
+						"id": 10,
+						"description": "Updated Backup",
+						"path": "/mnt/tank/data",
+						"credentials": 5,
+						"attributes": {"bucket": "my-bucket", "folder": "/backups/"},
+						"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"},
+						"direction": "PUSH",
+						"transfer_mode": "SYNC",
+						"encryption": false,
+						"snapshot": false,
+						"transfers": 4,
+						"follow_symlinks": false,
+						"create_empty_src_dirs": false,
+						"enabled": true
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+
+	stateValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:           "10",
+		Description:  "Daily Backup",
+		Path:         "/mnt/tank/data",
+		Credentials:  5,
+		Direction:    "push",
+		SyncOnChange: true,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+	})
+
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:           "10",
+		Description:  "Updated Backup",
+		Path:         "/mnt/tank/data",
+		Credentials:  5,
+		Direction:    "push",
+		SyncOnChange: true,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if !syncCalled {
+		t.Error("expected cloudsync.sync to be called when sync_on_change is true")
+	}
+
+	if syncID != 10 {
+		t.Errorf("expected sync to be called with ID 10, got %d", syncID)
+	}
+}
