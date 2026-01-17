@@ -10,11 +10,47 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 var _ resource.Resource = &CloudSyncCredentialsResource{}
 var _ resource.ResourceWithConfigure = &CloudSyncCredentialsResource{}
 var _ resource.ResourceWithImportState = &CloudSyncCredentialsResource{}
+
+// CloudSyncCredentialsResourceModel describes the resource data model.
+type CloudSyncCredentialsResourceModel struct {
+	ID    types.String `tfsdk:"id"`
+	Name  types.String `tfsdk:"name"`
+	S3    *S3Block     `tfsdk:"s3"`
+	B2    *B2Block     `tfsdk:"b2"`
+	GCS   *GCSBlock    `tfsdk:"gcs"`
+	Azure *AzureBlock  `tfsdk:"azure"`
+}
+
+// S3Block represents S3 credentials.
+type S3Block struct {
+	AccessKeyID     types.String `tfsdk:"access_key_id"`
+	SecretAccessKey types.String `tfsdk:"secret_access_key"`
+	Endpoint        types.String `tfsdk:"endpoint"`
+	Region          types.String `tfsdk:"region"`
+}
+
+// B2Block represents Backblaze B2 credentials.
+type B2Block struct {
+	Account types.String `tfsdk:"account"`
+	Key     types.String `tfsdk:"key"`
+}
+
+// GCSBlock represents Google Cloud Storage credentials.
+type GCSBlock struct {
+	ServiceAccountCredentials types.String `tfsdk:"service_account_credentials"`
+}
+
+// AzureBlock represents Azure Blob Storage credentials.
+type AzureBlock struct {
+	Account types.String `tfsdk:"account"`
+	Key     types.String `tfsdk:"key"`
+}
 
 // CloudSyncCredentialsResource defines the resource implementation.
 type CloudSyncCredentialsResource struct {
