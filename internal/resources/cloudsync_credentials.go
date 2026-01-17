@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/deevus/terraform-provider-truenas/internal/api"
 	"github.com/deevus/terraform-provider-truenas/internal/client"
@@ -292,7 +293,41 @@ func (r *CloudSyncCredentialsResource) Create(ctx context.Context, req resource.
 }
 
 func (r *CloudSyncCredentialsResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	// TODO: implement
+	var data CloudSyncCredentialsResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	id, err := strconv.ParseInt(data.ID.ValueString(), 10, 64)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Invalid ID",
+			fmt.Sprintf("Unable to parse ID %q: %s", data.ID.ValueString(), err.Error()),
+		)
+		return
+	}
+
+	cred, err := r.queryCredential(ctx, id)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Read Credentials",
+			fmt.Sprintf("Unable to read credentials %q: %s", data.ID.ValueString(), err.Error()),
+		)
+		return
+	}
+
+	if cred == nil {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
+	data.Name = types.StringValue(cred.Name)
+	// Note: We preserve the existing block values since the API returns
+	// sensitive data that we don't want to overwrite from state
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *CloudSyncCredentialsResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {

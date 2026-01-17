@@ -386,3 +386,108 @@ func TestCloudSyncCredentialsResource_Create_S3_Success(t *testing.T) {
 		t.Errorf("expected ID '5', got %q", resultData.ID.ValueString())
 	}
 }
+
+func TestCloudSyncCredentialsResource_Read_Success(t *testing.T) {
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"id": 5,
+					"name": "Scaleway",
+					"provider": "S3",
+					"attributes": {
+						"access_key_id": "AKIATEST",
+						"secret_access_key": "secret123",
+						"endpoint": "s3.nl-ams.scw.cloud",
+						"region": "nl-ams"
+					}
+				}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	stateValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		ID:   "5",
+		Name: "Scaleway",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST",
+			SecretAccessKey: "secret123",
+			Endpoint:        "s3.nl-ams.scw.cloud",
+			Region:          "nl-ams",
+		},
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify state was set correctly
+	var resultData CloudSyncCredentialsResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "5" {
+		t.Errorf("expected ID '5', got %q", resultData.ID.ValueString())
+	}
+	if resultData.Name.ValueString() != "Scaleway" {
+		t.Errorf("expected Name 'Scaleway', got %q", resultData.Name.ValueString())
+	}
+}
+
+func TestCloudSyncCredentialsResource_Read_NotFound(t *testing.T) {
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[]`), nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	stateValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		ID:   "5",
+		Name: "Scaleway",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST",
+			SecretAccessKey: "secret123",
+		},
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// State should be null when credential not found
+	if !resp.State.Raw.IsNull() {
+		t.Error("expected state to be null when credential not found")
+	}
+}
