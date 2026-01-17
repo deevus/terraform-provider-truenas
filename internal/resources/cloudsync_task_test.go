@@ -1965,3 +1965,474 @@ func TestCloudSyncTaskResource_Update_ScheduleOnly(t *testing.T) {
 		t.Errorf("expected state schedule dow '0,6', got %q", resultData.Schedule.Dow.ValueString())
 	}
 }
+
+func TestCloudSyncTaskResource_Create_WithEncryption(t *testing.T) {
+	var capturedMethod string
+	var capturedParams any
+
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.create" {
+					capturedMethod = method
+					capturedParams = params
+					return json.RawMessage(`{"id": 30}`), nil
+				}
+				if method == "cloudsync.query" {
+					return json.RawMessage(`[{
+						"id": 30,
+						"description": "Encrypted Backup",
+						"path": "/mnt/tank/secure",
+						"credentials": 5,
+						"attributes": {"bucket": "secure-bucket", "folder": "/encrypted/"},
+						"schedule": {"minute": "0", "hour": "2", "dom": "*", "month": "*", "dow": "*"},
+						"direction": "PUSH",
+						"transfer_mode": "SYNC",
+						"encryption": true,
+						"encryption_password": "my-secret-password",
+						"encryption_salt": "random-salt-value",
+						"snapshot": false,
+						"transfers": 4,
+						"follow_symlinks": false,
+						"create_empty_src_dirs": false,
+						"enabled": true
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		Description:  "Encrypted Backup",
+		Path:         "/mnt/tank/secure",
+		Credentials:  5,
+		Direction:    "push",
+		TransferMode: "sync",
+		Transfers:    4,
+		Enabled:      true,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "2",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		Encryption: &encryptionBlockParams{
+			Password: "my-secret-password",
+			Salt:     "random-salt-value",
+		},
+		S3: &taskS3BlockParams{
+			Bucket: "secure-bucket",
+			Folder: "/encrypted/",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cloudsync.create" {
+		t.Errorf("expected method 'cloudsync.create', got %q", capturedMethod)
+	}
+
+	// Verify params
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	// Verify encryption params are passed to API
+	if params["encryption"] != true {
+		t.Errorf("expected encryption true, got %v", params["encryption"])
+	}
+	if params["encryption_password"] != "my-secret-password" {
+		t.Errorf("expected encryption_password 'my-secret-password', got %v", params["encryption_password"])
+	}
+	if params["encryption_salt"] != "random-salt-value" {
+		t.Errorf("expected encryption_salt 'random-salt-value', got %v", params["encryption_salt"])
+	}
+
+	// Verify state was set
+	var resultData CloudSyncTaskResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "30" {
+		t.Errorf("expected ID '30', got %q", resultData.ID.ValueString())
+	}
+	// Encryption block should be preserved from plan
+	if resultData.Encryption == nil {
+		t.Fatal("expected encryption block to be set in state")
+	}
+	if resultData.Encryption.Password.ValueString() != "my-secret-password" {
+		t.Errorf("expected encryption password 'my-secret-password', got %q", resultData.Encryption.Password.ValueString())
+	}
+	if resultData.Encryption.Salt.ValueString() != "random-salt-value" {
+		t.Errorf("expected encryption salt 'random-salt-value', got %q", resultData.Encryption.Salt.ValueString())
+	}
+}
+
+func TestCloudSyncTaskResource_Create_WithEncryption_NoSalt(t *testing.T) {
+	var capturedParams any
+
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.create" {
+					capturedParams = params
+					return json.RawMessage(`{"id": 31}`), nil
+				}
+				if method == "cloudsync.query" {
+					return json.RawMessage(`[{
+						"id": 31,
+						"description": "Encrypted No Salt",
+						"path": "/mnt/tank/secure",
+						"credentials": 5,
+						"attributes": {"bucket": "secure-bucket", "folder": "/encrypted/"},
+						"schedule": {"minute": "0", "hour": "2", "dom": "*", "month": "*", "dow": "*"},
+						"direction": "PUSH",
+						"transfer_mode": "SYNC",
+						"encryption": true,
+						"encryption_password": "password-only",
+						"snapshot": false,
+						"transfers": 4,
+						"follow_symlinks": false,
+						"create_empty_src_dirs": false,
+						"enabled": true
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	// Create with encryption but no salt specified
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		Description:  "Encrypted No Salt",
+		Path:         "/mnt/tank/secure",
+		Credentials:  5,
+		Direction:    "push",
+		TransferMode: "sync",
+		Transfers:    4,
+		Enabled:      true,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "2",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		Encryption: &encryptionBlockParams{
+			Password: "password-only",
+			// Salt is nil (not provided)
+		},
+		S3: &taskS3BlockParams{
+			Bucket: "secure-bucket",
+			Folder: "/encrypted/",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify params
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	// Verify encryption is enabled
+	if params["encryption"] != true {
+		t.Errorf("expected encryption true, got %v", params["encryption"])
+	}
+	if params["encryption_password"] != "password-only" {
+		t.Errorf("expected encryption_password 'password-only', got %v", params["encryption_password"])
+	}
+	// Salt should not be in params when not provided
+	if _, exists := params["encryption_salt"]; exists {
+		t.Errorf("expected encryption_salt to not be in params when not provided, but found %v", params["encryption_salt"])
+	}
+
+	// Verify state
+	var resultData CloudSyncTaskResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.Encryption == nil {
+		t.Fatal("expected encryption block to be set in state")
+	}
+	if resultData.Encryption.Password.ValueString() != "password-only" {
+		t.Errorf("expected encryption password 'password-only', got %q", resultData.Encryption.Password.ValueString())
+	}
+}
+
+func TestCloudSyncTaskResource_Update_EnableEncryption(t *testing.T) {
+	var capturedMethod string
+	var capturedID int64
+	var capturedUpdateData map[string]any
+
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.update" {
+					capturedMethod = method
+					args := params.([]any)
+					capturedID = args[0].(int64)
+					capturedUpdateData = args[1].(map[string]any)
+					return json.RawMessage(`{"id": 32}`), nil
+				}
+				if method == "cloudsync.query" {
+					return json.RawMessage(`[{
+						"id": 32,
+						"description": "Now Encrypted",
+						"path": "/mnt/tank/data",
+						"credentials": 5,
+						"attributes": {"bucket": "my-bucket", "folder": "/backups/"},
+						"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"},
+						"direction": "PUSH",
+						"transfer_mode": "SYNC",
+						"encryption": true,
+						"encryption_password": "new-encryption-pass",
+						"encryption_salt": "new-salt",
+						"snapshot": false,
+						"transfers": 4,
+						"follow_symlinks": false,
+						"create_empty_src_dirs": false,
+						"enabled": true
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+
+	// Current state: no encryption
+	stateValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:           "32",
+		Description:  "Unencrypted Backup",
+		Path:         "/mnt/tank/data",
+		Credentials:  5,
+		Direction:    "push",
+		TransferMode: "sync",
+		Transfers:    4,
+		Enabled:      true,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		// No encryption block
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+	})
+
+	// Updated plan: enable encryption
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:           "32",
+		Description:  "Now Encrypted",
+		Path:         "/mnt/tank/data",
+		Credentials:  5,
+		Direction:    "push",
+		TransferMode: "sync",
+		Transfers:    4,
+		Enabled:      true,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		Encryption: &encryptionBlockParams{
+			Password: "new-encryption-pass",
+			Salt:     "new-salt",
+		},
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cloudsync.update" {
+		t.Errorf("expected method 'cloudsync.update', got %q", capturedMethod)
+	}
+
+	if capturedID != 32 {
+		t.Errorf("expected ID 32, got %d", capturedID)
+	}
+
+	// Verify encryption was added
+	if capturedUpdateData["encryption"] != true {
+		t.Errorf("expected encryption true, got %v", capturedUpdateData["encryption"])
+	}
+	if capturedUpdateData["encryption_password"] != "new-encryption-pass" {
+		t.Errorf("expected encryption_password 'new-encryption-pass', got %v", capturedUpdateData["encryption_password"])
+	}
+	if capturedUpdateData["encryption_salt"] != "new-salt" {
+		t.Errorf("expected encryption_salt 'new-salt', got %v", capturedUpdateData["encryption_salt"])
+	}
+
+	// Verify state was updated
+	var resultData CloudSyncTaskResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.Description.ValueString() != "Now Encrypted" {
+		t.Errorf("expected description 'Now Encrypted', got %q", resultData.Description.ValueString())
+	}
+	if resultData.Encryption == nil {
+		t.Fatal("expected encryption block to be set in state")
+	}
+	if resultData.Encryption.Password.ValueString() != "new-encryption-pass" {
+		t.Errorf("expected encryption password 'new-encryption-pass', got %q", resultData.Encryption.Password.ValueString())
+	}
+}
+
+func TestCloudSyncTaskResource_Read_WithEncryption(t *testing.T) {
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"id": 33,
+					"description": "Encrypted Task",
+					"path": "/mnt/tank/encrypted",
+					"credentials": 5,
+					"attributes": {"bucket": "encrypted-bucket", "folder": "/secure/"},
+					"schedule": {"minute": "0", "hour": "4", "dom": "*", "month": "*", "dow": "*"},
+					"direction": "PUSH",
+					"transfer_mode": "SYNC",
+					"encryption": true,
+					"encryption_password": "stored-password",
+					"encryption_salt": "stored-salt",
+					"snapshot": false,
+					"transfers": 4,
+					"bwlimit": "",
+					"exclude": [],
+					"follow_symlinks": false,
+					"create_empty_src_dirs": false,
+					"enabled": true
+				}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	// Initial state with encryption block populated
+	stateValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:          "33",
+		Description: "Encrypted Task",
+		Path:        "/mnt/tank/encrypted",
+		Credentials: 5,
+		Direction:   "push",
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "4",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		Encryption: &encryptionBlockParams{
+			Password: "stored-password",
+			Salt:     "stored-salt",
+		},
+		S3: &taskS3BlockParams{
+			Bucket: "encrypted-bucket",
+			Folder: "/secure/",
+		},
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify state was updated correctly
+	var resultData CloudSyncTaskResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.Description.ValueString() != "Encrypted Task" {
+		t.Errorf("expected description 'Encrypted Task', got %q", resultData.Description.ValueString())
+	}
+
+	// Verify encryption block is preserved from state
+	// (since mapTaskToModel preserves encryption block from plan/state)
+	if resultData.Encryption == nil {
+		t.Fatal("expected encryption block to be preserved in state")
+	}
+	if resultData.Encryption.Password.ValueString() != "stored-password" {
+		t.Errorf("expected encryption password 'stored-password', got %q", resultData.Encryption.Password.ValueString())
+	}
+	if resultData.Encryption.Salt.ValueString() != "stored-salt" {
+		t.Errorf("expected encryption salt 'stored-salt', got %q", resultData.Encryption.Salt.ValueString())
+	}
+}
