@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
@@ -663,5 +664,147 @@ func TestCloudSyncCredentialsResource_Delete_Success(t *testing.T) {
 
 	if capturedID != 5 {
 		t.Errorf("expected ID 5, got %d", capturedID)
+	}
+}
+
+func TestCloudSyncCredentialsResource_Create_APIError(t *testing.T) {
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("connection refused")
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		Name: "Scaleway",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST",
+			SecretAccessKey: "secret123",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
+}
+
+func TestCloudSyncCredentialsResource_Create_NoProviderBlock(t *testing.T) {
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		Name: "No Provider",
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when no provider block specified")
+	}
+}
+
+func TestCloudSyncCredentialsResource_Read_APIError(t *testing.T) {
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("connection refused")
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	stateValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		ID:   "5",
+		Name: "Scaleway",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST",
+			SecretAccessKey: "secret123",
+		},
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
+}
+
+func TestCloudSyncCredentialsResource_Delete_APIError(t *testing.T) {
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("credentials in use")
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	stateValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		ID:   "5",
+		Name: "Scaleway",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST",
+			SecretAccessKey: "secret123",
+		},
+	})
+
+	req := resource.DeleteRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.DeleteResponse{}
+
+	r.Delete(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
 	}
 }
