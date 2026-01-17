@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 )
 
@@ -69,5 +70,56 @@ func TestCloudSyncCredentialsResource_Schema(t *testing.T) {
 		if !ok {
 			t.Errorf("expected '%s' block in schema", block)
 		}
+	}
+}
+
+func TestCloudSyncCredentialsResource_Configure_Success(t *testing.T) {
+	r := NewCloudSyncCredentialsResource().(*CloudSyncCredentialsResource)
+
+	mockClient := &client.MockClient{}
+
+	req := resource.ConfigureRequest{
+		ProviderData: mockClient,
+	}
+	resp := &resource.ConfigureResponse{}
+
+	r.Configure(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if r.client == nil {
+		t.Error("expected client to be set")
+	}
+}
+
+func TestCloudSyncCredentialsResource_Configure_NilProviderData(t *testing.T) {
+	r := NewCloudSyncCredentialsResource().(*CloudSyncCredentialsResource)
+
+	req := resource.ConfigureRequest{
+		ProviderData: nil,
+	}
+	resp := &resource.ConfigureResponse{}
+
+	r.Configure(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+}
+
+func TestCloudSyncCredentialsResource_Configure_WrongType(t *testing.T) {
+	r := NewCloudSyncCredentialsResource().(*CloudSyncCredentialsResource)
+
+	req := resource.ConfigureRequest{
+		ProviderData: "not a client",
+	}
+	resp := &resource.ConfigureResponse{}
+
+	r.Configure(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for wrong ProviderData type")
 	}
 }
