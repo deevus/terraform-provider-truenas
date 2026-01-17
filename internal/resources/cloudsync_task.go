@@ -311,6 +311,28 @@ func (r *CloudSyncTaskResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
+	// Validate that exactly one provider block is specified
+	count := 0
+	if data.S3 != nil {
+		count++
+	}
+	if data.B2 != nil {
+		count++
+	}
+	if data.GCS != nil {
+		count++
+	}
+	if data.Azure != nil {
+		count++
+	}
+	if count != 1 {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"Exactly one provider block (s3, b2, gcs, or azure) must be specified.",
+		)
+		return
+	}
+
 	// Build params
 	params := buildCloudSyncTaskParams(ctx, &data)
 

@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"testing"
 
@@ -907,5 +908,259 @@ func TestCloudSyncTaskResource_Delete_Success(t *testing.T) {
 
 	if capturedID != 10 {
 		t.Errorf("expected ID 10, got %d", capturedID)
+	}
+}
+
+func TestCloudSyncTaskResource_Create_APIError(t *testing.T) {
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("connection refused")
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		Description: "Daily Backup",
+		Path:        "/mnt/tank/data",
+		Credentials: 5,
+		Direction:   "push",
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
+}
+
+func TestCloudSyncTaskResource_Create_NoProviderBlock(t *testing.T) {
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		Description: "No Provider",
+		Path:        "/mnt/tank/data",
+		Credentials: 5,
+		Direction:   "push",
+		// No S3, B2, GCS, or Azure block
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when no provider block specified")
+	}
+}
+
+func TestCloudSyncTaskResource_Read_APIError(t *testing.T) {
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("connection refused")
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	stateValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:          "10",
+		Description: "Daily Backup",
+		Path:        "/mnt/tank/data",
+		Credentials: 5,
+		Direction:   "push",
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
+}
+
+func TestCloudSyncTaskResource_Update_APIError(t *testing.T) {
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("connection refused")
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	stateValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:          "10",
+		Description: "Daily Backup",
+		Path:        "/mnt/tank/data",
+		Credentials: 5,
+		Direction:   "push",
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+	})
+
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:          "10",
+		Description: "Updated Backup",
+		Path:        "/mnt/tank/data",
+		Credentials: 5,
+		Direction:   "push",
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/new-folder/",
+		},
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
+}
+
+func TestCloudSyncTaskResource_Delete_APIError(t *testing.T) {
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("task in use by active job")
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	stateValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID:          "10",
+		Description: "Daily Backup",
+		Path:        "/mnt/tank/data",
+		Credentials: 5,
+		Direction:   "push",
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+	})
+
+	req := resource.DeleteRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.DeleteResponse{}
+
+	r.Delete(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
+}
+
+func TestCloudSyncTaskResource_Create_MultipleProviderBlocks(t *testing.T) {
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		Description: "Multiple Providers",
+		Path:        "/mnt/tank/data",
+		Credentials: 5,
+		Direction:   "push",
+		S3: &taskS3BlockParams{
+			Bucket: "my-bucket",
+			Folder: "/backups/",
+		},
+		B2: &taskB2BlockParams{
+			Bucket: "another-bucket",
+			Folder: "/other/",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when multiple provider blocks specified")
 	}
 }
