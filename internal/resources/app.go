@@ -34,13 +34,14 @@ type AppResource struct {
 // AppResourceModel describes the resource data model.
 // Simplified for custom Docker Compose apps only.
 type AppResourceModel struct {
-	ID            types.String                `tfsdk:"id"`
-	Name          types.String                `tfsdk:"name"`
-	CustomApp     types.Bool                  `tfsdk:"custom_app"`
-	ComposeConfig customtypes.YAMLStringValue `tfsdk:"compose_config"`
-	DesiredState  types.String                `tfsdk:"desired_state"`
-	StateTimeout  types.Int64                 `tfsdk:"state_timeout"`
-	State         types.String                `tfsdk:"state"`
+	ID              types.String                `tfsdk:"id"`
+	Name            types.String                `tfsdk:"name"`
+	CustomApp       types.Bool                  `tfsdk:"custom_app"`
+	ComposeConfig   customtypes.YAMLStringValue `tfsdk:"compose_config"`
+	DesiredState    types.String                `tfsdk:"desired_state"`
+	StateTimeout    types.Int64                 `tfsdk:"state_timeout"`
+	State           types.String                `tfsdk:"state"`
+	RestartTriggers types.Map                   `tfsdk:"restart_triggers"`
 }
 
 // appAPIResponse represents the JSON response from app API calls.
@@ -122,6 +123,13 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 				PlanModifiers: []planmodifier.String{
 					computedStatePlanModifier(),
 				},
+			},
+			"restart_triggers": schema.MapAttribute{
+				Description: "Map of values that, when changed, trigger an app restart. " +
+					"Use this to restart the app when dependent resources change, e.g., " +
+					"`restart_triggers = { config_checksum = truenas_file.config.checksum }`.",
+				Optional:    true,
+				ElementType: types.StringType,
 			},
 		},
 	}
@@ -268,6 +276,7 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	// Preserve user-specified values from prior state (these are not returned by API)
 	priorDesiredState := data.DesiredState
 	priorStateTimeout := data.StateTimeout
+	priorRestartTriggers := data.RestartTriggers
 
 	// Use the name to query the app
 	appName := data.Name.ValueString()
@@ -336,6 +345,7 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	// Restore user-specified values from prior state
 	data.DesiredState = priorDesiredState
 	data.StateTimeout = priorStateTimeout
+	data.RestartTriggers = priorRestartTriggers
 
 	// Default desired_state if null/unknown (e.g., after import)
 	if data.DesiredState.IsNull() || data.DesiredState.IsUnknown() {
@@ -387,6 +397,10 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		}
 	}
 
+	// Check if restart_triggers changed - if so, we need to restart the app
+	restartTriggersChanged := !data.RestartTriggers.Equal(stateData.RestartTriggers)
+	needsRestart := restartTriggersChanged && !data.RestartTriggers.IsNull() && !stateData.RestartTriggers.IsNull()
+
 	// Query the app to get current state
 	currentState, err := r.queryAppState(ctx, appName)
 	if err != nil {
@@ -413,6 +427,43 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Timeout Waiting for App State",
+				err.Error(),
+			)
+			return
+		}
+		currentState = stableState
+	}
+
+	// Handle restart_triggers: if triggers changed and app is running, restart it
+	if needsRestart && currentState == AppStateRunning {
+		// Restart by stopping then starting the app
+		_, err := r.client.CallAndWait(ctx, "app.stop", appName)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Stop App for Restart",
+				fmt.Sprintf("Unable to stop app %q for restart triggered by restart_triggers change: %s", appName, err.Error()),
+			)
+			return
+		}
+
+		_, err = r.client.CallAndWait(ctx, "app.start", appName)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Start App for Restart",
+				fmt.Sprintf("Unable to start app %q for restart triggered by restart_triggers change: %s", appName, err.Error()),
+			)
+			return
+		}
+
+		// Wait for stable state after restart
+		queryFunc := func(ctx context.Context, n string) (string, error) {
+			return r.queryAppState(ctx, n)
+		}
+
+		stableState, err := waitForStableState(ctx, appName, timeout, queryFunc)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Timeout Waiting for App State After Restart",
 				err.Error(),
 			)
 			return

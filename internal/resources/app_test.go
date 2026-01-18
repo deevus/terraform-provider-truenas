@@ -178,24 +178,51 @@ func createAppResourceModelValue(
 	stateTimeout interface{},
 	state interface{},
 ) tftypes.Value {
+	return createAppResourceModelValueWithTriggers(id, name, customApp, composeConfig, desiredState, stateTimeout, state, nil)
+}
+
+// createAppResourceModelValueWithTriggers creates a tftypes.Value for the app resource model with restart_triggers
+func createAppResourceModelValueWithTriggers(
+	id, name interface{},
+	customApp interface{},
+	composeConfig interface{},
+	desiredState interface{},
+	stateTimeout interface{},
+	state interface{},
+	restartTriggers map[string]interface{},
+) tftypes.Value {
+	// Convert restartTriggers to tftypes.Value
+	var triggersValue tftypes.Value
+	if restartTriggers == nil {
+		triggersValue = tftypes.NewValue(tftypes.Map{ElementType: tftypes.String}, nil)
+	} else {
+		triggerMap := make(map[string]tftypes.Value)
+		for k, v := range restartTriggers {
+			triggerMap[k] = tftypes.NewValue(tftypes.String, v)
+		}
+		triggersValue = tftypes.NewValue(tftypes.Map{ElementType: tftypes.String}, triggerMap)
+	}
+
 	return tftypes.NewValue(tftypes.Object{
 		AttributeTypes: map[string]tftypes.Type{
-			"id":             tftypes.String,
-			"name":           tftypes.String,
-			"custom_app":     tftypes.Bool,
-			"compose_config": tftypes.String,
-			"desired_state":  tftypes.String,
-			"state_timeout":  tftypes.Number,
-			"state":          tftypes.String,
+			"id":               tftypes.String,
+			"name":             tftypes.String,
+			"custom_app":       tftypes.Bool,
+			"compose_config":   tftypes.String,
+			"desired_state":    tftypes.String,
+			"state_timeout":    tftypes.Number,
+			"state":            tftypes.String,
+			"restart_triggers": tftypes.Map{ElementType: tftypes.String},
 		},
 	}, map[string]tftypes.Value{
-		"id":             tftypes.NewValue(tftypes.String, id),
-		"name":           tftypes.NewValue(tftypes.String, name),
-		"custom_app":     tftypes.NewValue(tftypes.Bool, customApp),
-		"compose_config": tftypes.NewValue(tftypes.String, composeConfig),
-		"desired_state":  tftypes.NewValue(tftypes.String, desiredState),
-		"state_timeout":  tftypes.NewValue(tftypes.Number, stateTimeout),
-		"state":          tftypes.NewValue(tftypes.String, state),
+		"id":               tftypes.NewValue(tftypes.String, id),
+		"name":             tftypes.NewValue(tftypes.String, name),
+		"custom_app":       tftypes.NewValue(tftypes.Bool, customApp),
+		"compose_config":   tftypes.NewValue(tftypes.String, composeConfig),
+		"desired_state":    tftypes.NewValue(tftypes.String, desiredState),
+		"state_timeout":    tftypes.NewValue(tftypes.Number, stateTimeout),
+		"state":            tftypes.NewValue(tftypes.String, state),
+		"restart_triggers": triggersValue,
 	})
 }
 
@@ -1795,5 +1822,275 @@ func TestAppResource_Update_CrashedAppDesiredStopped(t *testing.T) {
 	// No start/stop should be called
 	if callCount > 0 {
 		t.Errorf("expected no API calls for CRASHED->STOPPED, got %d", callCount)
+	}
+}
+
+func TestAppResource_Schema_RestartTriggersAttribute(t *testing.T) {
+	r := NewAppResource()
+
+	req := resource.SchemaRequest{}
+	resp := &resource.SchemaResponse{}
+
+	r.Schema(context.Background(), req, resp)
+
+	// Verify restart_triggers attribute exists and is optional
+	restartTriggersAttr, ok := resp.Schema.Attributes["restart_triggers"]
+	if !ok {
+		t.Fatal("expected 'restart_triggers' attribute in schema")
+	}
+	if !restartTriggersAttr.IsOptional() {
+		t.Error("expected 'restart_triggers' attribute to be optional")
+	}
+}
+
+func TestAppResource_Update_RestartTriggersChange(t *testing.T) {
+	var methods []string
+	queryCount := 0
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				methods = append(methods, method)
+				return nil, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				queryCount++
+				// Return RUNNING state throughout - app should be restarted
+				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Current state: has restart_triggers with old checksum
+	stateValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), "RUNNING",
+		map[string]interface{}{"config_checksum": "old_checksum"},
+	)
+
+	// Plan: has restart_triggers with new checksum (file changed)
+	planValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), nil,
+		map[string]interface{}{"config_checksum": "new_checksum"},
+	)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify app.stop then app.start were called (restart)
+	if len(methods) < 2 {
+		t.Fatalf("expected at least 2 API calls for restart, got %d: %v", len(methods), methods)
+	}
+
+	foundStop := false
+	foundStart := false
+	for _, m := range methods {
+		if m == "app.stop" {
+			foundStop = true
+		}
+		if m == "app.start" {
+			foundStart = true
+		}
+	}
+
+	if !foundStop {
+		t.Errorf("expected app.stop to be called for restart, got methods: %v", methods)
+	}
+	if !foundStart {
+		t.Errorf("expected app.start to be called for restart, got methods: %v", methods)
+	}
+}
+
+func TestAppResource_Update_RestartTriggersNoChangeNoRestart(t *testing.T) {
+	callCount := 0
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				callCount++
+				return nil, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Both state and plan have same restart_triggers - no restart needed
+	triggers := map[string]interface{}{"config_checksum": "same_checksum"}
+	stateValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), "RUNNING",
+		triggers,
+	)
+	planValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), nil,
+		triggers,
+	)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// No restart should be triggered when triggers don't change
+	if callCount > 0 {
+		t.Errorf("expected no API calls when restart_triggers unchanged, got %d", callCount)
+	}
+}
+
+func TestAppResource_Update_RestartTriggersStoppedAppNoRestart(t *testing.T) {
+	callCount := 0
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				callCount++
+				return nil, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{"name": "myapp", "state": "STOPPED"}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Triggers changed, but app is STOPPED - no restart needed
+	stateValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "STOPPED", float64(120), "STOPPED",
+		map[string]interface{}{"config_checksum": "old_checksum"},
+	)
+	planValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "STOPPED", float64(120), nil,
+		map[string]interface{}{"config_checksum": "new_checksum"},
+	)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// No restart should be triggered when app is stopped
+	if callCount > 0 {
+		t.Errorf("expected no API calls for stopped app, got %d", callCount)
+	}
+}
+
+func TestAppResource_Read_PreservesRestartTriggers(t *testing.T) {
+	r := &AppResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"name": "myapp",
+					"state": "RUNNING",
+					"custom_app": true,
+					"config": {}
+				}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Prior state has restart_triggers set
+	stateValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), "RUNNING",
+		map[string]interface{}{"config_checksum": "abc123"},
+	)
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model AppResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
+	}
+
+	// restart_triggers should be preserved from prior state
+	if model.RestartTriggers.IsNull() {
+		t.Error("expected restart_triggers to be preserved, got null")
+	}
+
+	// Verify the trigger value is preserved
+	triggers := make(map[string]string)
+	diags = model.RestartTriggers.ElementsAs(context.Background(), &triggers, false)
+	if diags.HasError() {
+		t.Fatalf("failed to get restart_triggers: %v", diags)
+	}
+	if triggers["config_checksum"] != "abc123" {
+		t.Errorf("expected config_checksum 'abc123', got %q", triggers["config_checksum"])
 	}
 }
