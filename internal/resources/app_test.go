@@ -2094,3 +2094,254 @@ func TestAppResource_Read_PreservesRestartTriggers(t *testing.T) {
 		t.Errorf("expected config_checksum 'abc123', got %q", triggers["config_checksum"])
 	}
 }
+
+func TestAppResource_Update_RestartTriggersAddedFirstTime(t *testing.T) {
+	var methods []string
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				methods = append(methods, method)
+				return nil, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Current state: no restart_triggers (null)
+	stateValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), "RUNNING",
+		nil, // null triggers
+	)
+
+	// Plan: has restart_triggers (first time adding them)
+	planValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), nil,
+		map[string]interface{}{"config_checksum": "abc123"},
+	)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// No app.stop or app.start should be called when triggers go from null to value
+	for _, m := range methods {
+		if m == "app.stop" || m == "app.start" {
+			t.Errorf("expected no restart when adding triggers first time, but got %q", m)
+		}
+	}
+}
+
+func TestAppResource_Update_RestartTriggersRemoved(t *testing.T) {
+	var methods []string
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				methods = append(methods, method)
+				return nil, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Current state: has restart_triggers
+	stateValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), "RUNNING",
+		map[string]interface{}{"config_checksum": "abc123"},
+	)
+
+	// Plan: no restart_triggers (removed)
+	planValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), nil,
+		nil, // null triggers
+	)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// No app.stop or app.start should be called when triggers are removed
+	for _, m := range methods {
+		if m == "app.stop" || m == "app.start" {
+			t.Errorf("expected no restart when removing triggers, but got %q", m)
+		}
+	}
+}
+
+func TestAppResource_Update_RestartTriggersStopError(t *testing.T) {
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "app.stop" {
+					return nil, errors.New("stop failed: container busy")
+				}
+				return nil, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Current state: has restart_triggers with old checksum
+	stateValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), "RUNNING",
+		map[string]interface{}{"config_checksum": "old_checksum"},
+	)
+
+	// Plan: has restart_triggers with new checksum (trigger change)
+	planValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), nil,
+		map[string]interface{}{"config_checksum": "new_checksum"},
+	)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when app.stop fails")
+	}
+
+	// Verify the error message contains expected text
+	foundError := false
+	for _, d := range resp.Diagnostics.Errors() {
+		if strings.Contains(d.Summary(), "Unable to Stop App for Restart") {
+			foundError = true
+			break
+		}
+	}
+	if !foundError {
+		t.Error("expected error with 'Unable to Stop App for Restart' message")
+	}
+}
+
+func TestAppResource_Update_RestartTriggersStartError(t *testing.T) {
+	r := &AppResource{
+		client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "app.stop" {
+					return nil, nil // stop succeeds
+				}
+				if method == "app.start" {
+					return nil, errors.New("start failed: port already in use")
+				}
+				return nil, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+			},
+		},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Current state: has restart_triggers with old checksum
+	stateValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), "RUNNING",
+		map[string]interface{}{"config_checksum": "old_checksum"},
+	)
+
+	// Plan: has restart_triggers with new checksum (trigger change)
+	planValue := createAppResourceModelValueWithTriggers(
+		"myapp", "myapp", true, nil, "RUNNING", float64(120), nil,
+		map[string]interface{}{"config_checksum": "new_checksum"},
+	)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when app.start fails")
+	}
+
+	// Verify the error message contains expected text
+	foundError := false
+	for _, d := range resp.Diagnostics.Errors() {
+		if strings.Contains(d.Summary(), "Unable to Start App for Restart") {
+			foundError = true
+			break
+		}
+	}
+	if !foundError {
+		t.Error("expected error with 'Unable to Start App for Restart' message")
+	}
+}
