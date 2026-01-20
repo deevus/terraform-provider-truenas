@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.8.0] - 2026-01-20
+
+
+### Added
+
+- **errors:** Add app lifecycle fields to TrueNASError struct
+- **errors:** Detect app lifecycle pattern in error messages
+- **errors:** Implement app lifecycle log parsing
+- **errors:** Prefer AppLifecycleError in Error() output
+- **jobs:** Fetch and parse app lifecycle log on failure
+- Add setup-dev task for Terraform provider local development
+
+### Documentation
+
+- Add app lifecycle error handling design and implementation plan
+
+### Fixed
+
+- **ssh:** Use app lifecycle error enrichment in CallAndWait
+- **errors:** Use cat command instead of non-existent API
+
+### Testing
+
+- **errors:** Add tests for app lifecycle pattern detection
+- **errors:** Add tests for app lifecycle log parsing
+- **jobs:** Add test for app lifecycle log fetching
+- **jobs:** Verify graceful handling when log fetch fails
+
 ## [0.7.0] - 2026-01-20
 
 
