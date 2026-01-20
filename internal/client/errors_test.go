@@ -252,3 +252,51 @@ func TestTrueNASError_Error_EmptyLogsExcerpt(t *testing.T) {
 		t.Errorf("expected %q, got %q", expected, errStr)
 	}
 }
+
+func TestParseTrueNASError_DetectsAppLifecyclePattern(t *testing.T) {
+	raw := `[EFAULT] Failed 'up' action for 'dns' app. Please check /var/log/app_lifecycle.log for more details`
+
+	err := ParseTrueNASError(raw)
+
+	if err.Code != "EFAULT" {
+		t.Errorf("expected code EFAULT, got %s", err.Code)
+	}
+	if err.AppAction != "up" {
+		t.Errorf("expected AppAction 'up', got %q", err.AppAction)
+	}
+	if err.AppName != "dns" {
+		t.Errorf("expected AppName 'dns', got %q", err.AppName)
+	}
+	if err.LogPath != "/var/log/app_lifecycle.log" {
+		t.Errorf("expected LogPath '/var/log/app_lifecycle.log', got %q", err.LogPath)
+	}
+}
+
+func TestParseTrueNASError_DetectsDownAction(t *testing.T) {
+	raw := `[EFAULT] Failed 'down' action for 'caddy' app. Please check /var/log/app_lifecycle.log for more details`
+
+	err := ParseTrueNASError(raw)
+
+	if err.AppAction != "down" {
+		t.Errorf("expected AppAction 'down', got %q", err.AppAction)
+	}
+	if err.AppName != "caddy" {
+		t.Errorf("expected AppName 'caddy', got %q", err.AppName)
+	}
+}
+
+func TestParseTrueNASError_NoAppLifecyclePattern(t *testing.T) {
+	raw := `[EINVAL] Invalid configuration`
+
+	err := ParseTrueNASError(raw)
+
+	if err.AppAction != "" {
+		t.Errorf("expected empty AppAction, got %q", err.AppAction)
+	}
+	if err.AppName != "" {
+		t.Errorf("expected empty AppName, got %q", err.AppName)
+	}
+	if err.LogPath != "" {
+		t.Errorf("expected empty LogPath, got %q", err.LogPath)
+	}
+}
