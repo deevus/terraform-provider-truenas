@@ -625,10 +625,8 @@ func TestJobPoller_FailureWithAppLifecycleLog(t *testing.T) {
 		t.Fatalf("failed to read fixture: %v", err)
 	}
 
-	callCount := 0
 	mock := &MockClient{
 		CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-			callCount++
 			if method == "core.get_jobs" {
 				return json.RawMessage(`[{
 					"id": 42,
@@ -636,13 +634,14 @@ func TestJobPoller_FailureWithAppLifecycleLog(t *testing.T) {
 					"error": "[EFAULT] Failed 'up' action for 'dns' app. Please check /var/log/app_lifecycle.log for more details"
 				}]`), nil
 			}
-			if method == "filesystem.file_get_contents" {
-				// Return the log file content
-				contentJSON, _ := json.Marshal(string(logContent))
-				return contentJSON, nil
-			}
 			t.Errorf("unexpected method: %s", method)
 			return nil, nil
+		},
+		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+			if path == "/var/log/app_lifecycle.log" {
+				return logContent, nil
+			}
+			return nil, errors.New("file not found")
 		},
 	}
 
@@ -685,11 +684,11 @@ func TestJobPoller_FailureWithAppLifecycleLog_FetchFails(t *testing.T) {
 					"error": "[EFAULT] Failed 'up' action for 'dns' app. Please check /var/log/app_lifecycle.log for more details"
 				}]`), nil
 			}
-			if method == "filesystem.file_get_contents" {
-				// Simulate failure to read log
-				return nil, errors.New("permission denied")
-			}
 			return nil, nil
+		},
+		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+			// Simulate failure to read log
+			return nil, errors.New("permission denied")
 		},
 	}
 

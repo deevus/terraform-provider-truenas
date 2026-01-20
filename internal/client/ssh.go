@@ -374,8 +374,11 @@ func (c *SSHClient) CallAndWait(ctx context.Context, method string, params any) 
 		if len(cleaned) > 0 {
 			// Parse into structured error
 			tnErr := ParseTrueNASError(string(cleaned))
-			// Fetch app lifecycle log if applicable
-			EnrichAppLifecycleError(ctx, tnErr, c.Call)
+			// Fetch app lifecycle log if applicable (using cat)
+			EnrichAppLifecycleError(ctx, tnErr, func(ctx context.Context, path string) (string, error) {
+				output, err := c.runSudoOutput(ctx, "cat", path)
+				return string(output), err
+			})
 			return nil, tnErr
 		}
 		return nil, err

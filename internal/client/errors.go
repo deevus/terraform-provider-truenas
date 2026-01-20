@@ -2,15 +2,14 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 )
 
-// Caller is a function type for making TrueNAS API calls.
+// FileReader is a function type for reading file contents.
 // This abstraction allows error enrichment to work with different client types.
-type Caller func(ctx context.Context, method string, params any) (json.RawMessage, error)
+type FileReader func(ctx context.Context, path string) (string, error)
 
 // TrueNASError represents a parsed error from the TrueNAS middleware.
 type TrueNASError struct {
@@ -180,24 +179,17 @@ func ParseAppLifecycleLog(content, action, appName string) string {
 }
 
 // EnrichAppLifecycleError fetches the app lifecycle log and enriches the error
-// with the extracted Docker error message. The caller function should be the
-// client's Call method. This function silently fails if the log cannot be
-// fetched - it never makes the error worse.
-func EnrichAppLifecycleError(ctx context.Context, err *TrueNASError, caller Caller) {
+// with the extracted Docker error message. The readFile function should read
+// the file contents (e.g., via cat command). This function silently fails if
+// the log cannot be fetched - it never makes the error worse.
+func EnrichAppLifecycleError(ctx context.Context, err *TrueNASError, readFile FileReader) {
 	if err.LogPath == "" || err.AppName == "" || err.AppAction == "" {
 		return
 	}
 
-	// Use filesystem.file_get_contents to read the log
-	result, callErr := caller(ctx, "filesystem.file_get_contents", []any{err.LogPath})
-	if callErr != nil {
-		// Silently fail - don't make the error worse
-		return
-	}
-
-	// Result is a JSON string
-	var content string
-	if jsonErr := json.Unmarshal(result, &content); jsonErr != nil {
+	// Read the log file
+	content, readErr := readFile(ctx, err.LogPath)
+	if readErr != nil {
 		return
 	}
 

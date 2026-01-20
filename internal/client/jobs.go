@@ -94,7 +94,10 @@ func (p *JobPoller) Wait(ctx context.Context, jobID int64, timeout time.Duration
 			err.LogsExcerpt = job.LogsExcerpt
 
 			// Fetch app lifecycle log if applicable
-			EnrichAppLifecycleError(ctx, err, p.client.Call)
+			EnrichAppLifecycleError(ctx, err, func(ctx context.Context, path string) (string, error) {
+				data, err := p.client.ReadFile(ctx, path)
+				return string(data), err
+			})
 
 			return nil, err
 		case JobStateRunning, JobStateWaiting:
