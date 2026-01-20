@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -298,5 +299,87 @@ func TestParseTrueNASError_NoAppLifecyclePattern(t *testing.T) {
 	}
 	if err.LogPath != "" {
 		t.Errorf("expected empty LogPath, got %q", err.LogPath)
+	}
+}
+
+func TestParseAppLifecycleLog(t *testing.T) {
+	content, err := os.ReadFile("testdata/fixtures/app_lifecycle.log")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		action   string
+		appName  string
+		contains string
+	}{
+		{
+			name:     "dns_up_port_conflict",
+			action:   "up",
+			appName:  "dns",
+			contains: "bind: address already in use",
+		},
+		{
+			name:     "caddy_up_readonly",
+			action:   "up",
+			appName:  "caddy",
+			contains: "read-only file system",
+		},
+		{
+			name:     "caddy_down_invalid_compose",
+			action:   "down",
+			appName:  "caddy",
+			contains: "invalid compose project",
+		},
+		{
+			name:     "nextcloud_up_unhealthy",
+			action:   "up",
+			appName:  "nextcloud",
+			contains: "unhealthy",
+		},
+		{
+			name:     "hello_world_port_conflict",
+			action:   "up",
+			appName:  "hello-world",
+			contains: "bind: address already in use",
+		},
+		{
+			name:     "uptime_kuma_network_mode",
+			action:   "up",
+			appName:  "uptime-kuma",
+			contains: "conflicting options: dns and the network mode",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseAppLifecycleLog(string(content), tt.action, tt.appName)
+			if result == "" {
+				t.Errorf("expected non-empty result for %s/%s", tt.action, tt.appName)
+				return
+			}
+			if !strings.Contains(result, tt.contains) {
+				t.Errorf("expected result to contain %q, got %q", tt.contains, result)
+			}
+		})
+	}
+}
+
+func TestParseAppLifecycleLog_NoMatch(t *testing.T) {
+	content := `[2026/01/20 17:00:00] (ERROR) app_lifecycle.compose_action():56 - Failed 'up' action for 'other' app: some error\n`
+
+	result := ParseAppLifecycleLog(content, "up", "nonexistent")
+
+	if result != "" {
+		t.Errorf("expected empty result for non-matching app, got %q", result)
+	}
+}
+
+func TestParseAppLifecycleLog_EmptyContent(t *testing.T) {
+	result := ParseAppLifecycleLog("", "up", "dns")
+
+	if result != "" {
+		t.Errorf("expected empty result for empty content, got %q", result)
 	}
 }
