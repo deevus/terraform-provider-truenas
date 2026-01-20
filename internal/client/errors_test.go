@@ -383,3 +383,42 @@ func TestParseAppLifecycleLog_EmptyContent(t *testing.T) {
 		t.Errorf("expected empty result for empty content, got %q", result)
 	}
 }
+
+func TestTrueNASError_Error_WithAppLifecycleError(t *testing.T) {
+	err := &TrueNASError{
+		Code:              "EFAULT",
+		Message:           "Failed 'up' action for 'dns' app. Please check /var/log/app_lifecycle.log for more details",
+		AppLifecycleError: "Error response from daemon: bind: address already in use",
+		Suggestion:        "Container failed to start. Check compose_config and image availability.",
+	}
+
+	errStr := err.Error()
+
+	// Should lead with the clean app lifecycle error, not the messy message
+	if !strings.HasPrefix(errStr, "Error response from daemon:") {
+		t.Errorf("expected error to start with app lifecycle error, got %q", errStr)
+	}
+	// Should NOT contain the "Please check" noise
+	if strings.Contains(errStr, "Please check") {
+		t.Error("expected error to NOT contain 'Please check' when AppLifecycleError is set")
+	}
+	// Should still have suggestion
+	if !strings.Contains(errStr, "Suggestion:") {
+		t.Error("expected error to contain suggestion")
+	}
+}
+
+func TestTrueNASError_Error_FallbackToMessage(t *testing.T) {
+	err := &TrueNASError{
+		Code:              "EFAULT",
+		Message:           "Some other error",
+		AppLifecycleError: "", // Not set
+		Suggestion:        "Try something",
+	}
+
+	errStr := err.Error()
+
+	if !strings.HasPrefix(errStr, "Some other error") {
+		t.Errorf("expected error to fall back to Message, got %q", errStr)
+	}
+}

@@ -23,11 +23,18 @@ type TrueNASError struct {
 
 func (e *TrueNASError) Error() string {
 	var sb strings.Builder
-	sb.WriteString(e.Message)
-	if e.LogsExcerpt != "" {
-		sb.WriteString("\n\nJob logs:\n")
-		sb.WriteString(e.LogsExcerpt)
+
+	// Prefer the clean app lifecycle error if available
+	if e.AppLifecycleError != "" {
+		sb.WriteString(e.AppLifecycleError)
+	} else {
+		sb.WriteString(e.Message)
+		if e.LogsExcerpt != "" {
+			sb.WriteString("\n\nJob logs:\n")
+			sb.WriteString(e.LogsExcerpt)
+		}
 	}
+
 	if e.Suggestion != "" {
 		sb.WriteString("\n\nSuggestion: ")
 		sb.WriteString(e.Suggestion)
