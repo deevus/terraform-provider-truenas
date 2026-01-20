@@ -42,6 +42,8 @@ var (
 	fieldRegex = regexp.MustCompile(`^([\w.]+):\s*(.*)`)
 	// Matches "Process exited with status N: " prefix
 	processExitRegex = regexp.MustCompile(`^Process exited with status \d+:\s*`)
+	// Matches app lifecycle error pattern: Failed '<action>' action for '<app>' app ... /var/log/app_lifecycle.log
+	appLifecycleRegex = regexp.MustCompile(`Failed '(\w+)' action for '([^']+)' app.*(/var/log/app_lifecycle\.log)`)
 )
 
 // errorSuggestions maps error codes to helpful suggestions.
@@ -89,6 +91,13 @@ func ParseTrueNASError(raw string) *TrueNASError {
 	// Add suggestion based on code
 	if suggestion, ok := errorSuggestions[err.Code]; ok {
 		err.Suggestion = suggestion
+	}
+
+	// Check for app lifecycle pattern
+	if matches := appLifecycleRegex.FindStringSubmatch(raw); len(matches) == 4 {
+		err.AppAction = matches[1]
+		err.AppName = matches[2]
+		err.LogPath = matches[3]
 	}
 
 	return err
