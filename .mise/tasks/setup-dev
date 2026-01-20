@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#MISE description="Generate ~/.terraformrc with dev_overrides for local development"
+set -euo pipefail
+
+provider_path="$MISE_PROJECT_ROOT"
+terraformrc="$HOME/.terraformrc"
+
+# Check if .terraformrc already exists with different content
+if [[ -f "$terraformrc" ]]; then
+    if grep -q "dev_overrides" "$terraformrc"; then
+        echo "Warning: $terraformrc already contains dev_overrides"
+        echo "Current content:"
+        cat "$terraformrc"
+        echo ""
+        read -p "Overwrite? [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Aborted"
+            exit 1
+        fi
+    fi
+fi
+
+cat > "$terraformrc" << EOF
+provider_installation {
+  dev_overrides {
+    "registry.terraform.io/deevus/truenas" = "$provider_path"
+  }
+  direct {}
+}
+EOF
+
+echo "Created $terraformrc with dev_overrides pointing to:"
+echo "  $provider_path"
+echo ""
+echo "Now run 'mise run build' to build the provider."
+echo "Terraform will use the local binary without needing 'terraform init'."
