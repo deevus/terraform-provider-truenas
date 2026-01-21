@@ -858,3 +858,102 @@ func TestCronJobResource_Update_APIError(t *testing.T) {
 		t.Fatal("expected error for API error")
 	}
 }
+
+func TestCronJobResource_Delete_Success(t *testing.T) {
+	var capturedMethod string
+	var capturedID int64
+
+	r := &CronJobResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				capturedMethod = method
+				capturedID = params.(int64)
+				return json.RawMessage(`true`), nil
+			},
+		},
+	}
+
+	schemaResp := getCronJobResourceSchema(t)
+	stateValue := createCronJobModelValue(cronJobModelParams{
+		ID:          "5",
+		User:        "root",
+		Command:     "/usr/local/bin/backup.sh",
+		Description: "Daily Backup",
+		Enabled:     true,
+		Stdout:      true,
+		Stderr:      false,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+	})
+
+	req := resource.DeleteRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.DeleteResponse{}
+
+	r.Delete(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cronjob.delete" {
+		t.Errorf("expected method 'cronjob.delete', got %q", capturedMethod)
+	}
+
+	if capturedID != 5 {
+		t.Errorf("expected ID 5, got %d", capturedID)
+	}
+}
+
+func TestCronJobResource_Delete_APIError(t *testing.T) {
+	r := &CronJobResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("cron job in use")
+			},
+		},
+	}
+
+	schemaResp := getCronJobResourceSchema(t)
+	stateValue := createCronJobModelValue(cronJobModelParams{
+		ID:          "5",
+		User:        "root",
+		Command:     "/usr/local/bin/backup.sh",
+		Description: "Daily Backup",
+		Enabled:     true,
+		Stdout:      true,
+		Stderr:      false,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+	})
+
+	req := resource.DeleteRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.DeleteResponse{}
+
+	r.Delete(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
+}
