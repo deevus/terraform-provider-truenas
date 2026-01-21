@@ -173,5 +173,6 @@ func (p *TrueNASProvider) Resources(ctx context.Context) []func() resource.Resou
 		resources.NewSnapshotResource,
 		resources.NewCloudSyncCredentialsResource,
 		resources.NewCloudSyncTaskResource,
+		resources.NewCronJobResource,
 	}
 }
