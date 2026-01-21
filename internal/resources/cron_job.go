@@ -242,7 +242,60 @@ func (r *CronJobResource) Read(ctx context.Context, req resource.ReadRequest, re
 }
 
 func (r *CronJobResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// TODO: implement in next task
+	var state CronJobResourceModel
+	var plan CronJobResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Parse ID from state
+	id, err := strconv.ParseInt(state.ID.ValueString(), 10, 64)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Invalid ID",
+			fmt.Sprintf("Unable to parse ID %q: %s", state.ID.ValueString(), err.Error()),
+		)
+		return
+	}
+
+	// Build update params
+	params := buildCronJobParams(&plan)
+
+	// Call API with []any{id, params}
+	_, err = r.client.Call(ctx, "cronjob.update", []any{id, params})
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Update Cron Job",
+			fmt.Sprintf("Unable to update cron job: %s", err.Error()),
+		)
+		return
+	}
+
+	// Query to get full state
+	job, err := r.queryCronJob(ctx, id)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Read Cron Job",
+			fmt.Sprintf("Cron job updated but unable to read: %s", err.Error()),
+		)
+		return
+	}
+
+	if job == nil {
+		resp.Diagnostics.AddError(
+			"Cron Job Not Found",
+			"Cron job was updated but could not be found.",
+		)
+		return
+	}
+
+	// Set state from response
+	mapCronJobToModel(job, &plan)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *CronJobResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
