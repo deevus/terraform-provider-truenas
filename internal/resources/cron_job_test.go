@@ -2,10 +2,13 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
@@ -213,4 +216,196 @@ func createCronJobModelValue(p cronJobModelParams) tftypes.Value {
 	}
 
 	return tftypes.NewValue(objectType, values)
+}
+
+func TestCronJobResource_Create_Success(t *testing.T) {
+	var capturedMethod string
+	var capturedParams any
+
+	r := &CronJobResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cronjob.create" {
+					capturedMethod = method
+					capturedParams = params
+					return json.RawMessage(`{"id": 5}`), nil
+				}
+				if method == "cronjob.query" {
+					return json.RawMessage(`[{
+						"id": 5,
+						"user": "root",
+						"command": "/usr/local/bin/backup.sh",
+						"description": "Daily Backup",
+						"enabled": true,
+						"stdout": true,
+						"stderr": false,
+						"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"}
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCronJobResourceSchema(t)
+	planValue := createCronJobModelValue(cronJobModelParams{
+		User:        "root",
+		Command:     "/usr/local/bin/backup.sh",
+		Description: "Daily Backup",
+		Enabled:     true,
+		Stdout:      true,
+		Stderr:      false,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cronjob.create" {
+		t.Errorf("expected method 'cronjob.create', got %q", capturedMethod)
+	}
+
+	// Verify params
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	if params["user"] != "root" {
+		t.Errorf("expected user 'root', got %v", params["user"])
+	}
+	if params["command"] != "/usr/local/bin/backup.sh" {
+		t.Errorf("expected command '/usr/local/bin/backup.sh', got %v", params["command"])
+	}
+	if params["description"] != "Daily Backup" {
+		t.Errorf("expected description 'Daily Backup', got %v", params["description"])
+	}
+	if params["enabled"] != true {
+		t.Errorf("expected enabled true, got %v", params["enabled"])
+	}
+	if params["stdout"] != true {
+		t.Errorf("expected stdout true, got %v", params["stdout"])
+	}
+	if params["stderr"] != false {
+		t.Errorf("expected stderr false, got %v", params["stderr"])
+	}
+
+	// Verify schedule
+	schedule, ok := params["schedule"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
+	}
+	if schedule["minute"] != "0" {
+		t.Errorf("expected schedule minute '0', got %v", schedule["minute"])
+	}
+	if schedule["hour"] != "3" {
+		t.Errorf("expected schedule hour '3', got %v", schedule["hour"])
+	}
+	if schedule["dom"] != "*" {
+		t.Errorf("expected schedule dom '*', got %v", schedule["dom"])
+	}
+	if schedule["month"] != "*" {
+		t.Errorf("expected schedule month '*', got %v", schedule["month"])
+	}
+	if schedule["dow"] != "*" {
+		t.Errorf("expected schedule dow '*', got %v", schedule["dow"])
+	}
+
+	// Verify state was set
+	var resultData CronJobResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "5" {
+		t.Errorf("expected ID '5', got %q", resultData.ID.ValueString())
+	}
+	if resultData.User.ValueString() != "root" {
+		t.Errorf("expected user 'root', got %q", resultData.User.ValueString())
+	}
+	if resultData.Command.ValueString() != "/usr/local/bin/backup.sh" {
+		t.Errorf("expected command '/usr/local/bin/backup.sh', got %q", resultData.Command.ValueString())
+	}
+	if resultData.Description.ValueString() != "Daily Backup" {
+		t.Errorf("expected description 'Daily Backup', got %q", resultData.Description.ValueString())
+	}
+	if resultData.Enabled.ValueBool() != true {
+		t.Errorf("expected enabled true, got %v", resultData.Enabled.ValueBool())
+	}
+	if resultData.Stdout.ValueBool() != true {
+		t.Errorf("expected stdout true, got %v", resultData.Stdout.ValueBool())
+	}
+	if resultData.Stderr.ValueBool() != false {
+		t.Errorf("expected stderr false, got %v", resultData.Stderr.ValueBool())
+	}
+}
+
+func TestCronJobResource_Create_APIError(t *testing.T) {
+	r := &CronJobResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("connection refused")
+			},
+		},
+	}
+
+	schemaResp := getCronJobResourceSchema(t)
+	planValue := createCronJobModelValue(cronJobModelParams{
+		User:        "root",
+		Command:     "/usr/local/bin/backup.sh",
+		Description: "Daily Backup",
+		Enabled:     true,
+		Stdout:      true,
+		Stderr:      false,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
+
+	// Verify state was not set (should remain empty/null)
+	if !resp.State.Raw.IsNull() {
+		t.Error("expected state to not be set when API returns error")
+	}
 }
