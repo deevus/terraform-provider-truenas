@@ -607,3 +607,254 @@ func TestCronJobResource_Read_APIError(t *testing.T) {
 		t.Fatal("expected error for API error")
 	}
 }
+
+func TestCronJobResource_Update_Success(t *testing.T) {
+	var capturedMethod string
+	var capturedID int64
+	var capturedUpdateData map[string]any
+
+	r := &CronJobResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cronjob.update" {
+					capturedMethod = method
+					args := params.([]any)
+					capturedID = args[0].(int64)
+					capturedUpdateData = args[1].(map[string]any)
+					return json.RawMessage(`{"id": 5}`), nil
+				}
+				if method == "cronjob.query" {
+					return json.RawMessage(`[{
+						"id": 5,
+						"user": "admin",
+						"command": "/usr/local/bin/updated-backup.sh",
+						"description": "Updated Daily Backup",
+						"enabled": false,
+						"stdout": false,
+						"stderr": true,
+						"schedule": {"minute": "30", "hour": "4", "dom": "1", "month": "*", "dow": "1-5"}
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCronJobResourceSchema(t)
+
+	// Current state
+	stateValue := createCronJobModelValue(cronJobModelParams{
+		ID:          "5",
+		User:        "root",
+		Command:     "/usr/local/bin/backup.sh",
+		Description: "Daily Backup",
+		Enabled:     true,
+		Stdout:      true,
+		Stderr:      false,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+	})
+
+	// Updated plan
+	planValue := createCronJobModelValue(cronJobModelParams{
+		ID:          "5",
+		User:        "admin",
+		Command:     "/usr/local/bin/updated-backup.sh",
+		Description: "Updated Daily Backup",
+		Enabled:     false,
+		Stdout:      false,
+		Stderr:      true,
+		Schedule: &scheduleBlockParams{
+			Minute: "30",
+			Hour:   "4",
+			Dom:    "1",
+			Month:  "*",
+			Dow:    "1-5",
+		},
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cronjob.update" {
+		t.Errorf("expected method 'cronjob.update', got %q", capturedMethod)
+	}
+
+	if capturedID != 5 {
+		t.Errorf("expected ID 5, got %d", capturedID)
+	}
+
+	// Verify update params
+	if capturedUpdateData["user"] != "admin" {
+		t.Errorf("expected user 'admin', got %v", capturedUpdateData["user"])
+	}
+	if capturedUpdateData["command"] != "/usr/local/bin/updated-backup.sh" {
+		t.Errorf("expected command '/usr/local/bin/updated-backup.sh', got %v", capturedUpdateData["command"])
+	}
+	if capturedUpdateData["description"] != "Updated Daily Backup" {
+		t.Errorf("expected description 'Updated Daily Backup', got %v", capturedUpdateData["description"])
+	}
+	if capturedUpdateData["enabled"] != false {
+		t.Errorf("expected enabled false, got %v", capturedUpdateData["enabled"])
+	}
+	if capturedUpdateData["stdout"] != false {
+		t.Errorf("expected stdout false, got %v", capturedUpdateData["stdout"])
+	}
+	if capturedUpdateData["stderr"] != true {
+		t.Errorf("expected stderr true, got %v", capturedUpdateData["stderr"])
+	}
+
+	// Verify schedule in update params
+	schedule, ok := capturedUpdateData["schedule"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected schedule to be map[string]any, got %T", capturedUpdateData["schedule"])
+	}
+	if schedule["minute"] != "30" {
+		t.Errorf("expected schedule minute '30', got %v", schedule["minute"])
+	}
+	if schedule["hour"] != "4" {
+		t.Errorf("expected schedule hour '4', got %v", schedule["hour"])
+	}
+	if schedule["dom"] != "1" {
+		t.Errorf("expected schedule dom '1', got %v", schedule["dom"])
+	}
+	if schedule["dow"] != "1-5" {
+		t.Errorf("expected schedule dow '1-5', got %v", schedule["dow"])
+	}
+
+	// Verify state was set
+	var resultData CronJobResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "5" {
+		t.Errorf("expected ID '5', got %q", resultData.ID.ValueString())
+	}
+	if resultData.User.ValueString() != "admin" {
+		t.Errorf("expected user 'admin', got %q", resultData.User.ValueString())
+	}
+	if resultData.Command.ValueString() != "/usr/local/bin/updated-backup.sh" {
+		t.Errorf("expected command '/usr/local/bin/updated-backup.sh', got %q", resultData.Command.ValueString())
+	}
+	if resultData.Description.ValueString() != "Updated Daily Backup" {
+		t.Errorf("expected description 'Updated Daily Backup', got %q", resultData.Description.ValueString())
+	}
+	if resultData.Enabled.ValueBool() != false {
+		t.Errorf("expected enabled false, got %v", resultData.Enabled.ValueBool())
+	}
+	if resultData.Stdout.ValueBool() != false {
+		t.Errorf("expected stdout false, got %v", resultData.Stdout.ValueBool())
+	}
+	if resultData.Stderr.ValueBool() != true {
+		t.Errorf("expected stderr true, got %v", resultData.Stderr.ValueBool())
+	}
+	if resultData.Schedule == nil {
+		t.Fatal("expected schedule block to be set")
+	}
+	if resultData.Schedule.Minute.ValueString() != "30" {
+		t.Errorf("expected schedule minute '30', got %q", resultData.Schedule.Minute.ValueString())
+	}
+	if resultData.Schedule.Hour.ValueString() != "4" {
+		t.Errorf("expected schedule hour '4', got %q", resultData.Schedule.Hour.ValueString())
+	}
+	if resultData.Schedule.Dom.ValueString() != "1" {
+		t.Errorf("expected schedule dom '1', got %q", resultData.Schedule.Dom.ValueString())
+	}
+	if resultData.Schedule.Dow.ValueString() != "1-5" {
+		t.Errorf("expected schedule dow '1-5', got %q", resultData.Schedule.Dow.ValueString())
+	}
+}
+
+func TestCronJobResource_Update_APIError(t *testing.T) {
+	r := &CronJobResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return nil, errors.New("connection refused")
+			},
+		},
+	}
+
+	schemaResp := getCronJobResourceSchema(t)
+
+	// Current state
+	stateValue := createCronJobModelValue(cronJobModelParams{
+		ID:          "5",
+		User:        "root",
+		Command:     "/usr/local/bin/backup.sh",
+		Description: "Daily Backup",
+		Enabled:     true,
+		Stdout:      true,
+		Stderr:      false,
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+	})
+
+	// Updated plan
+	planValue := createCronJobModelValue(cronJobModelParams{
+		ID:          "5",
+		User:        "admin",
+		Command:     "/usr/local/bin/updated-backup.sh",
+		Description: "Updated Daily Backup",
+		Enabled:     false,
+		Stdout:      false,
+		Stderr:      true,
+		Schedule: &scheduleBlockParams{
+			Minute: "30",
+			Hour:   "4",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error")
+	}
+}
