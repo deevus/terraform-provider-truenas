@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.9.0] - 2026-01-21
+
+
+### Added
+
+- **api:** Add cron job API response struct
+- **resources:** Add cron job resource scaffolding
+- **resources:** Add cron job helper functions
+- **resources:** Implement cron job Create method
+- **resources:** Implement cron job Read method
+- **resources:** Implement cron job Update method
+- **resources:** Implement cron job Delete method
+- **provider:** Register cron job resource
+
+### Documentation
+
+- **plans:** Add cron job resource implementation plan
+- Add truenas_cron_job resource documentation
+
+### Testing
+
+- **resources:** Add cron job basic tests
+- **resources:** Add cron job test helpers
+- **cron_job:** Add Create method tests
+- **cron_job:** Add Read method tests
+- **cron_job:** Add Update method tests
+- **cron_job:** Add Delete method tests
+- **cron_job:** Add schedule variation tests
+
 ## [0.8.0] - 2026-01-20
 
 
