@@ -299,7 +299,30 @@ func (r *CronJobResource) Update(ctx context.Context, req resource.UpdateRequest
 }
 
 func (r *CronJobResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	// TODO: implement in next task
+	var data CronJobResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	id, err := strconv.ParseInt(data.ID.ValueString(), 10, 64)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Invalid ID",
+			fmt.Sprintf("Unable to parse ID %q: %s", data.ID.ValueString(), err.Error()),
+		)
+		return
+	}
+
+	_, err = r.client.Call(ctx, "cronjob.delete", id)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Delete Cron Job",
+			fmt.Sprintf("Unable to delete cron job: %s", err.Error()),
+		)
+		return
+	}
 }
 
 func (r *CronJobResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
