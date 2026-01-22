@@ -23,6 +23,7 @@ func TestNewDatasetResource(t *testing.T) {
 	var _ resource.Resource = r
 	var _ resource.ResourceWithConfigure = r.(*DatasetResource)
 	var _ resource.ResourceWithImportState = r.(*DatasetResource)
+	var _ resource.ResourceWithValidateConfig = r.(*DatasetResource)
 }
 
 func TestDatasetResource_ValidateConfig_ModeRequiredWithUID(t *testing.T) {
