@@ -20,8 +20,8 @@ Manages a TrueNAS dataset. Use nested datasets instead of host_path for app stor
 - `atime` (String) Access time tracking ('on' or 'off').
 - `compression` (String) Compression algorithm (e.g., 'lz4', 'zstd', 'off').
 - `force_destroy` (Boolean) When destroying this resource, also delete all child datasets. Defaults to false.
-- `gid` (Number) Owner group ID for the dataset mountpoint.
-- `mode` (String) Unix mode for the dataset mountpoint (e.g., '755'). Sets permissions via filesystem.setperm after creation.
+- `gid` (Number) Owner group ID for the dataset mountpoint. Requires `mode` to be set.
+- `mode` (String) Unix mode for the dataset mountpoint (e.g., '755'). Required when `uid` or `gid` is specified.
 - `name` (String, Deprecated) Dataset name. Use with 'parent' attribute.
 - `parent` (String) Parent dataset ID (e.g., 'tank/data'). Use with 'path' attribute.
 - `path` (String) Dataset path. With 'pool': relative path in pool. With 'parent': child dataset name.
@@ -29,7 +29,7 @@ Manages a TrueNAS dataset. Use nested datasets instead of host_path for app stor
 - `quota` (String) Dataset quota (e.g., '10G', '1T').
 - `refquota` (String) Dataset reference quota (e.g., '10G', '1T').
 - `snapshot_id` (String) Create dataset as clone from this snapshot.
-- `uid` (Number) Owner user ID for the dataset mountpoint.
+- `uid` (Number) Owner user ID for the dataset mountpoint. Requires `mode` to be set.
 
 ### Read-Only
 
