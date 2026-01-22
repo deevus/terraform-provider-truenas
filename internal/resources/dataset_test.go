@@ -25,6 +25,226 @@ func TestNewDatasetResource(t *testing.T) {
 	var _ resource.ResourceWithImportState = r.(*DatasetResource)
 }
 
+func TestDatasetResource_ValidateConfig_ModeRequiredWithUID(t *testing.T) {
+	r := NewDatasetResource().(*DatasetResource)
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// uid set without mode - should fail validation
+	configValue := createDatasetResourceModelWithPerms(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil, nil, int64(1000), nil)
+
+	req := resource.ValidateConfigRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    configValue,
+		},
+	}
+	resp := &resource.ValidateConfigResponse{}
+
+	r.ValidateConfig(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected validation error when uid is set without mode")
+	}
+
+	// Verify error message
+	found := false
+	for _, diag := range resp.Diagnostics.Errors() {
+		if diag.Summary() == "Mode Required with UID/GID" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error with summary 'Mode Required with UID/GID'")
+	}
+}
+
+func TestDatasetResource_ValidateConfig_ModeRequiredWithGID(t *testing.T) {
+	r := NewDatasetResource().(*DatasetResource)
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// gid set without mode - should fail validation
+	configValue := createDatasetResourceModelWithPerms(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, int64(1000))
+
+	req := resource.ValidateConfigRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    configValue,
+		},
+	}
+	resp := &resource.ValidateConfigResponse{}
+
+	r.ValidateConfig(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected validation error when gid is set without mode")
+	}
+
+	// Verify error message
+	found := false
+	for _, diag := range resp.Diagnostics.Errors() {
+		if diag.Summary() == "Mode Required with UID/GID" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error with summary 'Mode Required with UID/GID'")
+	}
+}
+
+func TestDatasetResource_ValidateConfig_ModeRequiredWithBoth(t *testing.T) {
+	r := NewDatasetResource().(*DatasetResource)
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// uid and gid set without mode - should fail validation
+	configValue := createDatasetResourceModelWithPerms(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil, nil, int64(1000), int64(1000))
+
+	req := resource.ValidateConfigRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    configValue,
+		},
+	}
+	resp := &resource.ValidateConfigResponse{}
+
+	r.ValidateConfig(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected validation error when uid and gid are set without mode")
+	}
+
+	// Verify error message
+	found := false
+	for _, diag := range resp.Diagnostics.Errors() {
+		if diag.Summary() == "Mode Required with UID/GID" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error with summary 'Mode Required with UID/GID'")
+	}
+}
+
+func TestDatasetResource_ValidateConfig_ModeWithUID_OK(t *testing.T) {
+	r := NewDatasetResource().(*DatasetResource)
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// uid with mode - should pass validation
+	configValue := createDatasetResourceModelWithPerms(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil, "755", int64(1000), nil)
+
+	req := resource.ValidateConfigRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    configValue,
+		},
+	}
+	resp := &resource.ValidateConfigResponse{}
+
+	r.ValidateConfig(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected validation error: %v", resp.Diagnostics)
+	}
+}
+
+func TestDatasetResource_ValidateConfig_ModeWithGID_OK(t *testing.T) {
+	r := NewDatasetResource().(*DatasetResource)
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// gid with mode - should pass validation
+	configValue := createDatasetResourceModelWithPerms(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil, "755", nil, int64(1000))
+
+	req := resource.ValidateConfigRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    configValue,
+		},
+	}
+	resp := &resource.ValidateConfigResponse{}
+
+	r.ValidateConfig(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected validation error: %v", resp.Diagnostics)
+	}
+}
+
+func TestDatasetResource_ValidateConfig_ModeWithBoth_OK(t *testing.T) {
+	r := NewDatasetResource().(*DatasetResource)
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// uid and gid with mode - should pass validation
+	configValue := createDatasetResourceModelWithPerms(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil, "755", int64(1000), int64(1000))
+
+	req := resource.ValidateConfigRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    configValue,
+		},
+	}
+	resp := &resource.ValidateConfigResponse{}
+
+	r.ValidateConfig(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected validation error: %v", resp.Diagnostics)
+	}
+}
+
+func TestDatasetResource_ValidateConfig_ModeOnly_OK(t *testing.T) {
+	r := NewDatasetResource().(*DatasetResource)
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// mode alone - should pass validation
+	configValue := createDatasetResourceModelWithPerms(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil, "755", nil, nil)
+
+	req := resource.ValidateConfigRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    configValue,
+		},
+	}
+	resp := &resource.ValidateConfigResponse{}
+
+	r.ValidateConfig(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected validation error: %v", resp.Diagnostics)
+	}
+}
+
+func TestDatasetResource_ValidateConfig_NoPermissions_OK(t *testing.T) {
+	r := NewDatasetResource().(*DatasetResource)
+
+	schemaResp := getDatasetResourceSchema(t)
+
+	// no permissions - should pass validation
+	configValue := createDatasetResourceModel(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil)
+
+	req := resource.ValidateConfigRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    configValue,
+		},
+	}
+	resp := &resource.ValidateConfigResponse{}
+
+	r.ValidateConfig(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected validation error: %v", resp.Diagnostics)
+	}
+}
+
 func TestDatasetResource_Metadata(t *testing.T) {
 	r := NewDatasetResource()
 
