@@ -18,6 +18,7 @@ import (
 var _ resource.Resource = &DatasetResource{}
 var _ resource.ResourceWithConfigure = &DatasetResource{}
 var _ resource.ResourceWithImportState = &DatasetResource{}
+var _ resource.ResourceWithValidateConfig = &DatasetResource{}
 
 // DatasetResource defines the resource implementation.
 type DatasetResource struct {
@@ -249,6 +250,27 @@ func (r *DatasetResource) Configure(ctx context.Context, req resource.ConfigureR
 	}
 
 	r.client = c
+}
+
+func (r *DatasetResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data DatasetResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	hasMode := !data.Mode.IsNull() && !data.Mode.IsUnknown()
+	hasUID := !data.UID.IsNull() && !data.UID.IsUnknown()
+	hasGID := !data.GID.IsNull() && !data.GID.IsUnknown()
+
+	if (hasUID || hasGID) && !hasMode {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("mode"),
+			"Mode Required with UID/GID",
+			"The 'mode' attribute is required when 'uid' or 'gid' is specified. "+
+				"TrueNAS requires explicit permissions when setting ownership.",
+		)
+	}
 }
 
 func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
