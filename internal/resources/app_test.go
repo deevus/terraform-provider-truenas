@@ -169,35 +169,28 @@ func getAppResourceSchema(t *testing.T) resource.SchemaResponse {
 	return *schemaResp
 }
 
-// createAppResourceModelValue creates a tftypes.Value for the app resource model
-func createAppResourceModelValue(
-	id, name interface{},
-	customApp interface{},
-	composeConfig interface{},
-	desiredState interface{},
-	stateTimeout interface{},
-	state interface{},
-) tftypes.Value {
-	return createAppResourceModelValueWithTriggers(id, name, customApp, composeConfig, desiredState, stateTimeout, state, nil)
+// appModelParams contains parameters for creating test app resource model values.
+// All fields are optional - nil values result in null tftypes values.
+type appModelParams struct {
+	ID              interface{}            // Resource ID (usually same as Name)
+	Name            interface{}            // App name
+	CustomApp       interface{}            // Whether this is a custom app (usually true)
+	ComposeConfig   interface{}            // Docker Compose YAML config
+	DesiredState    interface{}            // Desired state: "RUNNING", "STOPPED", "running", "stopped"
+	StateTimeout    interface{}            // Timeout in seconds (as float64)
+	State           interface{}            // Actual state from API
+	RestartTriggers map[string]interface{} // Map of trigger keys to values
 }
 
-// createAppResourceModelValueWithTriggers creates a tftypes.Value for the app resource model with restart_triggers
-func createAppResourceModelValueWithTriggers(
-	id, name interface{},
-	customApp interface{},
-	composeConfig interface{},
-	desiredState interface{},
-	stateTimeout interface{},
-	state interface{},
-	restartTriggers map[string]interface{},
-) tftypes.Value {
+// newAppModelValue creates a tftypes.Value from appModelParams.
+func newAppModelValue(p appModelParams) tftypes.Value {
 	// Convert restartTriggers to tftypes.Value
 	var triggersValue tftypes.Value
-	if restartTriggers == nil {
+	if p.RestartTriggers == nil {
 		triggersValue = tftypes.NewValue(tftypes.Map{ElementType: tftypes.String}, nil)
 	} else {
 		triggerMap := make(map[string]tftypes.Value)
-		for k, v := range restartTriggers {
+		for k, v := range p.RestartTriggers {
 			triggerMap[k] = tftypes.NewValue(tftypes.String, v)
 		}
 		triggersValue = tftypes.NewValue(tftypes.Map{ElementType: tftypes.String}, triggerMap)
@@ -215,14 +208,58 @@ func createAppResourceModelValueWithTriggers(
 			"restart_triggers": tftypes.Map{ElementType: tftypes.String},
 		},
 	}, map[string]tftypes.Value{
-		"id":               tftypes.NewValue(tftypes.String, id),
-		"name":             tftypes.NewValue(tftypes.String, name),
-		"custom_app":       tftypes.NewValue(tftypes.Bool, customApp),
-		"compose_config":   tftypes.NewValue(tftypes.String, composeConfig),
-		"desired_state":    tftypes.NewValue(tftypes.String, desiredState),
-		"state_timeout":    tftypes.NewValue(tftypes.Number, stateTimeout),
-		"state":            tftypes.NewValue(tftypes.String, state),
+		"id":               tftypes.NewValue(tftypes.String, p.ID),
+		"name":             tftypes.NewValue(tftypes.String, p.Name),
+		"custom_app":       tftypes.NewValue(tftypes.Bool, p.CustomApp),
+		"compose_config":   tftypes.NewValue(tftypes.String, p.ComposeConfig),
+		"desired_state":    tftypes.NewValue(tftypes.String, p.DesiredState),
+		"state_timeout":    tftypes.NewValue(tftypes.Number, p.StateTimeout),
+		"state":            tftypes.NewValue(tftypes.String, p.State),
 		"restart_triggers": triggersValue,
+	})
+}
+
+// createAppResourceModelValue creates a tftypes.Value for the app resource model.
+// Deprecated: Use newAppModelValue with appModelParams instead for better readability.
+func createAppResourceModelValue(
+	id, name interface{},
+	customApp interface{},
+	composeConfig interface{},
+	desiredState interface{},
+	stateTimeout interface{},
+	state interface{},
+) tftypes.Value {
+	return newAppModelValue(appModelParams{
+		ID:            id,
+		Name:          name,
+		CustomApp:     customApp,
+		ComposeConfig: composeConfig,
+		DesiredState:  desiredState,
+		StateTimeout:  stateTimeout,
+		State:         state,
+	})
+}
+
+// createAppResourceModelValueWithTriggers creates a tftypes.Value for the app resource model with restart_triggers.
+// Deprecated: Use newAppModelValue with appModelParams instead for better readability.
+func createAppResourceModelValueWithTriggers(
+	id, name interface{},
+	customApp interface{},
+	composeConfig interface{},
+	desiredState interface{},
+	stateTimeout interface{},
+	state interface{},
+	restartTriggers map[string]interface{},
+) tftypes.Value {
+	return newAppModelValue(appModelParams{
+		ID:              id,
+		Name:            name,
+		CustomApp:       customApp,
+		ComposeConfig:   composeConfig,
+		DesiredState:    desiredState,
+		StateTimeout:    stateTimeout,
+		State:           state,
+		RestartTriggers: restartTriggers,
 	})
 }
 
@@ -1620,7 +1657,14 @@ func TestAppResource_Read_PreservesDesiredStateCase(t *testing.T) {
 	schemaResp := getAppResourceSchema(t)
 
 	// Prior state has lowercase desired_state = "stopped"
-	stateValue := createAppResourceModelValue("myapp", "myapp", true, nil, "stopped", float64(120), "STOPPED")
+	stateValue := newAppModelValue(appModelParams{
+		ID:           "myapp",
+		Name:         "myapp",
+		CustomApp:    true,
+		DesiredState: "stopped",
+		StateTimeout: float64(120),
+		State:        "STOPPED",
+	})
 
 	req := resource.ReadRequest{
 		State: tfsdk.State{
@@ -1825,7 +1869,12 @@ func TestAppResource_Create_DesiredStateCasePreservation(t *testing.T) {
 			}
 
 			schemaResp := getAppResourceSchema(t)
-			planValue := createAppResourceModelValue(nil, "myapp", true, nil, tc.inputDesired, float64(120), nil)
+			planValue := newAppModelValue(appModelParams{
+				Name:         "myapp",
+				CustomApp:    true,
+				DesiredState: tc.inputDesired,
+				StateTimeout: float64(120),
+			})
 
 			req := resource.CreateRequest{
 				Plan: tfsdk.Plan{
@@ -2516,10 +2565,23 @@ func TestAppResource_Update_DesiredStateCasePreservation(t *testing.T) {
 	schemaResp := getAppResourceSchema(t)
 
 	// Prior state has uppercase "RUNNING"
-	stateValue := createAppResourceModelValue("myapp", "myapp", true, nil, "RUNNING", float64(120), "RUNNING")
+	stateValue := newAppModelValue(appModelParams{
+		ID:           "myapp",
+		Name:         "myapp",
+		CustomApp:    true,
+		DesiredState: "RUNNING",
+		StateTimeout: float64(120),
+		State:        "RUNNING",
+	})
 
 	// Plan has lowercase "stopped" (user changed config to use lowercase)
-	planValue := createAppResourceModelValue("myapp", "myapp", true, nil, "stopped", float64(120), nil)
+	planValue := newAppModelValue(appModelParams{
+		ID:           "myapp",
+		Name:         "myapp",
+		CustomApp:    true,
+		DesiredState: "stopped",
+		StateTimeout: float64(120),
+	})
 
 	req := resource.UpdateRequest{
 		State: tfsdk.State{
