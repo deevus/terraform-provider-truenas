@@ -38,7 +38,7 @@ type AppResourceModel struct {
 	Name            types.String                `tfsdk:"name"`
 	CustomApp       types.Bool                  `tfsdk:"custom_app"`
 	ComposeConfig   customtypes.YAMLStringValue `tfsdk:"compose_config"`
-	DesiredState    types.String                `tfsdk:"desired_state"`
+	DesiredState    customtypes.CaseInsensitiveStringValue `tfsdk:"desired_state"`
 	StateTimeout    types.Int64                 `tfsdk:"state_timeout"`
 	State           types.String                `tfsdk:"state"`
 	RestartTriggers types.Map                   `tfsdk:"restart_triggers"`
@@ -98,10 +98,8 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 				Description: "Desired application state: 'running' or 'stopped' (case-insensitive). Defaults to 'RUNNING'.",
 				Optional:    true,
 				Computed:    true,
+				CustomType:  customtypes.CaseInsensitiveStringType{},
 				Default:     stringdefault.StaticString("RUNNING"),
-				PlanModifiers: []planmodifier.String{
-					caseInsensitiveStatePlanModifier(),
-				},
 				Validators: []validator.String{
 					stringvalidator.Any(
 						stringvalidator.OneOfCaseInsensitive("running", "stopped"),
@@ -257,8 +255,11 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 		data.State = types.StringValue(finalState)
 	}
 
-	// Ensure desired_state is normalized in state
-	data.DesiredState = types.StringValue(normalizedDesired)
+	// Preserve user's original desired_state value (semantic equality handles case differences)
+	// Only set if it was empty (defaulting to RUNNING)
+	if data.DesiredState.IsNull() || data.DesiredState.ValueString() == "" {
+		data.DesiredState = customtypes.NewCaseInsensitiveStringValue(AppStateRunning)
+	}
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -349,7 +350,7 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 
 	// Default desired_state if null/unknown (e.g., after import)
 	if data.DesiredState.IsNull() || data.DesiredState.IsUnknown() {
-		data.DesiredState = types.StringValue(app.State)
+		data.DesiredState = customtypes.NewCaseInsensitiveStringValue(app.State)
 	}
 
 	// Default state_timeout if null/unknown
@@ -501,7 +502,7 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	// Map final state to model
 	data.ID = types.StringValue(appName)
 	data.State = types.StringValue(currentState)
-	data.DesiredState = types.StringValue(normalizedDesired)
+	// DesiredState is preserved from plan - don't overwrite user's value
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
