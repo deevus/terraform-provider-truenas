@@ -54,9 +54,11 @@ WebSocket transport uses a persistent JSON-RPC connection that authenticates onc
 
 **Requirements:**
 - TrueNAS API key (create in TrueNAS web UI under **System > API Keys**)
-- TrueNAS 24.10 or later
+- **TrueNAS 25.0 or later** (24.10.x uses a legacy WebSocket protocol that is not supported)
 - **Secure connection only**: The provider always uses `wss://` (secure WebSocket). TrueNAS 25.04+ automatically revokes API keys used over insecure connections.
 - SSH is still required for some file operations (read, delete)
+
+> **Note:** TrueNAS 24.10.x does not support WebSocket transport because it uses a legacy DDP-like protocol instead of JSON-RPC 2.0. Use `auth_method = "ssh"` for TrueNAS 24.x.
 
 ```terraform
 provider "truenas" {
