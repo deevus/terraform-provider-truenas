@@ -664,7 +664,13 @@ func (c *WebSocketClient) CallAndWait(ctx context.Context, method string, params
 				return event.Result, nil
 			case "FAILED", "ABORTED":
 				if event.Error != "" {
-					return nil, ParseTrueNASError(event.Error)
+					tnErr := ParseTrueNASError(event.Error)
+					// Enrich with app lifecycle log if applicable (uses fallback SSH client with sudo)
+					EnrichAppLifecycleError(ctx, tnErr, func(ctx context.Context, path string) (string, error) {
+						content, err := c.ReadFile(ctx, path)
+						return string(content), err
+					})
+					return nil, tnErr
 				}
 				return nil, fmt.Errorf("job %d failed", jobID)
 			}

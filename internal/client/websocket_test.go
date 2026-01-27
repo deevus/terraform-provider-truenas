@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -3127,5 +3128,391 @@ func TestWebSocketClient_Connect_OlderVersion_ReturnsError(t *testing.T) {
 	// Verify error message includes version info
 	if !strings.Contains(err.Error(), "24.10.2.4") {
 		t.Errorf("Error should contain version info, got: %v", err)
+	}
+}
+
+func TestWebSocketClient_CallAndWait_FailingJob_WithAppLifecycleEnrichment(t *testing.T) {
+	// Test that FAILED jobs with app lifecycle errors get enriched via fallback SSH client
+	var writeMu sync.Mutex
+
+	// Read the fixture
+	logContent, err := os.ReadFile("../testdata/fixtures/app_lifecycle.log")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+
+			var req JSONRPCRequest
+			json.Unmarshal(msg, &req)
+
+			switch req.Method {
+			case "auth.login_ex":
+				conn.WriteJSON(JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result:  json.RawMessage(`{"response_type":"SUCCESS"}`),
+					ID:      req.ID,
+				})
+
+			case "core.subscribe":
+				conn.WriteJSON(JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result:  json.RawMessage(`true`),
+					ID:      req.ID,
+				})
+
+			case "app.failing":
+				writeMu.Lock()
+				conn.WriteJSON(JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result:  json.RawMessage(`999`),
+					ID:      req.ID,
+				})
+				writeMu.Unlock()
+				// Send failure event with app lifecycle error
+				go func() {
+					time.Sleep(10 * time.Millisecond)
+					writeMu.Lock()
+					conn.WriteJSON(map[string]any{
+						"msg":    "method",
+						"method": "collection_update",
+						"params": map[string]any{
+							"msg":        "changed",
+							"collection": "core.get_jobs",
+							"id":         999,
+							"fields": map[string]any{
+								"state": "FAILED",
+								"error": "[EFAULT] Failed 'up' action for 'dns' app. Please check /var/log/app_lifecycle.log for more details",
+							},
+						},
+					})
+					writeMu.Unlock()
+				}()
+			}
+		}
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	host := strings.Split(strings.TrimPrefix(wsURL, "ws://"), ":")
+
+	mock := &MockClient{
+		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+			return api.Version{Major: 25, Minor: 0}, nil
+		},
+		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+			if path == "/var/log/app_lifecycle.log" {
+				return logContent, nil
+			}
+			return nil, errors.New("file not found")
+		},
+	}
+
+	port, _ := strconv.Atoi(host[1])
+	config := WebSocketConfig{
+		Host:           host[0],
+		Port:           port,
+		Username:       "root",
+		APIKey:         "test-key",
+		Fallback:       mock,
+		ConnectTimeout: 5 * time.Second,
+		MaxRetries:     1,
+	}
+
+	client, err := NewWebSocketClient(config)
+	if err != nil {
+		t.Fatalf("NewWebSocketClient() error = %v", err)
+	}
+	client.testInsecure = true
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err = client.CallAndWait(ctx, "app.failing", nil)
+	if err == nil {
+		t.Fatal("CallAndWait() expected error for failed job, got nil")
+	}
+
+	var trueNASErr *TrueNASError
+	if !errors.As(err, &trueNASErr) {
+		t.Fatalf("error = %T, want *TrueNASError", err)
+	}
+
+	// Verify the error was enriched with app lifecycle log content
+	if !strings.Contains(trueNASErr.AppLifecycleError, "bind: address already in use") {
+		t.Errorf("expected AppLifecycleError to contain 'bind: address already in use', got %q", trueNASErr.AppLifecycleError)
+	}
+
+	// The Error() output should be clean (no "Please check" message)
+	errStr := err.Error()
+	if strings.Contains(errStr, "Please check") {
+		t.Errorf("expected clean error output, got %q", errStr)
+	}
+}
+
+func TestWebSocketClient_CallAndWait_FailingJob_EnrichmentFailsSilently(t *testing.T) {
+	// Test that enrichment failure doesn't affect the error reporting
+	var writeMu sync.Mutex
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+
+			var req JSONRPCRequest
+			json.Unmarshal(msg, &req)
+
+			switch req.Method {
+			case "auth.login_ex":
+				conn.WriteJSON(JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result:  json.RawMessage(`{"response_type":"SUCCESS"}`),
+					ID:      req.ID,
+				})
+
+			case "core.subscribe":
+				conn.WriteJSON(JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result:  json.RawMessage(`true`),
+					ID:      req.ID,
+				})
+
+			case "app.failing":
+				writeMu.Lock()
+				conn.WriteJSON(JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result:  json.RawMessage(`888`),
+					ID:      req.ID,
+				})
+				writeMu.Unlock()
+				go func() {
+					time.Sleep(10 * time.Millisecond)
+					writeMu.Lock()
+					conn.WriteJSON(map[string]any{
+						"msg":    "method",
+						"method": "collection_update",
+						"params": map[string]any{
+							"msg":        "changed",
+							"collection": "core.get_jobs",
+							"id":         888,
+							"fields": map[string]any{
+								"state": "FAILED",
+								"error": "[EFAULT] Failed 'up' action for 'dns' app. Please check /var/log/app_lifecycle.log for more details",
+							},
+						},
+					})
+					writeMu.Unlock()
+				}()
+			}
+		}
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	host := strings.Split(strings.TrimPrefix(wsURL, "ws://"), ":")
+
+	mock := &MockClient{
+		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+			return api.Version{Major: 25, Minor: 0}, nil
+		},
+		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+			// Simulate failure to read log file
+			return nil, errors.New("permission denied")
+		},
+	}
+
+	port, _ := strconv.Atoi(host[1])
+	config := WebSocketConfig{
+		Host:           host[0],
+		Port:           port,
+		Username:       "root",
+		APIKey:         "test-key",
+		Fallback:       mock,
+		ConnectTimeout: 5 * time.Second,
+		MaxRetries:     1,
+	}
+
+	client, err := NewWebSocketClient(config)
+	if err != nil {
+		t.Fatalf("NewWebSocketClient() error = %v", err)
+	}
+	client.testInsecure = true
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err = client.CallAndWait(ctx, "app.failing", nil)
+	if err == nil {
+		t.Fatal("CallAndWait() expected error for failed job, got nil")
+	}
+
+	var trueNASErr *TrueNASError
+	if !errors.As(err, &trueNASErr) {
+		t.Fatalf("error = %T, want *TrueNASError", err)
+	}
+
+	// Should still have the original error info
+	if trueNASErr.Code != "EFAULT" {
+		t.Errorf("expected code EFAULT, got %s", trueNASErr.Code)
+	}
+
+	// AppLifecycleError should be empty since fetch failed
+	if trueNASErr.AppLifecycleError != "" {
+		t.Errorf("expected empty AppLifecycleError when fetch fails, got %q", trueNASErr.AppLifecycleError)
+	}
+}
+
+func TestWebSocketClient_CallAndWait_AbortedJob_WithEnrichment(t *testing.T) {
+	// Test that ABORTED jobs also get enriched with app lifecycle errors
+	var writeMu sync.Mutex
+
+	// Read the fixture
+	logContent, err := os.ReadFile("../testdata/fixtures/app_lifecycle.log")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+
+			var req JSONRPCRequest
+			json.Unmarshal(msg, &req)
+
+			switch req.Method {
+			case "auth.login_ex":
+				conn.WriteJSON(JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result:  json.RawMessage(`{"response_type":"SUCCESS"}`),
+					ID:      req.ID,
+				})
+
+			case "core.subscribe":
+				conn.WriteJSON(JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result:  json.RawMessage(`true`),
+					ID:      req.ID,
+				})
+
+			case "app.aborting":
+				writeMu.Lock()
+				conn.WriteJSON(JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result:  json.RawMessage(`777`),
+					ID:      req.ID,
+				})
+				writeMu.Unlock()
+				// Send ABORTED event with app lifecycle error
+				go func() {
+					time.Sleep(10 * time.Millisecond)
+					writeMu.Lock()
+					conn.WriteJSON(map[string]any{
+						"msg":    "method",
+						"method": "collection_update",
+						"params": map[string]any{
+							"msg":        "changed",
+							"collection": "core.get_jobs",
+							"id":         777,
+							"fields": map[string]any{
+								"state": "ABORTED",
+								"error": "[EFAULT] Failed 'up' action for 'dns' app. Please check /var/log/app_lifecycle.log for more details",
+							},
+						},
+					})
+					writeMu.Unlock()
+				}()
+			}
+		}
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	host := strings.Split(strings.TrimPrefix(wsURL, "ws://"), ":")
+
+	mock := &MockClient{
+		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+			return api.Version{Major: 25, Minor: 0}, nil
+		},
+		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+			if path == "/var/log/app_lifecycle.log" {
+				return logContent, nil
+			}
+			return nil, errors.New("file not found")
+		},
+	}
+
+	port, _ := strconv.Atoi(host[1])
+	config := WebSocketConfig{
+		Host:           host[0],
+		Port:           port,
+		Username:       "root",
+		APIKey:         "test-key",
+		Fallback:       mock,
+		ConnectTimeout: 5 * time.Second,
+		MaxRetries:     1,
+	}
+
+	client, err := NewWebSocketClient(config)
+	if err != nil {
+		t.Fatalf("NewWebSocketClient() error = %v", err)
+	}
+	client.testInsecure = true
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err = client.CallAndWait(ctx, "app.aborting", nil)
+	if err == nil {
+		t.Fatal("CallAndWait() expected error for aborted job, got nil")
+	}
+
+	var trueNASErr *TrueNASError
+	if !errors.As(err, &trueNASErr) {
+		t.Fatalf("error = %T, want *TrueNASError", err)
+	}
+
+	// Verify the error was enriched with app lifecycle log content
+	if !strings.Contains(trueNASErr.AppLifecycleError, "bind: address already in use") {
+		t.Errorf("expected AppLifecycleError to contain 'bind: address already in use', got %q", trueNASErr.AppLifecycleError)
+	}
+
+	// The Error() output should be clean (no "Please check" message)
+	errStr := err.Error()
+	if strings.Contains(errStr, "Please check") {
+		t.Errorf("expected clean error output, got %q", errStr)
 	}
 }
