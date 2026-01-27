@@ -122,11 +122,11 @@ func (p *TrueNASProvider) Schema(ctx context.Context, req provider.SchemaRequest
 				Attributes: map[string]schema.Attribute{
 					"username": schema.StringAttribute{
 						Description: "TrueNAS username associated with the API key. Usually 'root'.",
-						Required:    true,
+						Optional:    true,
 					},
 					"api_key": schema.StringAttribute{
 						Description: "TrueNAS API key for authentication.",
-						Required:    true,
+						Optional:    true,
 						Sensitive:   true,
 					},
 					"port": schema.Int64Attribute{
@@ -173,6 +173,22 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 			resp.Diagnostics.AddError(
 				"Missing WebSocket Configuration",
 				"WebSocket block is required when auth_method is 'websocket'.",
+			)
+			return
+		}
+
+		// Validate required websocket attributes
+		if config.WebSocket.Username.IsNull() || config.WebSocket.Username.ValueString() == "" {
+			resp.Diagnostics.AddError(
+				"Missing WebSocket Username",
+				"websocket.username is required when auth_method is 'websocket'.",
+			)
+			return
+		}
+		if config.WebSocket.APIKey.IsNull() || config.WebSocket.APIKey.ValueString() == "" {
+			resp.Diagnostics.AddError(
+				"Missing WebSocket API Key",
+				"websocket.api_key is required when auth_method is 'websocket'.",
 			)
 			return
 		}

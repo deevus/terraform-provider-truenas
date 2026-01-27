@@ -176,14 +176,13 @@ func TestProvider_Schema_WebSocketBlock(t *testing.T) {
 		t.Fatal("websocket block is not a SingleNestedBlock")
 	}
 
-	// Check required attributes
-	requiredAttrs := []string{"api_key"}
-	for _, attr := range requiredAttrs {
-		a, ok := singleBlock.Attributes[attr]
+	// Check that username and api_key attributes exist
+	// (validation happens in Configure, not schema, to allow SSH-only configs)
+	coreAttrs := []string{"username", "api_key"}
+	for _, attr := range coreAttrs {
+		_, ok := singleBlock.Attributes[attr]
 		if !ok {
-			t.Errorf("required attribute %q not found in websocket block", attr)
-		} else if !a.IsRequired() {
-			t.Errorf("attribute %q should be required", attr)
+			t.Errorf("attribute %q not found in websocket block", attr)
 		}
 	}
 
