@@ -423,6 +423,10 @@ func isAuthenticationError(err *JSONRPCError) bool {
 	return false
 }
 
+// ErrUnsupportedVersion is returned when WebSocket transport is used with TrueNAS < 25.0.
+var ErrUnsupportedVersion = errors.New("WebSocket transport requires TrueNAS 25.0 or later. " +
+	"TrueNAS 24.x uses a legacy protocol that is not supported. Use auth_method = \"ssh\" instead")
+
 // connect establishes WebSocket connection and authenticates.
 func (c *WebSocketClient) connect(ctx context.Context) (*websocket.Conn, error) {
 	// Determine path if not cached
@@ -431,11 +435,12 @@ func (c *WebSocketClient) connect(ctx context.Context) (*websocket.Conn, error) 
 		if err != nil {
 			return nil, fmt.Errorf("version detection failed: %w", err)
 		}
-		if version.AtLeast(24, 10) {
-			c.wsPath = "/api/current"
-		} else {
-			c.wsPath = "/websocket"
+		// TrueNAS 25.0+ uses /api/current with JSON-RPC 2.0 protocol
+		// TrueNAS 24.x uses /websocket with a legacy DDP-like protocol (not supported)
+		if !version.AtLeast(25, 0) {
+			return nil, fmt.Errorf("%w (detected version: %s)", ErrUnsupportedVersion, version.Raw)
 		}
+		c.wsPath = "/api/current"
 	}
 
 	conn, _, err := c.dialer.DialContext(ctx, c.endpoint(), http.Header{})

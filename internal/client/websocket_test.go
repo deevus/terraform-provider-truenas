@@ -144,7 +144,7 @@ func TestWebSocketClient_WriterLoop_ProcessesRequests(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -251,7 +251,7 @@ func TestWebSocketClient_Call_RetriesOnError(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -383,7 +383,7 @@ func TestWebSocketClient_CallAndWait_WaitsForJob(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -493,7 +493,7 @@ func TestWebSocketClient_ReconnectsOnAuthError(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -614,7 +614,7 @@ func TestWebSocketClient_PingInterval(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -708,7 +708,7 @@ func TestWebSocketClient_PongReceived(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -805,7 +805,7 @@ func TestWebSocketClient_PongTimeout(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -922,7 +922,7 @@ func TestWebSocketClient_CallAndWait_FastCompletingJob(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -1034,7 +1034,7 @@ func TestWebSocketClient_CallAndWait_FastFailingJob(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -1134,7 +1134,7 @@ func TestWebSocketClient_PingDisabled(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -1331,7 +1331,7 @@ func TestWebSocketClient_GetVersion(t *testing.T) {
 
 			mock := &MockClient{
 				GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-					return api.Version{Major: 24, Minor: 10}, nil
+					return api.Version{Major: 25, Minor: 0}, nil
 				},
 			}
 
@@ -1430,7 +1430,7 @@ func TestWebSocketClient_GetVersion_RpcError(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -1545,7 +1545,7 @@ func TestWebSocketClient_WriteFile(t *testing.T) {
 
 			mock := &MockClient{
 				GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-					return api.Version{Major: 24, Minor: 10}, nil
+					return api.Version{Major: 25, Minor: 0}, nil
 				},
 			}
 
@@ -1643,7 +1643,7 @@ func TestWebSocketClient_WriteFile_Error(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -1772,7 +1772,7 @@ func TestWebSocketClient_FileExists(t *testing.T) {
 
 			mock := &MockClient{
 				GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-					return api.Version{Major: 24, Minor: 10}, nil
+					return api.Version{Major: 25, Minor: 0}, nil
 				},
 			}
 
@@ -2019,7 +2019,7 @@ func createTestClient(t *testing.T, server *httptest.Server) *WebSocketClient {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -2194,7 +2194,7 @@ func TestWebSocketClient_CallAndWait_EventArrivesBeforeSubscription(t *testing.T
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -2283,7 +2283,7 @@ func TestWebSocketClient_ReadFile_DelegatesToFallback(t *testing.T) {
 	expectedContent := []byte("file content from fallback")
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
 			readFileCalled = true
@@ -2328,7 +2328,7 @@ func TestWebSocketClient_ReadFile_DelegatesToFallback(t *testing.T) {
 func TestWebSocketClient_ReadFile_PropagatesError(t *testing.T) {
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
 			return nil, errors.New("ssh connection failed")
@@ -2364,7 +2364,7 @@ func TestWebSocketClient_DeleteFile_DelegatesToFallback(t *testing.T) {
 	deleteFileCalled := false
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 		DeleteFileFunc: func(ctx context.Context, path string) error {
 			deleteFileCalled = true
@@ -2404,7 +2404,7 @@ func TestWebSocketClient_DeleteFile_DelegatesToFallback(t *testing.T) {
 func TestWebSocketClient_DeleteFile_PropagatesError(t *testing.T) {
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 		DeleteFileFunc: func(ctx context.Context, path string) error {
 			return errors.New("permission denied")
@@ -2437,7 +2437,7 @@ func TestWebSocketClient_RemoveDir_DelegatesToFallback(t *testing.T) {
 	removeDirCalled := false
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 		RemoveDirFunc: func(ctx context.Context, path string) error {
 			removeDirCalled = true
@@ -2477,7 +2477,7 @@ func TestWebSocketClient_RemoveDir_DelegatesToFallback(t *testing.T) {
 func TestWebSocketClient_RemoveDir_PropagatesError(t *testing.T) {
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 		RemoveDirFunc: func(ctx context.Context, path string) error {
 			return errors.New("directory not empty")
@@ -2510,7 +2510,7 @@ func TestWebSocketClient_RemoveAll_DelegatesToFallback(t *testing.T) {
 	removeAllCalled := false
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 		RemoveAllFunc: func(ctx context.Context, path string) error {
 			removeAllCalled = true
@@ -2550,7 +2550,7 @@ func TestWebSocketClient_RemoveAll_DelegatesToFallback(t *testing.T) {
 func TestWebSocketClient_RemoveAll_PropagatesError(t *testing.T) {
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 		RemoveAllFunc: func(ctx context.Context, path string) error {
 			return errors.New("io error")
@@ -2691,7 +2691,7 @@ func TestWebSocketClient_Connect_DialFails(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -2741,7 +2741,7 @@ func TestWebSocketClient_Authenticate_WriteError(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -2794,7 +2794,7 @@ func TestWebSocketClient_Authenticate_ReadError(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -2862,7 +2862,7 @@ func TestWebSocketClient_Authenticate_ErrorResponse(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -2930,7 +2930,7 @@ func TestWebSocketClient_Authenticate_NonSuccessResponse(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -3010,7 +3010,7 @@ func TestWebSocketClient_SubscribeJobEvents_Error(t *testing.T) {
 
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10}, nil
+			return api.Version{Major: 25, Minor: 0}, nil
 		},
 	}
 
@@ -3088,92 +3088,44 @@ func TestIsAuthenticationError(t *testing.T) {
 	}
 }
 
-func TestWebSocketClient_Connect_OlderVersion(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify the path is /websocket for older versions
-		if r.URL.Path != "/websocket" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-
-		upgrader := websocket.Upgrader{}
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-
-		for {
-			_, msg, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-
-			var req JSONRPCRequest
-			json.Unmarshal(msg, &req)
-
-			if req.Method == "auth.login_ex" {
-				conn.WriteJSON(JSONRPCResponse{
-					JSONRPC: "2.0",
-					Result:  json.RawMessage(`{"response_type":"SUCCESS"}`),
-					ID:      req.ID,
-				})
-				continue
-			}
-
-			if req.Method == "core.subscribe" {
-				conn.WriteJSON(JSONRPCResponse{
-					JSONRPC: "2.0",
-					Result:  json.RawMessage(`true`),
-					ID:      req.ID,
-				})
-				continue
-			}
-
-			conn.WriteJSON(JSONRPCResponse{
-				JSONRPC: "2.0",
-				Result:  json.RawMessage(`"ok"`),
-				ID:      req.ID,
-			})
-		}
-	}))
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-	host := strings.TrimPrefix(wsURL, "ws://")
-
-	// Mock returns older version to trigger /websocket path
+func TestWebSocketClient_Connect_OlderVersion_ReturnsError(t *testing.T) {
+	// Mock returns older version (24.x) which should be rejected
 	mock := &MockClient{
 		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 23, Minor: 10}, nil
+			return api.Version{Major: 24, Minor: 10, Raw: "TrueNAS-SCALE-24.10.2.4"}, nil
 		},
 	}
 
 	config := WebSocketConfig{
-		Host:           strings.Split(host, ":")[0],
-		Port:           mustParsePort(strings.Split(host, ":")[1]),
+		Host:           "localhost",
+		Port:           443,
 		Username:       "root",
 		APIKey:         "test-key",
 		Fallback:       mock,
 		ConnectTimeout: 5 * time.Second,
-		MaxRetries:     1,
+		MaxRetries:     0, // Don't retry
 	}
 
 	client, err := NewWebSocketClient(config)
 	if err != nil {
 		t.Fatalf("NewWebSocketClient() error = %v", err)
 	}
-	client.testInsecure = true
 	defer client.Close()
 
 	ctx := context.Background()
 	_, err = client.Call(ctx, "test.method", nil)
-	if err != nil {
-		t.Fatalf("Call() error = %v", err)
+
+	// Should get ErrUnsupportedVersion
+	if err == nil {
+		t.Fatal("Call() expected error for TrueNAS 24.x, got nil")
 	}
 
-	// Verify the client uses /websocket path
-	if client.wsPath != "/websocket" {
-		t.Errorf("wsPath = %q, want %q", client.wsPath, "/websocket")
+	if !errors.Is(err, ErrUnsupportedVersion) {
+		t.Errorf("Call() error = %v, want ErrUnsupportedVersion", err)
+	}
+
+	// Verify error message includes version info
+	if !strings.Contains(err.Error(), "24.10.2.4") {
+		t.Errorf("Error should contain version info, got: %v", err)
 	}
 }
