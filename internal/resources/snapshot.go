@@ -178,12 +178,8 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 	}
 
 	// Get TrueNAS version for API method resolution
-	version, err := r.client.GetVersion(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"TrueNAS Version Detection Failed",
-			err.Error(),
-		)
+	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
+	if !ok {
 		return
 	}
 
@@ -199,7 +195,7 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 
 	// Create the snapshot
 	method := api.ResolveSnapshotMethod(version, api.MethodSnapshotCreate)
-	_, err = r.client.Call(ctx, method, params)
+	_, err := r.client.Call(ctx, method, params)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Snapshot",
@@ -286,12 +282,8 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 	}
 
 	// Get TrueNAS version for API method resolution
-	version, err := r.client.GetVersion(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"TrueNAS Version Detection Failed",
-			err.Error(),
-		)
+	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
+	if !ok {
 		return
 	}
 
@@ -358,12 +350,8 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 
 	// Get TrueNAS version for API method resolution
-	version, err := r.client.GetVersion(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"TrueNAS Version Detection Failed",
-			err.Error(),
-		)
+	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
+	if !ok {
 		return
 	}
 
@@ -384,7 +372,7 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 
 	// Delete the snapshot
 	method := api.ResolveSnapshotMethod(version, api.MethodSnapshotDelete)
-	_, err = r.client.Call(ctx, method, snapshotID)
+	_, err := r.client.Call(ctx, method, snapshotID)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete Snapshot",

@@ -127,12 +127,8 @@ func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	// Get TrueNAS version for API method resolution
-	version, err := d.client.GetVersion(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"TrueNAS Version Detection Failed",
-			err.Error(),
-		)
+	version, ok := api.GetVersionOrDiag(ctx, d.client, &resp.Diagnostics)
+	if !ok {
 		return
 	}
 
