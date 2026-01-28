@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/deevus/terraform-provider-truenas/internal/api"
 	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
@@ -292,6 +293,9 @@ func TestCloudSyncCredentialsResource_Create_S3_Success(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{Major: 25, Minor: 4}, nil
+			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
 					capturedMethod = method
@@ -391,6 +395,9 @@ func TestCloudSyncCredentialsResource_Create_S3_Success(t *testing.T) {
 func TestCloudSyncCredentialsResource_Read_Success(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
 		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{Major: 25, Minor: 4}, nil
+			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": 5,
@@ -452,6 +459,9 @@ func TestCloudSyncCredentialsResource_Read_Success(t *testing.T) {
 func TestCloudSyncCredentialsResource_Read_NotFound(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
 		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{Major: 25, Minor: 4}, nil
+			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil
 			},
@@ -500,6 +510,9 @@ func TestCloudSyncCredentialsResource_Update_Success(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{Major: 25, Minor: 4}, nil
+			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.update" {
 					capturedMethod = method
@@ -670,6 +683,9 @@ func TestCloudSyncCredentialsResource_Delete_Success(t *testing.T) {
 func TestCloudSyncCredentialsResource_Create_APIError(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
 		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{Major: 25, Minor: 4}, nil
+			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
@@ -780,6 +796,9 @@ func TestCloudSyncCredentialsResource_Create_S3_MissingRequiredFields(t *testing
 func TestCloudSyncCredentialsResource_Read_APIError(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
 		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{Major: 25, Minor: 4}, nil
+			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
@@ -856,6 +875,9 @@ func TestCloudSyncCredentialsResource_Create_B2_Success(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{Major: 25, Minor: 4}, nil
+			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
 					capturedParams = params
@@ -942,6 +964,9 @@ func TestCloudSyncCredentialsResource_Create_GCS_Success(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{Major: 25, Minor: 4}, nil
+			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
 					capturedParams = params
@@ -1023,6 +1048,9 @@ func TestCloudSyncCredentialsResource_Create_Azure_Success(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{Major: 25, Minor: 4}, nil
+			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
 					capturedParams = params
@@ -1136,5 +1164,350 @@ func TestCloudSyncCredentialsResource_ImportState_Success(t *testing.T) {
 
 	if data.ID.ValueString() != "5" {
 		t.Errorf("expected ID '5', got %q", data.ID.ValueString())
+	}
+}
+
+func TestCloudSyncCredentialsResource_Create_S3_Legacy(t *testing.T) {
+	var capturedParams any
+
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{Major: 24, Minor: 10}, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.credentials.create" {
+					capturedParams = params
+					return json.RawMessage(`{"id": 10}`), nil
+				}
+				if method == "cloudsync.credentials.query" {
+					return json.RawMessage(`[{
+						"id": 10,
+						"name": "Legacy S3",
+						"provider": "S3",
+						"attributes": {
+							"access_key_id": "AKIALEGACY",
+							"secret_access_key": "legacysecret"
+						}
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		Name: "Legacy S3",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIALEGACY",
+			SecretAccessKey: "legacysecret",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	// Verify 24.x format: provider is string, attributes is separate
+	provider, ok := params["provider"].(string)
+	if !ok {
+		t.Fatalf("expected provider to be string for 24.x, got %T", params["provider"])
+	}
+	if provider != "S3" {
+		t.Errorf("expected provider 'S3', got %v", provider)
+	}
+
+	attributes, ok := params["attributes"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected attributes field for 24.x format, got %T", params["attributes"])
+	}
+	if attributes["access_key_id"] != "AKIALEGACY" {
+		t.Errorf("expected access_key_id 'AKIALEGACY', got %v", attributes["access_key_id"])
+	}
+}
+
+func TestCloudSyncCredentialsResource_Create_GetVersionError(t *testing.T) {
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{}, errors.New("unable to connect to TrueNAS")
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		Name: "Test S3",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST",
+			SecretAccessKey: "secret123",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when GetVersion fails")
+	}
+
+	// Verify error message mentions version
+	errStr := resp.Diagnostics.Errors()[0].Summary()
+	if errStr != "TrueNAS Version Detection Failed" {
+		t.Errorf("expected error about TrueNAS version, got: %s", errStr)
+	}
+}
+
+func TestCloudSyncCredentialsResource_Read_GetVersionError(t *testing.T) {
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{}, errors.New("unable to connect to TrueNAS")
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	stateValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		ID:   "5",
+		Name: "Scaleway",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST",
+			SecretAccessKey: "secret123",
+		},
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+	}
+
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when GetVersion fails")
+	}
+
+	// Verify error message mentions version
+	errStr := resp.Diagnostics.Errors()[0].Summary()
+	if errStr != "TrueNAS Version Detection Failed" {
+		t.Errorf("expected error about TrueNAS version, got: %s", errStr)
+	}
+}
+
+func TestCloudSyncCredentialsResource_Update_GetVersionError(t *testing.T) {
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{}, errors.New("unable to connect to TrueNAS")
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+
+	stateValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		ID:   "5",
+		Name: "Scaleway",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST",
+			SecretAccessKey: "secret123",
+		},
+	})
+
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		ID:   "5",
+		Name: "Scaleway Updated",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIATEST-UPDATED",
+			SecretAccessKey: "newsecret456",
+		},
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when GetVersion fails")
+	}
+
+	// Verify error message mentions version
+	errStr := resp.Diagnostics.Errors()[0].Summary()
+	if errStr != "TrueNAS Version Detection Failed" {
+		t.Errorf("expected error about TrueNAS version, got: %s", errStr)
+	}
+}
+
+func TestCloudSyncCredentialsResource_Update_S3_Legacy(t *testing.T) {
+	var capturedMethod string
+	var capturedID int64
+	var capturedUpdateData map[string]any
+
+	r := &CloudSyncCredentialsResource{
+		client: &client.MockClient{
+			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
+				return api.Version{Major: 24, Minor: 10}, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.credentials.update" {
+					capturedMethod = method
+					// params is []any{id, updateData}
+					paramsSlice := params.([]any)
+					capturedID = paramsSlice[0].(int64)
+					capturedUpdateData = paramsSlice[1].(map[string]any)
+					return json.RawMessage(`{"id": 10}`), nil
+				}
+				if method == "cloudsync.credentials.query" {
+					return json.RawMessage(`[{
+						"id": 10,
+						"name": "Legacy S3 Updated",
+						"provider": "S3",
+						"attributes": {
+							"access_key_id": "AKIALEGACY-UPDATED",
+							"secret_access_key": "updatedlegacysecret"
+						}
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+
+	stateValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		ID:   "10",
+		Name: "Legacy S3",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIALEGACY",
+			SecretAccessKey: "legacysecret",
+		},
+	})
+
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		ID:   "10",
+		Name: "Legacy S3 Updated",
+		S3: &s3BlockParams{
+			AccessKeyID:     "AKIALEGACY-UPDATED",
+			SecretAccessKey: "updatedlegacysecret",
+		},
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedMethod != "cloudsync.credentials.update" {
+		t.Errorf("expected method 'cloudsync.credentials.update', got %q", capturedMethod)
+	}
+
+	if capturedID != 10 {
+		t.Errorf("expected ID 10, got %d", capturedID)
+	}
+
+	// Verify 24.x format: provider is string, attributes is separate
+	provider, ok := capturedUpdateData["provider"].(string)
+	if !ok {
+		t.Fatalf("expected provider to be string for 24.x, got %T", capturedUpdateData["provider"])
+	}
+	if provider != "S3" {
+		t.Errorf("expected provider 'S3', got %v", provider)
+	}
+
+	attributes, ok := capturedUpdateData["attributes"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected attributes field for 24.x format, got %T", capturedUpdateData["attributes"])
+	}
+	if attributes["access_key_id"] != "AKIALEGACY-UPDATED" {
+		t.Errorf("expected access_key_id 'AKIALEGACY-UPDATED', got %v", attributes["access_key_id"])
+	}
+	if attributes["secret_access_key"] != "updatedlegacysecret" {
+		t.Errorf("expected secret_access_key 'updatedlegacysecret', got %v", attributes["secret_access_key"])
+	}
+
+	// Verify state was set correctly after update
+	var resultData CloudSyncCredentialsResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "10" {
+		t.Errorf("expected ID '10', got %q", resultData.ID.ValueString())
+	}
+	if resultData.Name.ValueString() != "Legacy S3 Updated" {
+		t.Errorf("expected Name 'Legacy S3 Updated', got %q", resultData.Name.ValueString())
 	}
 }

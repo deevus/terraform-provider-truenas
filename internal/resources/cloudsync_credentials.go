@@ -171,15 +171,15 @@ func (r *CloudSyncCredentialsResource) Configure(ctx context.Context, req resour
 }
 
 // queryCredential queries a credential by ID and returns the response.
-func (r *CloudSyncCredentialsResource) queryCredential(ctx context.Context, id int64) (*api.CloudSyncCredentialResponse, error) {
+func (r *CloudSyncCredentialsResource) queryCredential(ctx context.Context, id int64, version api.Version) (*api.CloudSyncCredentialResponse, error) {
 	filter := [][]any{{"id", "=", id}}
 	result, err := r.client.Call(ctx, "cloudsync.credentials.query", filter)
 	if err != nil {
 		return nil, err
 	}
 
-	var credentials []api.CloudSyncCredentialResponse
-	if err := json.Unmarshal(result, &credentials); err != nil {
+	credentials, err := api.ParseCredentials(result, version)
+	if err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 
@@ -287,18 +287,13 @@ func (r *CloudSyncCredentialsResource) Create(ctx context.Context, req resource.
 		return
 	}
 
-	// Build provider object with type and attributes merged
-	providerObj := map[string]any{
-		"type": providerType,
-	}
-	for k, v := range attributes {
-		providerObj[k] = v
+	// Get version for API compatibility
+	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
+	if !ok {
+		return
 	}
 
-	params := map[string]any{
-		"name":     data.Name.ValueString(),
-		"provider": providerObj,
-	}
+	params := api.BuildCredentialsParams(version, data.Name.ValueString(), providerType, attributes)
 
 	result, err := r.client.Call(ctx, "cloudsync.credentials.create", params)
 	if err != nil {
@@ -322,7 +317,7 @@ func (r *CloudSyncCredentialsResource) Create(ctx context.Context, req resource.
 	}
 
 	// Query to get full state
-	cred, err := r.queryCredential(ctx, createResp.ID)
+	cred, err := r.queryCredential(ctx, createResp.ID, version)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Credentials",
@@ -361,7 +356,13 @@ func (r *CloudSyncCredentialsResource) Read(ctx context.Context, req resource.Re
 		return
 	}
 
-	cred, err := r.queryCredential(ctx, id)
+	// Get version for API compatibility
+	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+
+	cred, err := r.queryCredential(ctx, id, version)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Credentials",
@@ -418,18 +419,13 @@ func (r *CloudSyncCredentialsResource) Update(ctx context.Context, req resource.
 		return
 	}
 
-	// Build provider object with type and attributes merged
-	providerObj := map[string]any{
-		"type": providerType,
-	}
-	for k, v := range attributes {
-		providerObj[k] = v
+	// Get version for API compatibility
+	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
+	if !ok {
+		return
 	}
 
-	updateData := map[string]any{
-		"name":     plan.Name.ValueString(),
-		"provider": providerObj,
-	}
+	updateData := api.BuildCredentialsParams(version, plan.Name.ValueString(), providerType, attributes)
 
 	_, err = r.client.Call(ctx, "cloudsync.credentials.update", []any{id, updateData})
 	if err != nil {
@@ -441,7 +437,7 @@ func (r *CloudSyncCredentialsResource) Update(ctx context.Context, req resource.
 	}
 
 	// Query to refresh state
-	cred, err := r.queryCredential(ctx, id)
+	cred, err := r.queryCredential(ctx, id, version)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Credentials",

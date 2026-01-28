@@ -21,3 +21,7 @@ When finishing a development branch:
 
 - Always write idiomatic terraform.
 - Strive for 100% code coverage where possible.
+
+## Git Rules
+
+- Never use `git -C` flag. Always `cd` to the working directory first or work from the current directory.

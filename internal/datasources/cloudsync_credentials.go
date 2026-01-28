@@ -2,7 +2,6 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -84,6 +83,12 @@ func (d *CloudSyncCredentialsDataSource) Read(ctx context.Context, req datasourc
 		return
 	}
 
+	// Get version for API compatibility
+	version, ok := api.GetVersionOrDiag(ctx, d.client, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+
 	// Query all credentials (no filter - API returns all)
 	result, err := d.client.Call(ctx, "cloudsync.credentials.query", [][]any{})
 	if err != nil {
@@ -94,9 +99,9 @@ func (d *CloudSyncCredentialsDataSource) Read(ctx context.Context, req datasourc
 		return
 	}
 
-	// Parse the response
-	var credentials []api.CloudSyncCredentialResponse
-	if err := json.Unmarshal(result, &credentials); err != nil {
+	// Parse the response using version-aware parser
+	credentials, err := api.ParseCredentials(result, version)
+	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Parse Credentials Response",
 			fmt.Sprintf("Unable to parse credentials response: %s", err.Error()),
