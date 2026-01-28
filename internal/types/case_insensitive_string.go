@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/defaults"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
@@ -63,7 +64,7 @@ func (t CaseInsensitiveStringType) ValueFromTerraform(ctx context.Context, in tf
 		return nil, fmt.Errorf("unexpected error converting StringValue to StringValuable: %v", diags)
 	}
 
-	return stringValuable, nil
+	return stringValuable.(CaseInsensitiveStringValue), nil
 }
 
 // CaseInsensitiveStringValue is a custom string value that compares case-insensitively.
@@ -128,4 +129,43 @@ func NewCaseInsensitiveStringUnknown() CaseInsensitiveStringValue {
 // NewCaseInsensitiveStringPointerValue creates a CaseInsensitiveStringValue from a *string.
 func NewCaseInsensitiveStringPointerValue(value *string) CaseInsensitiveStringValue {
 	return CaseInsensitiveStringValue{StringValue: basetypes.NewStringPointerValue(value)}
+}
+
+// Ensure caseInsensitiveStringDefault implements defaults.String.
+var _ defaults.String = caseInsensitiveStringDefault{}
+
+// caseInsensitiveStringDefault is a custom default implementation for CaseInsensitiveStringValue.
+// This is necessary because stringdefault.StaticString returns a basetypes.StringValue,
+// but when a CustomType is specified in the schema, the framework requires the default
+// to return the custom value type (CaseInsensitiveStringValue).
+type caseInsensitiveStringDefault struct {
+	value string
+}
+
+// Description returns a plain text description of the default's behavior.
+func (d caseInsensitiveStringDefault) Description(ctx context.Context) string {
+	return fmt.Sprintf("value defaults to %q", d.value)
+}
+
+// MarkdownDescription returns a markdown formatted description of the default's behavior.
+func (d caseInsensitiveStringDefault) MarkdownDescription(ctx context.Context) string {
+	return fmt.Sprintf("value defaults to `%s`", d.value)
+}
+
+// DefaultString sets the default CaseInsensitiveStringValue for the attribute.
+// Note: The interface requires types.String for PlanValue, but the framework will
+// convert this through the custom type's ValueFromTerraform method when populating
+// the model. However, for semantic equality checking during plan diffs, we need to
+// ensure the underlying value is properly handled.
+func (d caseInsensitiveStringDefault) DefaultString(ctx context.Context, req defaults.StringRequest, resp *defaults.StringResponse) {
+	// The default interface requires types.String, which the framework will convert
+	// to CaseInsensitiveStringValue via ValueFromTerraform when populating models.
+	resp.PlanValue = NewCaseInsensitiveStringValue(d.value).StringValue
+}
+
+// CaseInsensitiveStringDefault returns a default value for a CaseInsensitiveStringValue attribute.
+// Use this instead of stringdefault.StaticString when the attribute has CustomType set to
+// CaseInsensitiveStringType, as the framework requires the default to return the custom value type.
+func CaseInsensitiveStringDefault(value string) defaults.String {
+	return caseInsensitiveStringDefault{value: value}
 }

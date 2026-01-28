@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 
+	customtypes "github.com/deevus/terraform-provider-truenas/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -31,7 +32,8 @@ func (m *computedStateModifier) PlanModifyString(ctx context.Context, req planmo
 	}
 
 	// Get desired_state from both state and plan
-	var stateDesired, planDesired types.String
+	// Note: desired_state uses CaseInsensitiveStringType, so we must use the matching value type
+	var stateDesired, planDesired customtypes.CaseInsensitiveStringValue
 	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("desired_state"), &stateDesired)...)
 	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("desired_state"), &planDesired)...)
 	if resp.Diagnostics.HasError() {

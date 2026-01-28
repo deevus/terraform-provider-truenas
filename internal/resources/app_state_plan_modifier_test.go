@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	customtypes "github.com/deevus/terraform-provider-truenas/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
@@ -250,8 +251,10 @@ func TestComputedStatePlanModifier_NullState(t *testing.T) {
 func testAppSchemaFramework() schema.Schema {
 	return schema.Schema{
 		Attributes: map[string]schema.Attribute{
-			"desired_state": schema.StringAttribute{},
-			"state":         schema.StringAttribute{},
+			"desired_state": schema.StringAttribute{
+				CustomType: customtypes.CaseInsensitiveStringType{},
+			},
+			"state": schema.StringAttribute{},
 		},
 	}
 }
