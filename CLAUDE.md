@@ -10,6 +10,13 @@ This repository contains a Terraform provider for TrueNAS SCALE and Community ed
 
 When asked to write an implementation plan, the context should include the current code coverage from `mise run coverage`. In the verification tasks, verify that the code coverage has either improved or maintained with the baseline. 
 
+### Finishing a development branch
+
+When finishing a development branch:
+
+1. Make sure coverage is equal to or better than the baseline.
+2. Clean up the docs/plans/ folder and commit.
+
 ## Ethos
 
 - Always write idiomatic terraform.

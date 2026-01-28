@@ -41,6 +41,7 @@ type CloudSyncTaskResponse struct {
 	Transfers          int64                       `json:"transfers"`
 	BWLimit            []BwLimit                   `json:"bwlimit"`
 	Exclude            []string                    `json:"exclude"`
+	Include            []string                    `json:"include"`
 	FollowSymlinks     bool                        `json:"follow_symlinks"`
 	CreateEmptySrcDirs bool                        `json:"create_empty_src_dirs"`
 	Enabled            bool                        `json:"enabled"`

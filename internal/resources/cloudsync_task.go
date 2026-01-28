@@ -38,6 +38,7 @@ type CloudSyncTaskResourceModel struct {
 	Transfers          types.Int64      `tfsdk:"transfers"`
 	BWLimit            types.String     `tfsdk:"bwlimit"`
 	Exclude            types.List       `tfsdk:"exclude"`
+	Include            types.List       `tfsdk:"include"`
 	FollowSymlinks     types.Bool       `tfsdk:"follow_symlinks"`
 	CreateEmptySrcDirs types.Bool       `tfsdk:"create_empty_src_dirs"`
 	Enabled            types.Bool       `tfsdk:"enabled"`
@@ -154,6 +155,11 @@ func (r *CloudSyncTaskResource) Schema(ctx context.Context, req resource.SchemaR
 			},
 			"exclude": schema.ListAttribute{
 				Description: "Patterns to exclude from sync.",
+				Optional:    true,
+				ElementType: types.StringType,
+			},
+			"include": schema.ListAttribute{
+				Description: "Patterns to include in sync. Supports glob patterns like '/folder/**' or '*.jpg'.",
 				Optional:    true,
 				ElementType: types.StringType,
 			},
@@ -447,6 +453,13 @@ func buildCloudSyncTaskParams(ctx context.Context, data *CloudSyncTaskResourceMo
 		var excludeItems []string
 		data.Exclude.ElementsAs(ctx, &excludeItems, false)
 		params["exclude"] = excludeItems
+	}
+
+	// Handle include list
+	if !data.Include.IsNull() && !data.Include.IsUnknown() {
+		var includeItems []string
+		data.Include.ElementsAs(ctx, &includeItems, false)
+		params["include"] = includeItems
 	}
 
 	// Build schedule

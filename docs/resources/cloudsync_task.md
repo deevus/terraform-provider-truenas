@@ -67,6 +67,34 @@ resource "truenas_cloudsync_task" "encrypted_backup" {
 }
 ```
 
+### Sync Specific Directories
+
+```hcl
+resource "truenas_cloudsync_task" "selective_backup" {
+  description   = "Backup specific folders"
+  path          = "/mnt/tank/data"
+  credentials   = truenas_cloudsync_credentials.s3.id
+  direction     = "push"
+  transfer_mode = "sync"
+
+  schedule {
+    minute = "0"
+    hour   = "3"
+  }
+
+  s3 {
+    bucket = "my-backup-bucket"
+    folder = "selective"
+  }
+
+  # Only sync photos and documents directories
+  include = ["/photos/**", "/documents/**"]
+
+  # But exclude temporary files within those
+  exclude = ["*.tmp", "*.cache"]
+}
+```
+
 ### Sync on Change
 
 ```hcl
@@ -106,6 +134,7 @@ resource "truenas_cloudsync_task" "immediate_sync" {
 * `transfers` - (Optional) Number of concurrent transfers.
 * `bwlimit` - (Optional) Bandwidth limit (e.g., "10M" for 10 MB/s).
 * `exclude` - (Optional) List of exclude patterns.
+* `include` - (Optional) List of include patterns. Supports glob patterns like `/folder/**` or `*.jpg`. When specified, only matching files are synced. Include patterns are applied before exclude patterns.
 
 Exactly one of the following provider-specific blocks is required:
 

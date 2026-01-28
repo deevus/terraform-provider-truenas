@@ -135,6 +135,11 @@ func TestCloudSyncTaskResource_Schema(t *testing.T) {
 		t.Error("expected 'sync_on_change' attribute")
 	}
 
+	// Verify include attribute
+	if attrs["include"] == nil {
+		t.Error("expected 'include' attribute")
+	}
+
 	// Verify blocks exist
 	blocks := schemaResp.Schema.Blocks
 	if blocks["schedule"] == nil {
@@ -183,6 +188,7 @@ type cloudSyncTaskModelParams struct {
 	Transfers          int64
 	BWLimit            interface{}
 	Exclude            []string
+	Include            []string
 	FollowSymlinks     bool
 	CreateEmptySrcDirs bool
 	Enabled            bool
@@ -289,6 +295,17 @@ func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 		values["exclude"] = tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, nil)
 	}
 
+	// Handle include list
+	if len(p.Include) > 0 {
+		includeValues := make([]tftypes.Value, len(p.Include))
+		for i, e := range p.Include {
+			includeValues[i] = tftypes.NewValue(tftypes.String, e)
+		}
+		values["include"] = tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, includeValues)
+	} else {
+		values["include"] = tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, nil)
+	}
+
 	// Handle schedule block
 	if p.Schedule != nil {
 		values["schedule"] = tftypes.NewValue(scheduleType, map[string]tftypes.Value{
@@ -365,6 +382,7 @@ func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 			"transfers":             tftypes.Number,
 			"bwlimit":               tftypes.String,
 			"exclude":               tftypes.List{ElementType: tftypes.String},
+			"include":               tftypes.List{ElementType: tftypes.String},
 			"follow_symlinks":       tftypes.Bool,
 			"create_empty_src_dirs": tftypes.Bool,
 			"enabled":               tftypes.Bool,
@@ -2434,5 +2452,205 @@ func TestCloudSyncTaskResource_Read_WithEncryption(t *testing.T) {
 	}
 	if resultData.Encryption.Salt.ValueString() != "stored-salt" {
 		t.Errorf("expected encryption salt 'stored-salt', got %q", resultData.Encryption.Salt.ValueString())
+	}
+}
+
+func TestCloudSyncTaskResource_Create_WithIncludePatterns(t *testing.T) {
+	var capturedParams any
+
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.create" {
+					capturedParams = params
+					return json.RawMessage(`{"id": 40}`), nil
+				}
+				if method == "cloudsync.query" {
+					return json.RawMessage(`[{
+						"id": 40,
+						"description": "Include Test",
+						"path": "/mnt/tank/data",
+						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
+						"attributes": {"bucket": "test-bucket", "folder": "/"},
+						"schedule": {"minute": "0", "hour": "2", "dom": "*", "month": "*", "dow": "*"},
+						"direction": "PUSH",
+						"transfer_mode": "SYNC",
+						"encryption": false,
+						"snapshot": false,
+						"transfers": 4,
+						"follow_symlinks": false,
+						"create_empty_src_dirs": false,
+						"enabled": true,
+						"include": ["/photos/**", "/docs/**"],
+						"exclude": []
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		Description:  "Include Test",
+		Path:         "/mnt/tank/data",
+		Credentials:  5,
+		Direction:    "push",
+		TransferMode: "sync",
+		Transfers:    4,
+		Enabled:      true,
+		Include:      []string{"/photos/**", "/docs/**"},
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "2",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		S3: &taskS3BlockParams{
+			Bucket: "test-bucket",
+			Folder: "/",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	include, ok := params["include"].([]string)
+	if !ok {
+		t.Fatalf("expected include to be []string, got %T", params["include"])
+	}
+
+	if len(include) != 2 {
+		t.Errorf("expected 2 include patterns, got %d", len(include))
+	}
+	if include[0] != "/photos/**" {
+		t.Errorf("expected first include pattern '/photos/**', got %q", include[0])
+	}
+	if include[1] != "/docs/**" {
+		t.Errorf("expected second include pattern '/docs/**', got %q", include[1])
+	}
+}
+
+func TestCloudSyncTaskResource_Create_WithIncludeAndExclude(t *testing.T) {
+	var capturedParams any
+
+	r := &CloudSyncTaskResource{
+		client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				if method == "cloudsync.create" {
+					capturedParams = params
+					return json.RawMessage(`{"id": 41}`), nil
+				}
+				if method == "cloudsync.query" {
+					return json.RawMessage(`[{
+						"id": 41,
+						"description": "Include and Exclude Test",
+						"path": "/mnt/tank/data",
+						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
+						"attributes": {"bucket": "test-bucket", "folder": "/"},
+						"schedule": {"minute": "0", "hour": "2", "dom": "*", "month": "*", "dow": "*"},
+						"direction": "PUSH",
+						"transfer_mode": "SYNC",
+						"encryption": false,
+						"snapshot": false,
+						"transfers": 4,
+						"follow_symlinks": false,
+						"create_empty_src_dirs": false,
+						"enabled": true,
+						"include": ["/photos/**"],
+						"exclude": ["*.tmp", "thumbs.db"]
+					}]`), nil
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		Description:  "Include and Exclude Test",
+		Path:         "/mnt/tank/data",
+		Credentials:  5,
+		Direction:    "push",
+		TransferMode: "sync",
+		Transfers:    4,
+		Enabled:      true,
+		Include:      []string{"/photos/**"},
+		Exclude:      []string{"*.tmp", "thumbs.db"},
+		Schedule: &scheduleBlockParams{
+			Minute: "0",
+			Hour:   "2",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		S3: &taskS3BlockParams{
+			Bucket: "test-bucket",
+			Folder: "/",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	params, ok := capturedParams.(map[string]any)
+	if !ok {
+		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	}
+
+	// Verify include
+	include, ok := params["include"].([]string)
+	if !ok {
+		t.Fatalf("expected include to be []string, got %T", params["include"])
+	}
+	if len(include) != 1 || include[0] != "/photos/**" {
+		t.Errorf("expected include ['/photos/**'], got %v", include)
+	}
+
+	// Verify exclude
+	exclude, ok := params["exclude"].([]string)
+	if !ok {
+		t.Fatalf("expected exclude to be []string, got %T", params["exclude"])
+	}
+	if len(exclude) != 2 {
+		t.Errorf("expected 2 exclude patterns, got %d", len(exclude))
 	}
 }

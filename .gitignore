@@ -21,3 +21,6 @@ terraform-provider-truenas_v*
 
 # Beads issue tracking
 .beads/
+
+# Git worktrees
+.worktrees/
