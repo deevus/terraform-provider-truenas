@@ -144,9 +144,8 @@ func TestWebSocketClient_WriterLoop_ProcessesRequests(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -167,6 +166,9 @@ func TestWebSocketClient_WriterLoop_ProcessesRequests(t *testing.T) {
 	defer client.Close()
 
 	ctx := context.Background()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 	result, err := client.Call(ctx, "test.method", nil)
 	if err != nil {
 		t.Fatalf("Call() error = %v", err)
@@ -251,9 +253,8 @@ func TestWebSocketClient_Call_RetriesOnError(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -272,6 +273,10 @@ func TestWebSocketClient_Call_RetriesOnError(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	result, err := client.Call(context.Background(), "test.method", nil)
 	if err != nil {
@@ -383,9 +388,8 @@ func TestWebSocketClient_CallAndWait_WaitsForJob(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -404,6 +408,10 @@ func TestWebSocketClient_CallAndWait_WaitsForJob(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -493,9 +501,8 @@ func TestWebSocketClient_ReconnectsOnAuthError(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -514,6 +521,10 @@ func TestWebSocketClient_ReconnectsOnAuthError(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	result, err := client.Call(context.Background(), "test.method", nil)
 	if err != nil {
@@ -614,9 +625,8 @@ func TestWebSocketClient_PingInterval(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -638,8 +648,13 @@ func TestWebSocketClient_PingInterval(t *testing.T) {
 	client.testInsecure = true
 	defer client.Close()
 
-	// Make a call to establish connection
+	// Connect first to cache version
 	ctx := context.Background()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+
+	// Make a call to establish connection
 	_, err = client.Call(ctx, "test.method", nil)
 	if err != nil {
 		t.Fatalf("Call() error = %v", err)
@@ -708,9 +723,8 @@ func TestWebSocketClient_PongReceived(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -733,6 +747,9 @@ func TestWebSocketClient_PongReceived(t *testing.T) {
 	defer client.Close()
 
 	ctx := context.Background()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	// Make initial call to establish connection
 	_, err = client.Call(ctx, "test.method", nil)
@@ -805,9 +822,8 @@ func TestWebSocketClient_PongTimeout(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -830,6 +846,9 @@ func TestWebSocketClient_PongTimeout(t *testing.T) {
 	defer client.Close()
 
 	ctx := context.Background()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	// Make initial call to establish connection
 	_, err = client.Call(ctx, "test.method", nil)
@@ -922,9 +941,8 @@ func TestWebSocketClient_CallAndWait_FastCompletingJob(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -943,6 +961,10 @@ func TestWebSocketClient_CallAndWait_FastCompletingJob(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -1034,9 +1056,8 @@ func TestWebSocketClient_CallAndWait_FastFailingJob(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -1055,6 +1076,10 @@ func TestWebSocketClient_CallAndWait_FastFailingJob(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -1134,9 +1159,8 @@ func TestWebSocketClient_PingDisabled(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -1159,6 +1183,9 @@ func TestWebSocketClient_PingDisabled(t *testing.T) {
 	defer client.Close()
 
 	ctx := context.Background()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 	_, err = client.Call(ctx, "test.method", nil)
 	if err != nil {
 		t.Fatalf("Call() error = %v", err)
@@ -1255,210 +1282,135 @@ func TestJobEventBuffer_Overflow(t *testing.T) {
 	}
 }
 
-func TestWebSocketClient_GetVersion(t *testing.T) {
-	tests := []struct {
-		name       string
-		response   string
-		wantMajor  int
-		wantMinor  int
-		wantErr    bool
-		errMessage string
-	}{
-		{
-			name:      "success",
-			response:  `"TrueNAS-SCALE-24.10.2.1"`,
-			wantMajor: 24,
-			wantMinor: 10,
-			wantErr:   false,
-		},
-		{
-			name:       "parse_error_not_a_string",
-			response:   `123`,
-			wantErr:    true,
-			errMessage: "failed to parse version",
-		},
-	}
+func TestWebSocketClient_Connect_And_Version(t *testing.T) {
+	t.Run("Connect delegates to fallback", func(t *testing.T) {
+		connectCalled := false
+		mock := &MockClient{
+			VersionVal: api.Version{Major: 25, Minor: 4},
+			ConnectFunc: func(ctx context.Context) error {
+				connectCalled = true
+				return nil
+			},
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				upgrader := websocket.Upgrader{}
-				conn, err := upgrader.Upgrade(w, r, nil)
-				if err != nil {
-					return
-				}
-				defer conn.Close()
+		config := WebSocketConfig{
+			Host:           "localhost",
+			Port:           443,
+			Username:       "root",
+			APIKey:         "test-key",
+			Fallback:       mock,
+			ConnectTimeout: 5 * time.Second,
+		}
 
-				for {
-					_, msg, err := conn.ReadMessage()
-					if err != nil {
-						return
-					}
-
-					var req JSONRPCRequest
-					json.Unmarshal(msg, &req)
-
-					if req.Method == "auth.login_ex" {
-						conn.WriteJSON(JSONRPCResponse{
-							JSONRPC: "2.0",
-							Result:  json.RawMessage(`{"response_type":"SUCCESS"}`),
-							ID:      req.ID,
-						})
-						continue
-					}
-
-					if req.Method == "core.subscribe" {
-						conn.WriteJSON(JSONRPCResponse{
-							JSONRPC: "2.0",
-							Result:  json.RawMessage(`true`),
-							ID:      req.ID,
-						})
-						continue
-					}
-
-					if req.Method == "system.version" {
-						conn.WriteJSON(JSONRPCResponse{
-							JSONRPC: "2.0",
-							Result:  json.RawMessage(tt.response),
-							ID:      req.ID,
-						})
-					}
-				}
-			}))
-			defer server.Close()
-
-			wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-			host := strings.TrimPrefix(wsURL, "ws://")
-
-			mock := &MockClient{
-				GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-					return api.Version{Major: 25, Minor: 0}, nil
-				},
-			}
-
-			config := WebSocketConfig{
-				Host:           strings.Split(host, ":")[0],
-				Port:           mustParsePort(strings.Split(host, ":")[1]),
-				Username:       "root",
-				APIKey:         "test-key",
-				Fallback:       mock,
-				ConnectTimeout: 5 * time.Second,
-				MaxRetries:     1,
-			}
-
-			client, err := NewWebSocketClient(config)
-			if err != nil {
-				t.Fatalf("NewWebSocketClient() error = %v", err)
-			}
-			client.testInsecure = true
-			defer client.Close()
-
-			ctx := context.Background()
-			version, err := client.GetVersion(ctx)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Error("GetVersion() expected error, got nil")
-				} else if tt.errMessage != "" && !strings.Contains(err.Error(), tt.errMessage) {
-					t.Errorf("GetVersion() error = %v, want containing %q", err, tt.errMessage)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("GetVersion() error = %v", err)
-			}
-
-			if version.Major != tt.wantMajor || version.Minor != tt.wantMinor {
-				t.Errorf("GetVersion() = %d.%d, want %d.%d", version.Major, version.Minor, tt.wantMajor, tt.wantMinor)
-			}
-		})
-	}
-}
-
-func TestWebSocketClient_GetVersion_RpcError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upgrader := websocket.Upgrader{}
-		conn, err := upgrader.Upgrade(w, r, nil)
+		client, err := NewWebSocketClient(config)
 		if err != nil {
-			return
+			t.Fatalf("NewWebSocketClient() error = %v", err)
 		}
-		defer conn.Close()
+		defer client.Close()
 
-		for {
-			_, msg, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-
-			var req JSONRPCRequest
-			json.Unmarshal(msg, &req)
-
-			if req.Method == "auth.login_ex" {
-				conn.WriteJSON(JSONRPCResponse{
-					JSONRPC: "2.0",
-					Result:  json.RawMessage(`{"response_type":"SUCCESS"}`),
-					ID:      req.ID,
-				})
-				continue
-			}
-
-			if req.Method == "core.subscribe" {
-				conn.WriteJSON(JSONRPCResponse{
-					JSONRPC: "2.0",
-					Result:  json.RawMessage(`true`),
-					ID:      req.ID,
-				})
-				continue
-			}
-
-			if req.Method == "system.version" {
-				conn.WriteJSON(JSONRPCResponse{
-					JSONRPC: "2.0",
-					Error: &JSONRPCError{
-						Code:    ErrCodeInternal,
-						Message: "internal error",
-					},
-					ID: req.ID,
-				})
-			}
+		err = client.Connect(context.Background())
+		if err != nil {
+			t.Fatalf("Connect() error = %v", err)
 		}
-	}))
-	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-	host := strings.TrimPrefix(wsURL, "ws://")
+		if !connectCalled {
+			t.Error("Connect() should have called fallback Connect()")
+		}
+	})
 
-	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
-	}
+	t.Run("Version returns cached version from fallback", func(t *testing.T) {
+		expected := api.Version{Major: 25, Minor: 4, Patch: 1, Build: 2}
+		mock := &MockClient{
+			VersionVal:  expected,
+			ConnectFunc: func(ctx context.Context) error { return nil },
+		}
 
-	config := WebSocketConfig{
-		Host:           strings.Split(host, ":")[0],
-		Port:           mustParsePort(strings.Split(host, ":")[1]),
-		Username:       "root",
-		APIKey:         "test-key",
-		Fallback:       mock,
-		ConnectTimeout: 5 * time.Second,
-		MaxRetries:     0,
-	}
+		config := WebSocketConfig{
+			Host:           "localhost",
+			Port:           443,
+			Username:       "root",
+			APIKey:         "test-key",
+			Fallback:       mock,
+			ConnectTimeout: 5 * time.Second,
+		}
 
-	client, err := NewWebSocketClient(config)
-	if err != nil {
-		t.Fatalf("NewWebSocketClient() error = %v", err)
-	}
-	client.testInsecure = true
-	defer client.Close()
+		client, err := NewWebSocketClient(config)
+		if err != nil {
+			t.Fatalf("NewWebSocketClient() error = %v", err)
+		}
+		defer client.Close()
 
-	_, err = client.GetVersion(context.Background())
-	if err == nil {
-		t.Error("GetVersion() expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "failed to get version") {
-		t.Errorf("GetVersion() error = %v, want containing 'failed to get version'", err)
-	}
+		err = client.Connect(context.Background())
+		if err != nil {
+			t.Fatalf("Connect() error = %v", err)
+		}
+
+		version := client.Version()
+		if version != expected {
+			t.Errorf("Version() = %v, want %v", version, expected)
+		}
+	})
+
+	t.Run("Connect propagates fallback error", func(t *testing.T) {
+		mock := &MockClient{
+			ConnectFunc: func(ctx context.Context) error {
+				return errors.New("SSH connection failed")
+			},
+		}
+
+		config := WebSocketConfig{
+			Host:           "localhost",
+			Port:           443,
+			Username:       "root",
+			APIKey:         "test-key",
+			Fallback:       mock,
+			ConnectTimeout: 5 * time.Second,
+		}
+
+		client, err := NewWebSocketClient(config)
+		if err != nil {
+			t.Fatalf("NewWebSocketClient() error = %v", err)
+		}
+		defer client.Close()
+
+		err = client.Connect(context.Background())
+		if err == nil {
+			t.Error("Connect() expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "SSH connection failed") {
+			t.Errorf("Connect() error = %v, want containing 'SSH connection failed'", err)
+		}
+	})
+
+	t.Run("Version panics if called before Connect", func(t *testing.T) {
+		mock := &MockClient{
+			VersionVal:  api.Version{Major: 25, Minor: 4},
+			ConnectFunc: func(ctx context.Context) error { return nil },
+		}
+
+		config := WebSocketConfig{
+			Host:           "localhost",
+			Port:           443,
+			Username:       "root",
+			APIKey:         "test-key",
+			Fallback:       mock,
+			ConnectTimeout: 5 * time.Second,
+		}
+
+		client, err := NewWebSocketClient(config)
+		if err != nil {
+			t.Fatalf("NewWebSocketClient() error = %v", err)
+		}
+		defer client.Close()
+
+		// Should panic because Connect() was not called
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Version() should have panicked when called before Connect()")
+			}
+		}()
+		client.Version()
+	})
 }
 
 func TestWebSocketClient_WriteFile(t *testing.T) {
@@ -1545,9 +1497,8 @@ func TestWebSocketClient_WriteFile(t *testing.T) {
 			host := strings.TrimPrefix(wsURL, "ws://")
 
 			mock := &MockClient{
-				GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-					return api.Version{Major: 25, Minor: 0}, nil
-				},
+				VersionVal:  api.Version{Major: 25, Minor: 0},
+				ConnectFunc: func(ctx context.Context) error { return nil },
 			}
 
 			config := WebSocketConfig{
@@ -1568,6 +1519,10 @@ func TestWebSocketClient_WriteFile(t *testing.T) {
 			defer client.Close()
 
 			ctx := context.Background()
+			if err := client.Connect(ctx); err != nil {
+				t.Fatalf("Connect() error = %v", err)
+			}
+
 			err = client.WriteFile(ctx, tt.path, tt.params)
 
 			if tt.wantErr {
@@ -1643,9 +1598,8 @@ func TestWebSocketClient_WriteFile_Error(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -1666,6 +1620,9 @@ func TestWebSocketClient_WriteFile_Error(t *testing.T) {
 	defer client.Close()
 
 	ctx := context.Background()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 	err = client.WriteFile(ctx, "/mnt/test/file.txt", WriteFileParams{Content: []byte("test"), Mode: 0644})
 
 	if err == nil {
@@ -1772,9 +1729,8 @@ func TestWebSocketClient_FileExists(t *testing.T) {
 			host := strings.TrimPrefix(wsURL, "ws://")
 
 			mock := &MockClient{
-				GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-					return api.Version{Major: 25, Minor: 0}, nil
-				},
+				VersionVal:  api.Version{Major: 25, Minor: 0},
+				ConnectFunc: func(ctx context.Context) error { return nil },
 			}
 
 			config := WebSocketConfig{
@@ -1795,6 +1751,10 @@ func TestWebSocketClient_FileExists(t *testing.T) {
 			defer client.Close()
 
 			ctx := context.Background()
+			if err := client.Connect(ctx); err != nil {
+				t.Fatalf("Connect() error = %v", err)
+			}
+
 			exists, err := client.FileExists(ctx, "/mnt/test/file.txt")
 
 			if tt.wantErr {
@@ -2019,9 +1979,8 @@ func createTestClient(t *testing.T, server *httptest.Server) *WebSocketClient {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -2039,6 +1998,11 @@ func createTestClient(t *testing.T, server *httptest.Server) *WebSocketClient {
 		t.Fatalf("NewWebSocketClient() error = %v", err)
 	}
 	client.testInsecure = true
+
+	// Connect to cache version from fallback
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 	return client
 }
 
@@ -2194,9 +2158,8 @@ func TestWebSocketClient_CallAndWait_EventArrivesBeforeSubscription(t *testing.T
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -2215,6 +2178,10 @@ func TestWebSocketClient_CallAndWait_EventArrivesBeforeSubscription(t *testing.T
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -2283,9 +2250,8 @@ func TestWebSocketClient_ReadFile_DelegatesToFallback(t *testing.T) {
 	readFileCalled := false
 	expectedContent := []byte("file content from fallback")
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
 			readFileCalled = true
 			if path != "/mnt/test/file.txt" {
@@ -2328,9 +2294,8 @@ func TestWebSocketClient_ReadFile_DelegatesToFallback(t *testing.T) {
 
 func TestWebSocketClient_ReadFile_PropagatesError(t *testing.T) {
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
 			return nil, errors.New("ssh connection failed")
 		},
@@ -2364,9 +2329,8 @@ func TestWebSocketClient_ReadFile_PropagatesError(t *testing.T) {
 func TestWebSocketClient_DeleteFile_DelegatesToFallback(t *testing.T) {
 	deleteFileCalled := false
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 		DeleteFileFunc: func(ctx context.Context, path string) error {
 			deleteFileCalled = true
 			if path != "/mnt/test/file.txt" {
@@ -2404,9 +2368,8 @@ func TestWebSocketClient_DeleteFile_DelegatesToFallback(t *testing.T) {
 
 func TestWebSocketClient_DeleteFile_PropagatesError(t *testing.T) {
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 		DeleteFileFunc: func(ctx context.Context, path string) error {
 			return errors.New("permission denied")
 		},
@@ -2437,9 +2400,8 @@ func TestWebSocketClient_DeleteFile_PropagatesError(t *testing.T) {
 func TestWebSocketClient_RemoveDir_DelegatesToFallback(t *testing.T) {
 	removeDirCalled := false
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 		RemoveDirFunc: func(ctx context.Context, path string) error {
 			removeDirCalled = true
 			if path != "/mnt/test/dir" {
@@ -2477,9 +2439,8 @@ func TestWebSocketClient_RemoveDir_DelegatesToFallback(t *testing.T) {
 
 func TestWebSocketClient_RemoveDir_PropagatesError(t *testing.T) {
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 		RemoveDirFunc: func(ctx context.Context, path string) error {
 			return errors.New("directory not empty")
 		},
@@ -2510,9 +2471,8 @@ func TestWebSocketClient_RemoveDir_PropagatesError(t *testing.T) {
 func TestWebSocketClient_RemoveAll_DelegatesToFallback(t *testing.T) {
 	removeAllCalled := false
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 		RemoveAllFunc: func(ctx context.Context, path string) error {
 			removeAllCalled = true
 			if path != "/mnt/test/dir" {
@@ -2550,9 +2510,8 @@ func TestWebSocketClient_RemoveAll_DelegatesToFallback(t *testing.T) {
 
 func TestWebSocketClient_RemoveAll_PropagatesError(t *testing.T) {
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 		RemoveAllFunc: func(ctx context.Context, path string) error {
 			return errors.New("io error")
 		},
@@ -2646,8 +2605,8 @@ func TestWrapParams(t *testing.T) {
 
 func TestWebSocketClient_Connect_VersionDetectionFails(t *testing.T) {
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{}, errors.New("connection refused")
+		ConnectFunc: func(ctx context.Context) error {
+			return errors.New("connection refused")
 		},
 	}
 
@@ -2670,12 +2629,13 @@ func TestWebSocketClient_Connect_VersionDetectionFails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	_, err = client.Call(ctx, "test.method", nil)
+	// With the new pattern, Connect() propagates errors from fallback
+	err = client.Connect(ctx)
 	if err == nil {
-		t.Error("Call() expected error when version detection fails, got nil")
+		t.Error("Connect() expected error when fallback Connect fails, got nil")
 	}
-	if !strings.Contains(err.Error(), "version detection failed") {
-		t.Errorf("Call() error = %v, want containing 'version detection failed'", err)
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("Connect() error = %v, want containing 'connection refused'", err)
 	}
 }
 
@@ -2691,9 +2651,8 @@ func TestWebSocketClient_Connect_DialFails(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -2712,6 +2671,10 @@ func TestWebSocketClient_Connect_DialFails(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -2741,9 +2704,8 @@ func TestWebSocketClient_Authenticate_WriteError(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -2762,6 +2724,10 @@ func TestWebSocketClient_Authenticate_WriteError(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -2794,9 +2760,8 @@ func TestWebSocketClient_Authenticate_ReadError(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -2815,6 +2780,10 @@ func TestWebSocketClient_Authenticate_ReadError(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -2862,9 +2831,8 @@ func TestWebSocketClient_Authenticate_ErrorResponse(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -2883,6 +2851,10 @@ func TestWebSocketClient_Authenticate_ErrorResponse(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -2930,9 +2902,8 @@ func TestWebSocketClient_Authenticate_NonSuccessResponse(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -2951,6 +2922,10 @@ func TestWebSocketClient_Authenticate_NonSuccessResponse(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -3010,9 +2985,8 @@ func TestWebSocketClient_SubscribeJobEvents_Error(t *testing.T) {
 	host := strings.TrimPrefix(wsURL, "ws://")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -3031,6 +3005,10 @@ func TestWebSocketClient_SubscribeJobEvents_Error(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -3091,10 +3069,10 @@ func TestIsAuthenticationError(t *testing.T) {
 
 func TestWebSocketClient_Connect_OlderVersion_ReturnsError(t *testing.T) {
 	// Mock returns older version (24.x) which should be rejected
+	// With new pattern, Connect() caches version from fallback
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 24, Minor: 10, Raw: "TrueNAS-SCALE-24.10.2.4"}, nil
-		},
+		VersionVal:  api.Version{Major: 24, Minor: 10, Raw: "TrueNAS-SCALE-24.10.2.4"},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 	}
 
 	config := WebSocketConfig{
@@ -3114,6 +3092,14 @@ func TestWebSocketClient_Connect_OlderVersion_ReturnsError(t *testing.T) {
 	defer client.Close()
 
 	ctx := context.Background()
+
+	// Connect caches version from fallback
+	err = client.Connect(ctx)
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+
+	// Call should fail when trying to establish WebSocket connection with 24.x version
 	_, err = client.Call(ctx, "test.method", nil)
 
 	// Should get ErrUnsupportedVersion
@@ -3209,9 +3195,8 @@ func TestWebSocketClient_CallAndWait_FailingJob_WithAppLifecycleEnrichment(t *te
 	host := strings.Split(strings.TrimPrefix(wsURL, "ws://"), ":")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
 			if path == "/var/log/app_lifecycle.log" {
 				return logContent, nil
@@ -3237,6 +3222,10 @@ func TestWebSocketClient_CallAndWait_FailingJob_WithAppLifecycleEnrichment(t *te
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -3334,9 +3323,8 @@ func TestWebSocketClient_CallAndWait_FailingJob_EnrichmentFailsSilently(t *testi
 	host := strings.Split(strings.TrimPrefix(wsURL, "ws://"), ":")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
 			// Simulate failure to read log file
 			return nil, errors.New("permission denied")
@@ -3360,6 +3348,10 @@ func TestWebSocketClient_CallAndWait_FailingJob_EnrichmentFailsSilently(t *testi
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -3463,9 +3455,8 @@ func TestWebSocketClient_CallAndWait_AbortedJob_WithEnrichment(t *testing.T) {
 	host := strings.Split(strings.TrimPrefix(wsURL, "ws://"), ":")
 
 	mock := &MockClient{
-		GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-			return api.Version{Major: 25, Minor: 0}, nil
-		},
+		VersionVal:  api.Version{Major: 25, Minor: 0},
+		ConnectFunc: func(ctx context.Context) error { return nil },
 		ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
 			if path == "/var/log/app_lifecycle.log" {
 				return logContent, nil
@@ -3491,6 +3482,10 @@ func TestWebSocketClient_CallAndWait_AbortedJob_WithEnrichment(t *testing.T) {
 	}
 	client.testInsecure = true
 	defer client.Close()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

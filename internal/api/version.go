@@ -1,33 +1,11 @@
 package api
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/hashicorp/terraform-plugin-framework/diag"
 )
-
-// VersionGetter is implemented by clients that can retrieve the TrueNAS version.
-type VersionGetter interface {
-	GetVersion(ctx context.Context) (Version, error)
-}
-
-// GetVersionOrDiag retrieves the TrueNAS version, adding a diagnostic on failure.
-// Returns the version and true on success, or zero Version and false on failure.
-func GetVersionOrDiag(ctx context.Context, client VersionGetter, diags *diag.Diagnostics) (Version, bool) {
-	version, err := client.GetVersion(ctx)
-	if err != nil {
-		diags.AddError(
-			"TrueNAS Version Detection Failed",
-			err.Error(),
-		)
-		return Version{}, false
-	}
-	return version, true
-}
 
 // Flavor represents the TrueNAS edition.
 type Flavor string

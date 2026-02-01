@@ -164,9 +164,7 @@ func createCloudSyncCredentialsTestReadRequest(t *testing.T, name string) dataso
 func TestCloudSyncCredentialsDataSource_Read_Success_S3(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return api.Version{Major: 25, Minor: 4}, nil
-			},
+			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "cloudsync.credentials.query" {
 					t.Errorf("expected method 'cloudsync.credentials.query', got %q", method)
@@ -225,9 +223,7 @@ func TestCloudSyncCredentialsDataSource_Read_Success_S3(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_Success_B2(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return api.Version{Major: 25, Minor: 4}, nil
-			},
+			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// 25.x format
 				return json.RawMessage(`[{
@@ -276,9 +272,7 @@ func TestCloudSyncCredentialsDataSource_Read_Success_B2(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_Success_GCS(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return api.Version{Major: 25, Minor: 4}, nil
-			},
+			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// 25.x format
 				return json.RawMessage(`[{
@@ -327,9 +321,7 @@ func TestCloudSyncCredentialsDataSource_Read_Success_GCS(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_Success_Azure(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return api.Version{Major: 25, Minor: 4}, nil
-			},
+			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// 25.x format
 				return json.RawMessage(`[{
@@ -378,9 +370,7 @@ func TestCloudSyncCredentialsDataSource_Read_Success_Azure(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_NotFound(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return api.Version{Major: 25, Minor: 4}, nil
-			},
+			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// Return empty array - no credentials found
 				return json.RawMessage(`[]`), nil
@@ -410,9 +400,7 @@ func TestCloudSyncCredentialsDataSource_Read_NotFound(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_MultipleCredentials_FindsMatch(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return api.Version{Major: 25, Minor: 4}, nil
-			},
+			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// Return multiple credentials (25.x format)
 				return json.RawMessage(`[
@@ -462,9 +450,7 @@ func TestCloudSyncCredentialsDataSource_Read_MultipleCredentials_FindsMatch(t *t
 func TestCloudSyncCredentialsDataSource_Read_APIError(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return api.Version{Major: 25, Minor: 4}, nil
-			},
+			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection failed")
 			},
@@ -493,9 +479,7 @@ func TestCloudSyncCredentialsDataSource_Read_APIError(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_InvalidJSON(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return api.Version{Major: 25, Minor: 4}, nil
-			},
+			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
@@ -524,9 +508,7 @@ func TestCloudSyncCredentialsDataSource_Read_InvalidJSON(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_UnknownProvider(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return api.Version{Major: 25, Minor: 4}, nil
-			},
+			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// 25.x format
 				return json.RawMessage(`[{
@@ -581,9 +563,7 @@ func TestCloudSyncCredentialsDataSource_ImplementsInterfaces(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_Legacy(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return api.Version{Major: 24, Minor: 10}, nil
-			},
+			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// 24.x format: provider is a string, attributes is a separate object
 				return json.RawMessage(`[{
@@ -635,30 +615,3 @@ func TestCloudSyncCredentialsDataSource_Read_Legacy(t *testing.T) {
 	}
 }
 
-func TestCloudSyncCredentialsDataSource_Read_GetVersionError(t *testing.T) {
-	ds := &CloudSyncCredentialsDataSource{
-		client: &client.MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return api.Version{}, errors.New("version probe failed")
-			},
-		},
-	}
-
-	req := createCloudSyncCredentialsTestReadRequest(t, "Scaleway")
-
-	schemaReq := datasource.SchemaRequest{}
-	schemaResp := &datasource.SchemaResponse{}
-	ds.Schema(context.Background(), schemaReq, schemaResp)
-
-	resp := &datasource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	ds.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for GetVersion failure")
-	}
-}

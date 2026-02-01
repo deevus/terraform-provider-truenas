@@ -429,6 +429,27 @@ func TestSSHClient_Connect_Success(t *testing.T) {
 	}
 }
 
+func TestSSHClient_Version_PanicsBeforeConnect(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		PrivateKey:         testPrivateKey,
+		HostKeyFingerprint: testHostKeyFingerprint,
+	}
+
+	client, err := NewSSHClient(config)
+	if err != nil {
+		t.Fatalf("NewSSHClient() error = %v", err)
+	}
+
+	// Should panic because Connect() was not called
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Version() should have panicked when called before Connect()")
+		}
+	}()
+	client.Version()
+}
+
 func TestSSHClient_Call_ConnectFails(t *testing.T) {
 	config := &SSHConfig{
 		Host:               "truenas.local",
@@ -692,7 +713,7 @@ func TestSSHClient_CallAndWait_V25_UsesJobFlag(t *testing.T) {
 
 	// Pre-set version to 25.x to use -j flag behavior
 	client.version = api.Version{Major: 25, Minor: 4, Raw: "TrueNAS-25.04"}
-	client.versionOnce.Do(func() {}) // Mark as done
+	client.connected = true
 
 	mockSess := &mockSession{
 		combinedOutputFunc: func(cmd string) ([]byte, error) {
@@ -736,7 +757,7 @@ func TestSSHClient_CallAndWait_V24_UsesPolling(t *testing.T) {
 
 	// Pre-set version to 24.x to use polling behavior
 	client.version = api.Version{Major: 24, Minor: 10, Raw: "TrueNAS-24.10"}
-	client.versionOnce.Do(func() {}) // Mark as done
+	client.connected = true
 
 	callCount := 0
 	mockSess := &mockSession{
@@ -799,7 +820,7 @@ func TestSSHClient_CallAndWait_V24_JobFailure(t *testing.T) {
 
 	// Pre-set version to 24.x
 	client.version = api.Version{Major: 24, Minor: 10, Raw: "TrueNAS-24.10"}
-	client.versionOnce.Do(func() {})
+	client.connected = true
 
 	callCount := 0
 	mockSess := &mockSession{
@@ -847,7 +868,7 @@ func TestSSHClient_CallAndWait_V24_SynchronousMethod(t *testing.T) {
 
 	// Pre-set version to 24.x
 	client.version = api.Version{Major: 24, Minor: 10, Raw: "TrueNAS-24.10"}
-	client.versionOnce.Do(func() {})
+	client.connected = true
 
 	mockSess := &mockSession{
 		combinedOutputFunc: func(cmd string) ([]byte, error) {
@@ -1034,7 +1055,7 @@ func TestSSHClient_CallAndWait_PositionalArgs(t *testing.T) {
 
 	// Pre-set version to 25.x to use -j flag behavior
 	client.version = api.Version{Major: 25, Minor: 4, Raw: "TrueNAS-25.04"}
-	client.versionOnce.Do(func() {}) // Mark as done
+	client.connected = true
 
 	mockSess := &mockSession{
 		combinedOutputFunc: func(cmd string) ([]byte, error) {
@@ -1247,7 +1268,7 @@ func TestSSHClient_CallAndWait_RespectsSemaphore(t *testing.T) {
 		sessionSem:    make(chan struct{}, 2),
 		version:       api.Version{Major: 25, Minor: 4, Raw: "TrueNAS-25.04"},
 	}
-	client.versionOnce.Do(func() {}) // Mark version as cached
+	client.connected = true // Mark version as cached
 
 	var wg sync.WaitGroup
 	for i := 0; i < 5; i++ {

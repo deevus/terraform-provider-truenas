@@ -84,10 +84,7 @@ func (d *CloudSyncCredentialsDataSource) Read(ctx context.Context, req datasourc
 	}
 
 	// Get version for API compatibility
-	version, ok := api.GetVersionOrDiag(ctx, d.client, &resp.Diagnostics)
-	if !ok {
-		return
-	}
+	version := d.client.Version()
 
 	// Query all credentials (no filter - API returns all)
 	result, err := d.client.Call(ctx, "cloudsync.credentials.query", [][]any{})

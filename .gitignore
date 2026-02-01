@@ -15,6 +15,7 @@ dist/
 
 # Test artifacts
 *.test
+cover.out
 coverage.out
 coverage.html
 terraform-provider-truenas_v*

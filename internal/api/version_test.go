@@ -1,11 +1,7 @@
 package api
 
 import (
-	"context"
-	"errors"
 	"testing"
-
-	"github.com/hashicorp/terraform-plugin-framework/diag"
 )
 
 func TestParseVersion(t *testing.T) {
@@ -209,68 +205,3 @@ func TestVersion_Compare(t *testing.T) {
 	}
 }
 
-// mockVersionGetter implements VersionGetter for testing.
-type mockVersionGetter struct {
-	version Version
-	err     error
-}
-
-func (m *mockVersionGetter) GetVersion(ctx context.Context) (Version, error) {
-	return m.version, m.err
-}
-
-func TestGetVersionOrDiag(t *testing.T) {
-	tests := []struct {
-		name       string
-		version    Version
-		err        error
-		wantOK     bool
-		wantDiags  bool
-	}{
-		{
-			name:      "success",
-			version:   Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
-			err:       nil,
-			wantOK:    true,
-			wantDiags: false,
-		},
-		{
-			name:      "error adds diagnostic",
-			version:   Version{},
-			err:       errors.New("connection failed"),
-			wantOK:    false,
-			wantDiags: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client := &mockVersionGetter{version: tt.version, err: tt.err}
-			var diags diag.Diagnostics
-
-			got, ok := GetVersionOrDiag(context.Background(), client, &diags)
-
-			if ok != tt.wantOK {
-				t.Errorf("GetVersionOrDiag() ok = %v, want %v", ok, tt.wantOK)
-			}
-			if diags.HasError() != tt.wantDiags {
-				t.Errorf("GetVersionOrDiag() HasError = %v, want %v", diags.HasError(), tt.wantDiags)
-			}
-			if tt.wantOK && got != tt.version {
-				t.Errorf("GetVersionOrDiag() version = %v, want %v", got, tt.version)
-			}
-			if tt.wantDiags {
-				found := false
-				for _, d := range diags.Errors() {
-					if d.Summary() == "TrueNAS Version Detection Failed" {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Error("GetVersionOrDiag() expected diagnostic with summary 'TrueNAS Version Detection Failed'")
-				}
-			}
-		})
-	}
-}

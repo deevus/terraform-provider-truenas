@@ -288,10 +288,7 @@ func (r *CloudSyncCredentialsResource) Create(ctx context.Context, req resource.
 	}
 
 	// Get version for API compatibility
-	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
-	if !ok {
-		return
-	}
+	version := r.client.Version()
 
 	params := api.BuildCredentialsParams(version, data.Name.ValueString(), providerType, attributes)
 
@@ -357,10 +354,7 @@ func (r *CloudSyncCredentialsResource) Read(ctx context.Context, req resource.Re
 	}
 
 	// Get version for API compatibility
-	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
-	if !ok {
-		return
-	}
+	version := r.client.Version()
 
 	cred, err := r.queryCredential(ctx, id, version)
 	if err != nil {
@@ -420,10 +414,7 @@ func (r *CloudSyncCredentialsResource) Update(ctx context.Context, req resource.
 	}
 
 	// Get version for API compatibility
-	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
-	if !ok {
-		return
-	}
+	version := r.client.Version()
 
 	updateData := api.BuildCredentialsParams(version, plan.Name.ValueString(), providerType, attributes)
 

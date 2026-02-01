@@ -31,8 +31,13 @@ func IntPtr(i int) *int { return &i }
 
 // Client defines the interface for communicating with TrueNAS.
 type Client interface {
-	// GetVersion returns the TrueNAS version. Probes once and caches.
-	GetVersion(ctx context.Context) (api.Version, error)
+	// Connect establishes connection and detects TrueNAS version.
+	// Must be called before using the client.
+	Connect(ctx context.Context) error
+
+	// Version returns the cached TrueNAS version.
+	// Panics if called before Connect() - fail fast on programmer error.
+	Version() api.Version
 
 	// Call executes a midclt command and returns the parsed JSON response.
 	Call(ctx context.Context, method string, params any) (json.RawMessage, error)
@@ -73,7 +78,8 @@ type Client interface {
 
 // MockClient is a test double for Client.
 type MockClient struct {
-	GetVersionFunc     func(ctx context.Context) (api.Version, error)
+	ConnectFunc        func(ctx context.Context) error
+	VersionVal         api.Version
 	CallFunc           func(ctx context.Context, method string, params any) (json.RawMessage, error)
 	CallAndWaitFunc    func(ctx context.Context, method string, params any) (json.RawMessage, error)
 	WriteFileFunc      func(ctx context.Context, path string, params WriteFileParams) error
@@ -88,11 +94,15 @@ type MockClient struct {
 	CloseFunc          func() error
 }
 
-func (m *MockClient) GetVersion(ctx context.Context) (api.Version, error) {
-	if m.GetVersionFunc != nil {
-		return m.GetVersionFunc(ctx)
+func (m *MockClient) Connect(ctx context.Context) error {
+	if m.ConnectFunc != nil {
+		return m.ConnectFunc(ctx)
 	}
-	return api.Version{}, nil
+	return nil
+}
+
+func (m *MockClient) Version() api.Version {
+	return m.VersionVal
 }
 
 func (m *MockClient) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {

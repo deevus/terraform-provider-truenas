@@ -122,10 +122,9 @@ type SSHClient struct {
 	mu            sync.Mutex
 	sessionSem    chan struct{} // limits concurrent SSH sessions
 
-	// Version caching
-	version     api.Version
-	versionErr  error
-	versionOnce sync.Once
+	// Version (set during Connect)
+	version   api.Version
+	connected bool
 }
 
 // Compile-time check that SSHClient implements Client.
@@ -269,11 +268,8 @@ func (c *SSHClient) Call(ctx context.Context, method string, params any) (json.R
 // Note: The response is not parsed as it contains unparseable progress output.
 // Callers should query the resource state separately after this returns.
 func (c *SSHClient) CallAndWait(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	// Check TrueNAS version to determine job waiting strategy
-	version, err := c.GetVersion(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to detect TrueNAS version: %w", err)
-	}
+	// Use cached version to determine job waiting strategy
+	version := c.Version()
 
 	// TrueNAS 25.x+ supports core.subscribe, so midclt -j works
 	// TrueNAS 24.x doesn't have core.subscribe, so we poll core.get_jobs
@@ -446,22 +442,38 @@ func (c *SSHClient) Close() error {
 	return err
 }
 
-// GetVersion returns the TrueNAS version. Probes once and caches the result.
-func (c *SSHClient) GetVersion(ctx context.Context) (api.Version, error) {
-	c.versionOnce.Do(func() {
-		result, err := c.Call(ctx, "system.version", nil)
-		if err != nil {
-			c.versionErr = fmt.Errorf("failed to detect TrueNAS version: %w", err)
-			return
-		}
+// Connect establishes the SSH connection and detects TrueNAS version.
+// Must be called before using the client.
+func (c *SSHClient) Connect(ctx context.Context) error {
+	if err := c.connect(); err != nil {
+		return err
+	}
 
-		// system.version returns a raw string (not JSON), so convert directly
-		// and trim any whitespace/newlines
-		raw := strings.TrimSpace(string(result))
+	result, err := c.Call(ctx, "system.version", nil)
+	if err != nil {
+		return fmt.Errorf("failed to detect TrueNAS version: %w", err)
+	}
 
-		c.version, c.versionErr = api.ParseVersion(raw)
-	})
-	return c.version, c.versionErr
+	// system.version returns a raw string (not JSON), so convert directly
+	// and trim any whitespace/newlines
+	raw := strings.TrimSpace(string(result))
+
+	c.version, err = api.ParseVersion(raw)
+	if err != nil {
+		return err
+	}
+
+	c.connected = true
+	return nil
+}
+
+// Version returns the cached TrueNAS version.
+// Panics if called before Connect() - fail fast on programmer error.
+func (c *SSHClient) Version() api.Version {
+	if !c.connected {
+		panic("client.Version() called before Connect()")
+	}
+	return c.version
 }
 
 // WriteFile writes content to a file on the remote system using the TrueNAS

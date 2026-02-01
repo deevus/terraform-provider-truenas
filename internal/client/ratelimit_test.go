@@ -226,19 +226,33 @@ func TestRateLimitedClient_CallAndWait_RetryOnTransientError(t *testing.T) {
 func TestRateLimitedClient_DelegatingMethods(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("GetVersion", func(t *testing.T) {
-		expected := api.Version{Flavor: api.FlavorScale, Major: 24, Minor: 10}
+	t.Run("Connect", func(t *testing.T) {
+		called := false
 		mock := &MockClient{
-			GetVersionFunc: func(ctx context.Context) (api.Version, error) {
-				return expected, nil
+			ConnectFunc: func(ctx context.Context) error {
+				called = true
+				return nil
 			},
 		}
 		client := NewRateLimitedClient(mock, 60, 3, nil)
 
-		result, err := client.GetVersion(ctx)
+		err := client.Connect(ctx)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		if !called {
+			t.Error("expected Connect to be called")
+		}
+	})
+
+	t.Run("Version", func(t *testing.T) {
+		expected := api.Version{Flavor: api.FlavorScale, Major: 24, Minor: 10}
+		mock := &MockClient{
+			VersionVal: expected,
+		}
+		client := NewRateLimitedClient(mock, 60, 3, nil)
+
+		result := client.Version()
 		if result != expected {
 			t.Errorf("expected %v, got %v", expected, result)
 		}

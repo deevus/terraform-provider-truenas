@@ -134,10 +134,7 @@ func (r *SnapshotResource) Configure(ctx context.Context, req resource.Configure
 // querySnapshot queries a snapshot by ID and returns the response.
 // Returns nil if the snapshot is not found.
 func (r *SnapshotResource) querySnapshot(ctx context.Context, snapshotID string) (*api.SnapshotResponse, error) {
-	version, err := r.client.GetVersion(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get version: %w", err)
-	}
+	version := r.client.Version()
 
 	method := api.ResolveSnapshotMethod(version, api.MethodSnapshotQuery)
 	filter := [][]any{{"id", "=", snapshotID}}
@@ -178,10 +175,7 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 	}
 
 	// Get TrueNAS version for API method resolution
-	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
-	if !ok {
-		return
-	}
+	version := r.client.Version()
 
 	// Build create params
 	params := map[string]any{
@@ -282,10 +276,7 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 	}
 
 	// Get TrueNAS version for API method resolution
-	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
-	if !ok {
-		return
-	}
+	version := r.client.Version()
 
 	snapshotID := state.ID.ValueString()
 
@@ -350,10 +341,7 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 
 	// Get TrueNAS version for API method resolution
-	version, ok := api.GetVersionOrDiag(ctx, r.client, &resp.Diagnostics)
-	if !ok {
-		return
-	}
+	version := r.client.Version()
 
 	snapshotID := data.ID.ValueString()
 

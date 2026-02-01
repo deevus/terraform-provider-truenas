@@ -148,6 +148,10 @@ type WebSocketClient struct {
 
 	testInsecure bool   // For testing with httptest servers
 	wsPath       string // Cached WebSocket path
+
+	// Version (cached from fallback during Connect)
+	version   api.Version
+	connected bool
 }
 
 // NewWebSocketClient creates a new channel-based WebSocket client.
@@ -429,12 +433,9 @@ var ErrUnsupportedVersion = errors.New("WebSocket transport requires TrueNAS 25.
 
 // connect establishes WebSocket connection and authenticates.
 func (c *WebSocketClient) connect(ctx context.Context) (*websocket.Conn, error) {
-	// Determine path if not cached
+	// Determine path if not cached (use version from Connect)
 	if c.wsPath == "" {
-		version, err := c.config.Fallback.GetVersion(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("version detection failed: %w", err)
-		}
+		version := c.version
 		// TrueNAS 25.0+ uses /api/current with JSON-RPC 2.0 protocol
 		// TrueNAS 24.x uses /websocket with a legacy DDP-like protocol (not supported)
 		if !version.AtLeast(25, 0) {
@@ -703,19 +704,24 @@ func (c *WebSocketClient) unsubscribeJob(jobID int64) {
 	}
 }
 
-// GetVersion returns the TrueNAS version.
-func (c *WebSocketClient) GetVersion(ctx context.Context) (api.Version, error) {
-	result, err := c.Call(ctx, "system.version", nil)
-	if err != nil {
-		return api.Version{}, fmt.Errorf("failed to get version: %w", err)
+// Connect establishes connection via fallback client and caches version.
+// Must be called before using the client.
+func (c *WebSocketClient) Connect(ctx context.Context) error {
+	if err := c.config.Fallback.Connect(ctx); err != nil {
+		return err
 	}
+	c.version = c.config.Fallback.Version()
+	c.connected = true
+	return nil
+}
 
-	var raw string
-	if err := json.Unmarshal(result, &raw); err != nil {
-		return api.Version{}, fmt.Errorf("failed to parse version: %w", err)
+// Version returns the cached TrueNAS version.
+// Panics if called before Connect() - fail fast on programmer error.
+func (c *WebSocketClient) Version() api.Version {
+	if !c.connected {
+		panic("client.Version() called before Connect()")
 	}
-
-	return api.ParseVersion(raw)
+	return c.version
 }
 
 // WriteFile writes content to a file using filesystem.file_receive.

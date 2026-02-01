@@ -2,8 +2,11 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/deevus/terraform-provider-truenas/internal/api"
+	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -13,6 +16,36 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
+
+// mockClientFactory returns pre-configured mock clients for testing
+type mockClientFactory struct {
+	sshClient client.Client
+	sshErr    error
+	wsClient  client.Client
+	wsErr     error
+}
+
+func (f *mockClientFactory) NewSSHClient(cfg *client.SSHConfig) (client.Client, error) {
+	if f.sshErr != nil {
+		return nil, f.sshErr
+	}
+	return f.sshClient, nil
+}
+
+func (f *mockClientFactory) NewWebSocketClient(cfg client.WebSocketConfig) (client.Client, error) {
+	if f.wsErr != nil {
+		return nil, f.wsErr
+	}
+	return f.wsClient, nil
+}
+
+// newTestMockClient creates a MockClient configured for testing
+func newTestMockClient(version api.Version) *client.MockClient {
+	return &client.MockClient{
+		VersionVal:  version,
+		ConnectFunc: func(ctx context.Context) error { return nil },
+	}
+}
 
 func TestProvider_Metadata(t *testing.T) {
 	p := New("1.0.0")()
@@ -422,7 +455,12 @@ func TestProvider_Configure_MissingSSHBlock(t *testing.T) {
 }
 
 func TestProvider_Configure_Success(t *testing.T) {
-	p := &TrueNASProvider{version: "1.0.0"}
+	mock := newTestMockClient(api.Version{Major: 24, Minor: 10})
+
+	p := &TrueNASProvider{
+		version: "1.0.0",
+		factory: &mockClientFactory{sshClient: mock},
+	}
 
 	ssh := &SSHBlockModel{
 		Port:               types.Int64Null(),
@@ -451,7 +489,12 @@ func TestProvider_Configure_Success(t *testing.T) {
 }
 
 func TestProvider_Configure_WithCustomPortAndUser(t *testing.T) {
-	p := &TrueNASProvider{version: "1.0.0"}
+	mock := newTestMockClient(api.Version{Major: 24, Minor: 10})
+
+	p := &TrueNASProvider{
+		version: "1.0.0",
+		factory: &mockClientFactory{sshClient: mock},
+	}
 
 	ssh := &SSHBlockModel{
 		Port:               types.Int64Value(2222),
@@ -941,7 +984,16 @@ func TestProvider_Configure_WebSocketAuthMethod_MissingSSHBlock(t *testing.T) {
 }
 
 func TestProvider_Configure_WebSocketAuthMethod_Success(t *testing.T) {
-	p := &TrueNASProvider{version: "1.0.0"}
+	sshMock := newTestMockClient(api.Version{Major: 25, Minor: 0})
+	wsMock := newTestMockClient(api.Version{Major: 25, Minor: 0})
+
+	p := &TrueNASProvider{
+		version: "1.0.0",
+		factory: &mockClientFactory{
+			sshClient: sshMock,
+			wsClient:  wsMock,
+		},
+	}
 
 	ssh := &SSHBlockModel{
 		Port:               types.Int64Null(),
@@ -980,7 +1032,16 @@ func TestProvider_Configure_WebSocketAuthMethod_Success(t *testing.T) {
 }
 
 func TestProvider_Configure_WebSocketAuthMethod_WithAllOptions(t *testing.T) {
-	p := &TrueNASProvider{version: "1.0.0"}
+	sshMock := newTestMockClient(api.Version{Major: 25, Minor: 0})
+	wsMock := newTestMockClient(api.Version{Major: 25, Minor: 0})
+
+	p := &TrueNASProvider{
+		version: "1.0.0",
+		factory: &mockClientFactory{
+			sshClient: sshMock,
+			wsClient:  wsMock,
+		},
+	}
 
 	ssh := &SSHBlockModel{
 		Port:               types.Int64Value(2222),
@@ -1055,7 +1116,12 @@ func TestProvider_Configure_InvalidAuthMethod_MentionsWebSocket(t *testing.T) {
 }
 
 func TestProvider_Configure_EmptyAuthMethod_DefaultsToSSH(t *testing.T) {
-	p := &TrueNASProvider{version: "1.0.0"}
+	mock := newTestMockClient(api.Version{Major: 24, Minor: 10})
+
+	p := &TrueNASProvider{
+		version: "1.0.0",
+		factory: &mockClientFactory{sshClient: mock},
+	}
 
 	ssh := &SSHBlockModel{
 		Port:               types.Int64Null(),
@@ -1124,5 +1190,205 @@ func TestProvider_Configure_WebSocketAuthMethod_EmptySSHKey(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected error message to mention 'SSH'")
+	}
+}
+
+func TestProvider_Configure_WebSocketAuthMethod_OldVersionRejected(t *testing.T) {
+	// TrueNAS 24.x should be rejected for WebSocket mode
+	sshMock := newTestMockClient(api.Version{Major: 24, Minor: 10, Raw: "24.10"})
+
+	p := &TrueNASProvider{
+		version: "1.0.0",
+		factory: &mockClientFactory{sshClient: sshMock},
+	}
+
+	ssh := &SSHBlockModel{
+		Port:               types.Int64Null(),
+		User:               types.StringNull(),
+		PrivateKey:         types.StringValue(testPrivateKey),
+		HostKeyFingerprint: types.StringValue(testHostKeyFingerprint),
+		MaxSessions:        types.Int64Null(),
+	}
+
+	ws := &WebSocketBlockModel{
+		Username:           types.StringValue("root"),
+		APIKey:             types.StringValue("test-api-key"),
+		Port:               types.Int64Null(),
+		InsecureSkipVerify: types.BoolNull(),
+		MaxConcurrent:      types.Int64Null(),
+		ConnectTimeout:     types.Int64Null(),
+		MaxRetries:         types.Int64Null(),
+	}
+
+	req := createTestConfigureRequestWithWebSocket(t, "truenas.local", "websocket", ssh, ws)
+	resp := &provider.ConfigureResponse{}
+
+	p.Configure(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for TrueNAS < 25.0 with WebSocket mode")
+	}
+
+	// Verify error message mentions version requirement
+	found := false
+	for _, d := range resp.Diagnostics {
+		if d.Severity() == diag.SeverityError && containsString(d.Summary(), "25.0") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error message to mention '25.0' version requirement")
+	}
+}
+
+func TestProvider_Configure_SSHConnectError(t *testing.T) {
+	mock := &client.MockClient{
+		ConnectFunc: func(ctx context.Context) error {
+			return errors.New("connection refused")
+		},
+	}
+
+	p := &TrueNASProvider{
+		version: "1.0.0",
+		factory: &mockClientFactory{sshClient: mock},
+	}
+
+	ssh := &SSHBlockModel{
+		Port:               types.Int64Null(),
+		User:               types.StringNull(),
+		PrivateKey:         types.StringValue(testPrivateKey),
+		HostKeyFingerprint: types.StringValue(testHostKeyFingerprint),
+		MaxSessions:        types.Int64Null(),
+	}
+
+	req := createTestConfigureRequest(t, "truenas.local", "ssh", ssh)
+	resp := &provider.ConfigureResponse{}
+
+	p.Configure(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for connection failure")
+	}
+
+	// Verify diagnostics contains connection error
+	found := false
+	for _, d := range resp.Diagnostics {
+		if d.Severity() == diag.SeverityError && containsString(d.Detail(), "connection refused") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error detail to contain 'connection refused'")
+	}
+}
+
+func TestProvider_Configure_WebSocketConnectError(t *testing.T) {
+	sshMock := newTestMockClient(api.Version{Major: 25, Minor: 0})
+	wsMock := &client.MockClient{
+		ConnectFunc: func(ctx context.Context) error {
+			return errors.New("websocket handshake failed")
+		},
+	}
+
+	p := &TrueNASProvider{
+		version: "1.0.0",
+		factory: &mockClientFactory{
+			sshClient: sshMock,
+			wsClient:  wsMock,
+		},
+	}
+
+	ssh := &SSHBlockModel{
+		Port:               types.Int64Null(),
+		User:               types.StringNull(),
+		PrivateKey:         types.StringValue(testPrivateKey),
+		HostKeyFingerprint: types.StringValue(testHostKeyFingerprint),
+		MaxSessions:        types.Int64Null(),
+	}
+
+	ws := &WebSocketBlockModel{
+		Username:           types.StringValue("root"),
+		APIKey:             types.StringValue("test-api-key"),
+		Port:               types.Int64Null(),
+		InsecureSkipVerify: types.BoolNull(),
+		MaxConcurrent:      types.Int64Null(),
+		ConnectTimeout:     types.Int64Null(),
+		MaxRetries:         types.Int64Null(),
+	}
+
+	req := createTestConfigureRequestWithWebSocket(t, "truenas.local", "websocket", ssh, ws)
+	resp := &provider.ConfigureResponse{}
+
+	p.Configure(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for WebSocket connection failure")
+	}
+
+	// Verify diagnostics contains connection error
+	found := false
+	for _, d := range resp.Diagnostics {
+		if d.Severity() == diag.SeverityError && containsString(d.Detail(), "websocket handshake failed") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error detail to contain 'websocket handshake failed'")
+	}
+}
+
+func TestProvider_Configure_WebSocketSSHConnectError(t *testing.T) {
+	// Test that SSH Connect error in WebSocket mode is properly handled
+	sshMock := &client.MockClient{
+		ConnectFunc: func(ctx context.Context) error {
+			return errors.New("ssh connection refused")
+		},
+	}
+
+	p := &TrueNASProvider{
+		version: "1.0.0",
+		factory: &mockClientFactory{sshClient: sshMock},
+	}
+
+	ssh := &SSHBlockModel{
+		Port:               types.Int64Null(),
+		User:               types.StringNull(),
+		PrivateKey:         types.StringValue(testPrivateKey),
+		HostKeyFingerprint: types.StringValue(testHostKeyFingerprint),
+		MaxSessions:        types.Int64Null(),
+	}
+
+	ws := &WebSocketBlockModel{
+		Username:           types.StringValue("root"),
+		APIKey:             types.StringValue("test-api-key"),
+		Port:               types.Int64Null(),
+		InsecureSkipVerify: types.BoolNull(),
+		MaxConcurrent:      types.Int64Null(),
+		ConnectTimeout:     types.Int64Null(),
+		MaxRetries:         types.Int64Null(),
+	}
+
+	req := createTestConfigureRequestWithWebSocket(t, "truenas.local", "websocket", ssh, ws)
+	resp := &provider.ConfigureResponse{}
+
+	p.Configure(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for SSH connection failure in WebSocket mode")
+	}
+
+	// Verify diagnostics contains connection error
+	found := false
+	for _, d := range resp.Diagnostics {
+		if d.Severity() == diag.SeverityError && containsString(d.Detail(), "ssh connection refused") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error detail to contain 'ssh connection refused'")
 	}
 }

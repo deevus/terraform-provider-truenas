@@ -18,12 +18,6 @@ func testVersion() api.Version {
 	return api.Version{Major: 24, Minor: 10, Patch: 0, Build: 0}
 }
 
-// mockGetVersion returns a GetVersionFunc that returns the test version
-func mockGetVersion() func(context.Context) (api.Version, error) {
-	return func(ctx context.Context) (api.Version, error) {
-		return testVersion(), nil
-	}
-}
 
 func TestNewSnapshotResource(t *testing.T) {
 	r := NewSnapshotResource()
@@ -221,7 +215,7 @@ func TestSnapshotResource_Create_Success(t *testing.T) {
 
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
 					capturedMethod = method
@@ -294,7 +288,7 @@ func TestSnapshotResource_Create_WithHold(t *testing.T) {
 
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				if method == "zfs.snapshot.create" {
@@ -363,7 +357,7 @@ func TestSnapshotResource_Create_WithHold(t *testing.T) {
 func TestSnapshotResource_Create_APIError(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("snapshot already exists")
 			},
@@ -401,7 +395,7 @@ func TestSnapshotResource_Create_APIError(t *testing.T) {
 func TestSnapshotResource_Read_Success(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": "tank/data@snap1",
@@ -462,7 +456,7 @@ func TestSnapshotResource_Read_Success(t *testing.T) {
 func TestSnapshotResource_Read_NotFound(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil
 			},
@@ -512,7 +506,7 @@ func TestSnapshotResource_Update_HoldToRelease(t *testing.T) {
 
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.release" {
 					releaseCalled = true
@@ -594,7 +588,7 @@ func TestSnapshotResource_Update_ReleaseToHold(t *testing.T) {
 
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.hold" {
 					holdCalled = true
@@ -676,7 +670,7 @@ func TestSnapshotResource_Delete_Success(t *testing.T) {
 
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.delete" {
 					deleteCalled = true
@@ -729,7 +723,7 @@ func TestSnapshotResource_Delete_WithHold(t *testing.T) {
 
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				return json.RawMessage(`true`), nil
@@ -790,7 +784,7 @@ func TestSnapshotResource_Delete_WithHold(t *testing.T) {
 func TestSnapshotResource_Create_InvalidJSONResponse(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
 					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
@@ -834,7 +828,7 @@ func TestSnapshotResource_Create_InvalidJSONResponse(t *testing.T) {
 func TestSnapshotResource_Read_APIError(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
@@ -876,7 +870,7 @@ func TestSnapshotResource_Read_APIError(t *testing.T) {
 func TestSnapshotResource_Delete_APIError(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("snapshot is busy")
 			},
@@ -961,7 +955,7 @@ func TestSnapshotResource_Create_WithRecursive(t *testing.T) {
 
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
 					capturedParams = params.(map[string]any)
@@ -1019,7 +1013,7 @@ func TestSnapshotResource_Create_WithRecursive(t *testing.T) {
 func TestSnapshotResource_Create_HoldError(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
 					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
@@ -1063,7 +1057,7 @@ func TestSnapshotResource_Create_HoldError(t *testing.T) {
 func TestSnapshotResource_Create_QueryError(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
 					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
@@ -1107,7 +1101,7 @@ func TestSnapshotResource_Create_QueryError(t *testing.T) {
 func TestSnapshotResource_Create_SnapshotNotFound(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
 					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
@@ -1151,7 +1145,7 @@ func TestSnapshotResource_Create_SnapshotNotFound(t *testing.T) {
 func TestSnapshotResource_Update_ReleaseError(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.release" {
 					return nil, errors.New("release failed")
@@ -1212,7 +1206,7 @@ func TestSnapshotResource_Update_ReleaseError(t *testing.T) {
 func TestSnapshotResource_Update_HoldError(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.hold" {
 					return nil, errors.New("hold failed")
@@ -1273,7 +1267,7 @@ func TestSnapshotResource_Update_HoldError(t *testing.T) {
 func TestSnapshotResource_Update_QueryError(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.query" {
 					return nil, errors.New("query failed")
@@ -1335,7 +1329,7 @@ func TestSnapshotResource_Update_QueryError(t *testing.T) {
 func TestSnapshotResource_Update_SnapshotNotFound(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.query" {
 					return json.RawMessage(`[]`), nil
@@ -1396,7 +1390,7 @@ func TestSnapshotResource_Update_SnapshotNotFound(t *testing.T) {
 func TestSnapshotResource_Delete_ReleaseError(t *testing.T) {
 	r := &SnapshotResource{
 		client: &client.MockClient{
-			GetVersionFunc: mockGetVersion(),
+			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.release" {
 					return nil, errors.New("release failed")

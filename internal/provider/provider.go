@@ -49,6 +49,7 @@ type WebSocketBlockModel struct {
 
 type TrueNASProvider struct {
 	version string
+	factory ClientFactory
 }
 
 func New(version string) func() provider.Provider {
@@ -164,6 +165,12 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
+	// Resolve factory (use default if not set)
+	factory := p.factory
+	if factory == nil {
+		factory = &DefaultClientFactory{}
+	}
+
 	var finalClient client.Client
 
 	switch config.AuthMethod.ValueString() {
@@ -218,11 +225,30 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 			sshConfig.MaxSessions = int(config.SSH.MaxSessions.ValueInt64())
 		}
 
-		sshClient, err := client.NewSSHClient(sshConfig)
+		sshClient, err := factory.NewSSHClient(sshConfig)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Create SSH Client",
 				err.Error(),
+			)
+			return
+		}
+
+		// Connect SSH client to detect version
+		if err := sshClient.Connect(ctx); err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Connect to TrueNAS",
+				err.Error(),
+			)
+			return
+		}
+
+		// Validate version for WebSocket mode
+		if !sshClient.Version().AtLeast(25, 0) {
+			resp.Diagnostics.AddError(
+				"WebSocket Transport Requires TrueNAS 25.0+",
+				fmt.Sprintf("Detected version %s. Use auth_method = \"ssh\" instead.",
+					sshClient.Version().Raw),
 			)
 			return
 		}
@@ -250,10 +276,19 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 			wsConfig.MaxRetries = int(config.WebSocket.MaxRetries.ValueInt64())
 		}
 
-		wsClient, err := client.NewWebSocketClient(wsConfig)
+		wsClient, err := factory.NewWebSocketClient(wsConfig)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Create WebSocket Client",
+				err.Error(),
+			)
+			return
+		}
+
+		// Connect WebSocket client (caches version from fallback)
+		if err := wsClient.Connect(ctx); err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Connect WebSocket Client",
 				err.Error(),
 			)
 			return
@@ -290,10 +325,19 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 		}
 
 		// Create SSH client (validates config and applies defaults)
-		sshClient, err := client.NewSSHClient(sshConfig)
+		sshClient, err := factory.NewSSHClient(sshConfig)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Create SSH Client",
+				err.Error(),
+			)
+			return
+		}
+
+		// Connect SSH client to detect version
+		if err := sshClient.Connect(ctx); err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Connect to TrueNAS",
 				err.Error(),
 			)
 			return

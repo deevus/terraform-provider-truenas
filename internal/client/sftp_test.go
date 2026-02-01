@@ -642,7 +642,7 @@ func TestSSHClient_Chown_Success(t *testing.T) {
 
 	// Pre-set version to 25.x for -j flag behavior
 	client.version = api.Version{Major: 25, Minor: 4, Raw: "TrueNAS-25.04"}
-	client.versionOnce.Do(func() {})
+	client.connected = true
 
 	var capturedCmd string
 	mockSession := &mockSSHSession{
@@ -686,7 +686,7 @@ func TestSSHClient_Chown_PermissionDenied(t *testing.T) {
 
 	// Pre-set version to 25.x for -j flag behavior
 	client.version = api.Version{Major: 25, Minor: 4, Raw: "TrueNAS-25.04"}
-	client.versionOnce.Do(func() {})
+	client.connected = true
 
 	mockSession := &mockSSHSession{
 		combinedOutputFunc: func(cmd string) ([]byte, error) {

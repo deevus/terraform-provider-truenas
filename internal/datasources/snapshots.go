@@ -127,10 +127,7 @@ func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	// Get TrueNAS version for API method resolution
-	version, ok := api.GetVersionOrDiag(ctx, d.client, &resp.Diagnostics)
-	if !ok {
-		return
-	}
+	version := d.client.Version()
 
 	// Build filter for dataset
 	datasetID := data.DatasetID.ValueString()

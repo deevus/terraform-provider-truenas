@@ -53,12 +53,14 @@ func NewRateLimitedClient(client Client, callsPerMinute int, maxRetries int, cla
 	}
 }
 
-// GetVersion delegates to the underlying client with rate limiting.
-func (r *RateLimitedClient) GetVersion(ctx context.Context) (api.Version, error) {
-	if err := r.limiter.Wait(ctx); err != nil {
-		return api.Version{}, fmt.Errorf("rate limiter: %w", err)
-	}
-	return r.client.GetVersion(ctx)
+// Connect delegates to the underlying client.
+func (r *RateLimitedClient) Connect(ctx context.Context) error {
+	return r.client.Connect(ctx)
+}
+
+// Version delegates to the underlying client.
+func (r *RateLimitedClient) Version() api.Version {
+	return r.client.Version()
 }
 
 // Call executes a midclt command and returns the parsed JSON response.
