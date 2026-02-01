@@ -450,6 +450,153 @@ func TestSSHClient_Version_PanicsBeforeConnect(t *testing.T) {
 	client.Version()
 }
 
+func TestSSHClient_ConnectMethod_Success(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		PrivateKey:         testPrivateKey,
+		HostKeyFingerprint: testHostKeyFingerprint,
+	}
+
+	client, err := NewSSHClient(config)
+	if err != nil {
+		t.Fatalf("NewSSHClient() error = %v", err)
+	}
+
+	mockSess := &mockSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			if cmd == "sudo midclt call system.version" {
+				// Return a valid version string (with quotes as JSON)
+				return []byte(`"TrueNAS-SCALE-24.10.2.4"`), nil
+			}
+			return nil, fmt.Errorf("unexpected command: %s", cmd)
+		},
+	}
+
+	mockSSH := &mockSSHClient{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSess, nil
+		},
+	}
+
+	// Pre-set mock to bypass actual SSH connection
+	client.clientWrapper = mockSSH
+	client.client = &ssh.Client{} // Mark as "connected" for connect() check
+
+	err = client.Connect(context.Background())
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+
+	// Verify version was parsed correctly
+	version := client.Version()
+	if version.Major != 24 || version.Minor != 10 {
+		t.Errorf("Version = %v, want 24.10.x.x", version)
+	}
+	if version.Flavor != api.FlavorScale {
+		t.Errorf("Flavor = %v, want SCALE", version.Flavor)
+	}
+	if !client.connected {
+		t.Error("expected connected to be true")
+	}
+}
+
+func TestSSHClient_ConnectMethod_VersionCallFails(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		PrivateKey:         testPrivateKey,
+		HostKeyFingerprint: testHostKeyFingerprint,
+	}
+
+	client, err := NewSSHClient(config)
+	if err != nil {
+		t.Fatalf("NewSSHClient() error = %v", err)
+	}
+
+	mockSess := &mockSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			return nil, errors.New("command failed")
+		},
+	}
+
+	mockSSH := &mockSSHClient{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSess, nil
+		},
+	}
+
+	client.clientWrapper = mockSSH
+	client.client = &ssh.Client{}
+
+	err = client.Connect(context.Background())
+	if err == nil {
+		t.Fatal("expected error when system.version fails")
+	}
+	if !strings.Contains(err.Error(), "failed to detect TrueNAS version") {
+		t.Errorf("expected version detection error, got: %v", err)
+	}
+}
+
+func TestSSHClient_ConnectMethod_InvalidVersionFormat(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		PrivateKey:         testPrivateKey,
+		HostKeyFingerprint: testHostKeyFingerprint,
+	}
+
+	client, err := NewSSHClient(config)
+	if err != nil {
+		t.Fatalf("NewSSHClient() error = %v", err)
+	}
+
+	mockSess := &mockSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			// Return an unparseable version string
+			return []byte(`"invalid-version-string"`), nil
+		},
+	}
+
+	mockSSH := &mockSSHClient{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSess, nil
+		},
+	}
+
+	client.clientWrapper = mockSSH
+	client.client = &ssh.Client{}
+
+	err = client.Connect(context.Background())
+	if err == nil {
+		t.Fatal("expected error for invalid version format")
+	}
+	if !strings.Contains(err.Error(), "unable to parse version") {
+		t.Errorf("expected parse error, got: %v", err)
+	}
+}
+
+func TestSSHClient_ConnectMethod_ConnectionFails(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		PrivateKey:         testPrivateKey,
+		HostKeyFingerprint: testHostKeyFingerprint,
+	}
+
+	client, err := NewSSHClient(config)
+	if err != nil {
+		t.Fatalf("NewSSHClient() error = %v", err)
+	}
+
+	client.dialer = &mockDialer{
+		dialFunc: func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+			return nil, errors.New("connection refused")
+		},
+	}
+
+	err = client.Connect(context.Background())
+	if err == nil {
+		t.Fatal("expected error when connection fails")
+	}
+}
+
 func TestSSHClient_Call_ConnectFails(t *testing.T) {
 	config := &SSHConfig{
 		Host:               "truenas.local",

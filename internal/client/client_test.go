@@ -251,3 +251,148 @@ func TestMockClient_MkdirAll_WithFunc(t *testing.T) {
 		t.Error("expected MkdirAllFunc to be called")
 	}
 }
+
+func TestMockClient_Connect_NilFunc(t *testing.T) {
+	mock := &MockClient{}
+	ctx := context.Background()
+
+	err := mock.Connect(ctx)
+	if err != nil {
+		t.Errorf("expected nil error for nil ConnectFunc, got %v", err)
+	}
+}
+
+func TestMockClient_Connect_WithFunc(t *testing.T) {
+	called := false
+	mock := &MockClient{
+		ConnectFunc: func(ctx context.Context) error {
+			called = true
+			return nil
+		},
+	}
+	ctx := context.Background()
+
+	err := mock.Connect(ctx)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected ConnectFunc to be called")
+	}
+}
+
+func TestMockClient_RemoveDir_NilFunc(t *testing.T) {
+	mock := &MockClient{}
+	ctx := context.Background()
+
+	err := mock.RemoveDir(ctx, "/test")
+	if err != nil {
+		t.Errorf("expected nil error for nil RemoveDirFunc, got %v", err)
+	}
+}
+
+func TestMockClient_RemoveDir_WithFunc(t *testing.T) {
+	called := false
+	mock := &MockClient{
+		RemoveDirFunc: func(ctx context.Context, path string) error {
+			called = true
+			return nil
+		},
+	}
+	ctx := context.Background()
+
+	err := mock.RemoveDir(ctx, "/test")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected RemoveDirFunc to be called")
+	}
+}
+
+func TestMockClient_RemoveAll_NilFunc(t *testing.T) {
+	mock := &MockClient{}
+	ctx := context.Background()
+
+	err := mock.RemoveAll(ctx, "/test")
+	if err != nil {
+		t.Errorf("expected nil error for nil RemoveAllFunc, got %v", err)
+	}
+}
+
+func TestMockClient_RemoveAll_WithFunc(t *testing.T) {
+	called := false
+	mock := &MockClient{
+		RemoveAllFunc: func(ctx context.Context, path string) error {
+			called = true
+			return nil
+		},
+	}
+	ctx := context.Background()
+
+	err := mock.RemoveAll(ctx, "/test")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected RemoveAllFunc to be called")
+	}
+}
+
+func TestMockClient_Chown_NilFunc(t *testing.T) {
+	mock := &MockClient{}
+	ctx := context.Background()
+
+	err := mock.Chown(ctx, "/test", 1000, 1000)
+	if err != nil {
+		t.Errorf("expected nil error for nil ChownFunc, got %v", err)
+	}
+}
+
+func TestMockClient_Chown_WithFunc(t *testing.T) {
+	called := false
+	mock := &MockClient{
+		ChownFunc: func(ctx context.Context, path string, uid, gid int) error {
+			called = true
+			return nil
+		},
+	}
+	ctx := context.Background()
+
+	err := mock.Chown(ctx, "/test", 1000, 1000)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected ChownFunc to be called")
+	}
+}
+
+func TestMockClient_ChmodRecursive_NilFunc(t *testing.T) {
+	mock := &MockClient{}
+	ctx := context.Background()
+
+	err := mock.ChmodRecursive(ctx, "/test", 0755)
+	if err != nil {
+		t.Errorf("expected nil error for nil ChmodRecursiveFunc, got %v", err)
+	}
+}
+
+func TestMockClient_ChmodRecursive_WithFunc(t *testing.T) {
+	called := false
+	mock := &MockClient{
+		ChmodRecursiveFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+			called = true
+			return nil
+		},
+	}
+	ctx := context.Background()
+
+	err := mock.ChmodRecursive(ctx, "/test", 0755)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected ChmodRecursiveFunc to be called")
+	}
+}

@@ -24,6 +24,18 @@ func TestParseVersion(t *testing.T) {
 			},
 		},
 		{
+			name: "TrueNAS COMMUNITY edition",
+			raw:  "TrueNAS-COMMUNITY-24.10.1.0",
+			want: Version{
+				Major:  24,
+				Minor:  10,
+				Patch:  1,
+				Build:  0,
+				Flavor: FlavorCommunity,
+				Raw:    "TrueNAS-COMMUNITY-24.10.1.0",
+			},
+		},
+		{
 			name: "TrueNAS 25.04 without SCALE",
 			raw:  "TrueNAS-25.04.2.4",
 			want: Version{
@@ -140,6 +152,33 @@ func TestVersion_AtLeast(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.version.AtLeast(tt.major, tt.minor); got != tt.want {
 				t.Errorf("AtLeast(%d, %d) = %v, want %v", tt.major, tt.minor, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVersion_String(t *testing.T) {
+	tests := []struct {
+		name    string
+		version Version
+		want    string
+	}{
+		{
+			name:    "full version",
+			version: Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
+			want:    "24.10.2.4",
+		},
+		{
+			name:    "zero values",
+			version: Version{Major: 25, Minor: 0, Patch: 0, Build: 0},
+			want:    "25.0.0.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.version.String(); got != tt.want {
+				t.Errorf("String() = %v, want %v", got, tt.want)
 			}
 		})
 	}
