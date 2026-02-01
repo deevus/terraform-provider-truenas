@@ -146,6 +146,35 @@ func TestVersion_AtLeast(t *testing.T) {
 			minor:   10,
 			want:    true,
 		},
+		// Additional tests against 25.0 baseline (container support threshold)
+		{
+			name:    "25.04 at least 25.0",
+			version: Version{Major: 25, Minor: 4},
+			major:   25,
+			minor:   0,
+			want:    true,
+		},
+		{
+			name:    "25.0 at least 25.0",
+			version: Version{Major: 25, Minor: 0},
+			major:   25,
+			minor:   0,
+			want:    true,
+		},
+		{
+			name:    "24.10 at least 25.0",
+			version: Version{Major: 24, Minor: 10},
+			major:   25,
+			minor:   0,
+			want:    false,
+		},
+		{
+			name:    "26.0 at least 25.0",
+			version: Version{Major: 26, Minor: 0},
+			major:   25,
+			minor:   0,
+			want:    true,
+		},
 	}
 
 	for _, tt := range tests {
