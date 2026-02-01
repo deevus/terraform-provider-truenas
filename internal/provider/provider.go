@@ -381,6 +381,7 @@ func (p *TrueNASProvider) DataSources(ctx context.Context) []func() datasource.D
 		datasources.NewDatasetDataSource,
 		datasources.NewSnapshotsDataSource,
 		datasources.NewCloudSyncCredentialsDataSource,
+		datasources.NewVirtConfigDataSource,
 	}
 }
 
@@ -394,5 +395,6 @@ func (p *TrueNASProvider) Resources(ctx context.Context) []func() resource.Resou
 		resources.NewCloudSyncCredentialsResource,
 		resources.NewCloudSyncTaskResource,
 		resources.NewCronJobResource,
+		resources.NewVirtConfigResource,
 	}
 }

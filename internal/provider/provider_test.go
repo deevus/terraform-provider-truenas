@@ -247,19 +247,30 @@ func TestProvider_DataSources(t *testing.T) {
 		t.Error("expected non-nil data sources slice")
 	}
 
-	// Verify we have the expected data sources (pool, dataset, snapshots, cloudsync_credentials)
-	if len(dataSources) != 4 {
-		t.Errorf("expected 4 data sources, got %d", len(dataSources))
-	}
-
-	// Verify the return type
-	_ = ([]func() datasource.DataSource)(dataSources)
-
-	// Verify each factory function returns a valid data source
-	for i, factory := range dataSources {
+	// Collect all registered data source type names
+	registered := make(map[string]bool)
+	for _, factory := range dataSources {
 		ds := factory()
 		if ds == nil {
-			t.Errorf("data source factory %d returned nil", i)
+			continue
+		}
+		req := datasource.MetadataRequest{ProviderTypeName: "truenas"}
+		resp := &datasource.MetadataResponse{}
+		ds.Metadata(context.Background(), req, resp)
+		registered[resp.TypeName] = true
+	}
+
+	// Verify expected data sources are registered
+	expected := []string{
+		"truenas_pool",
+		"truenas_dataset",
+		"truenas_snapshots",
+		"truenas_cloudsync_credentials",
+		"truenas_virt_config",
+	}
+	for _, name := range expected {
+		if !registered[name] {
+			t.Errorf("expected data source %q to be registered", name)
 		}
 	}
 }
@@ -274,13 +285,36 @@ func TestProvider_Resources(t *testing.T) {
 		t.Error("expected non-nil resources slice")
 	}
 
-	// Verify the expected number of resources (dataset, host_path, app, file, snapshot, cloudsync_credentials, cloudsync_task, cron_job)
-	if len(resources) != 8 {
-		t.Errorf("expected 8 resources, got %d", len(resources))
+	// Collect all registered resource type names
+	registered := make(map[string]bool)
+	for _, factory := range resources {
+		r := factory()
+		if r == nil {
+			continue
+		}
+		req := resource.MetadataRequest{ProviderTypeName: "truenas"}
+		resp := &resource.MetadataResponse{}
+		r.Metadata(context.Background(), req, resp)
+		registered[resp.TypeName] = true
 	}
 
-	// Verify the return type
-	_ = ([]func() resource.Resource)(resources)
+	// Verify expected resources are registered
+	expected := []string{
+		"truenas_dataset",
+		"truenas_host_path",
+		"truenas_app",
+		"truenas_file",
+		"truenas_snapshot",
+		"truenas_cloudsync_credentials",
+		"truenas_cloudsync_task",
+		"truenas_cron_job",
+		"truenas_virt_config",
+	}
+	for _, name := range expected {
+		if !registered[name] {
+			t.Errorf("expected resource %q to be registered", name)
+		}
+	}
 }
 
 // Test ED25519 key for testing (same as in client tests)
