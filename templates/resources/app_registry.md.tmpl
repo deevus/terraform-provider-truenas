@@ -1,0 +1,56 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+## Example Usage
+
+### GitHub Container Registry
+
+```terraform
+resource "truenas_app_registry" "ghcr" {
+  name        = "ghcr"
+  description = "GitHub Container Registry"
+  username    = "github-username"
+  password    = var.github_token
+  uri         = "https://ghcr.io/v2/"
+}
+```
+
+### Private Forgejo/Gitea Registry
+
+```terraform
+resource "truenas_app_registry" "forgejo" {
+  name        = "forgejo"
+  description = "Forgejo container registry"
+  username    = var.forgejo_registry_user
+  password    = var.forgejo_registry_token
+  uri         = "https://forgejo.example.com/v2/"
+}
+```
+
+### Docker Hub (default URI)
+
+```terraform
+resource "truenas_app_registry" "dockerhub" {
+  name     = "dockerhub"
+  username = "dockerhub-user"
+  password = var.dockerhub_token
+}
+```
+
+## Import
+
+Registries can be imported using the numeric ID:
+
+```shell
+terraform import truenas_app_registry.example 1
+```
+
+{{ .SchemaMarkdown | trimspace }}
