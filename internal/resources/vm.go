@@ -366,8 +366,9 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 							},
 						},
 						"serial": schema.StringAttribute{
-							Description: "Disk serial number.",
+							Description: "Disk serial number. Auto-generated if not set.",
 							Optional:    true,
+							Computed:    true,
 						},
 						"order": schema.Int64Attribute{
 							Description: "Device boot/load order.",
@@ -404,7 +405,7 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 							Description: "I/O type: NATIVE, THREADS, or IO_URING. Defaults to THREADS.",
 							Validators:  []validator.String{stringvalidator.OneOf("NATIVE", "THREADS", "IO_URING")},
 						},
-						"serial": schema.StringAttribute{Optional: true, Description: "Disk serial number."},
+						"serial": schema.StringAttribute{Optional: true, Computed: true, Description: "Disk serial number. Auto-generated if not set."},
 						"order":  schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order."},
 					},
 				},
@@ -622,7 +623,9 @@ func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, res
 		resp.Diagnostics.AddError("Unable to Query VM Devices", err.Error())
 		return
 	}
+	priorRaws := data.Raws
 	r.mapDevicesToModel(devices, &data)
+	preserveRawExists(data.Raws, priorRaws)
 
 	// Restore desired state (mapVMToModel sets state from API status)
 	data.State = types.StringValue(desiredState)
@@ -664,7 +667,9 @@ func (r *VMResource) Read(ctx context.Context, req resource.ReadRequest, resp *r
 		resp.Diagnostics.AddError("Unable to Query VM Devices", err.Error())
 		return
 	}
+	priorRaws := data.Raws
 	r.mapDevicesToModel(devices, &data)
+	preserveRawExists(data.Raws, priorRaws)
 
 	// Restore desired state from prior state (user-specified)
 	if !priorState.IsNull() && !priorState.IsUnknown() {
@@ -738,7 +743,9 @@ func (r *VMResource) Update(ctx context.Context, req resource.UpdateRequest, res
 		resp.Diagnostics.AddError("Unable to Query VM Devices", err.Error())
 		return
 	}
+	priorRaws := data.Raws
 	r.mapDevicesToModel(devices, &data)
+	preserveRawExists(data.Raws, priorRaws)
 
 	// Restore desired state
 	data.State = types.StringValue(desiredState)

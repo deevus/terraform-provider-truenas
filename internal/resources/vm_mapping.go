@@ -101,6 +101,32 @@ func (r *VMResource) mapDevicesToModel(devices []vmDeviceAPIResponse, data *VMRe
 	}
 }
 
+// preserveRawExists copies the exists attribute from prior RAW devices to mapped ones.
+// exists is a create-time API flag not returned in query responses, so it must be
+// preserved from the plan/state to avoid inconsistent results after apply.
+func preserveRawExists(mapped, prior []VMRawModel) {
+	// Build lookup by device ID
+	priorByID := make(map[int64]VMRawModel)
+	for _, p := range prior {
+		if !p.DeviceID.IsNull() && !p.DeviceID.IsUnknown() {
+			priorByID[p.DeviceID.ValueInt64()] = p
+		}
+	}
+
+	for i := range mapped {
+		if !mapped[i].DeviceID.IsNull() && !mapped[i].DeviceID.IsUnknown() {
+			if p, ok := priorByID[mapped[i].DeviceID.ValueInt64()]; ok {
+				mapped[i].Exists = p.Exists
+				continue
+			}
+		}
+		// Fallback: match by index for newly created devices
+		if i < len(prior) {
+			mapped[i].Exists = prior[i].Exists
+		}
+	}
+}
+
 func mapDiskDevice(dev vmDeviceAPIResponse) VMDiskModel {
 	m := VMDiskModel{
 		DeviceID: types.Int64Value(dev.ID),
@@ -125,7 +151,7 @@ func mapRawDevice(dev vmDeviceAPIResponse) VMRawModel {
 	m.IOType = stringAttrFromMap(dev.Attributes, "iotype")
 	m.Serial = stringAttrFromMap(dev.Attributes, "serial")
 	m.Boot = boolAttrFromMap(dev.Attributes, "boot")
-	m.Exists = boolAttrFromMap(dev.Attributes, "exists")
+	// exists is a create-time flag, not stored state — preserve plan/state value
 	m.Size = intAttrFromMap(dev.Attributes, "size")
 	m.LogicalSectorSize = intAttrFromMap(dev.Attributes, "logical_sectorsize")
 	m.PhysicalSectorSize = intAttrFromMap(dev.Attributes, "physical_sectorsize")
