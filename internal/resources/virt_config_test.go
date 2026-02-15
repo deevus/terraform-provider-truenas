@@ -106,56 +106,6 @@ func TestVirtConfigResource_Schema(t *testing.T) {
 	}
 }
 
-func TestVirtConfigResource_Configure_Success(t *testing.T) {
-	r := NewVirtConfigResource().(*VirtConfigResource)
-
-	mockClient := &client.MockClient{}
-
-	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-
-	if r.client == nil {
-		t.Error("expected client to be set")
-	}
-}
-
-func TestVirtConfigResource_Configure_NilProviderData(t *testing.T) {
-	r := NewVirtConfigResource().(*VirtConfigResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: nil,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-}
-
-func TestVirtConfigResource_Configure_WrongType(t *testing.T) {
-	r := NewVirtConfigResource().(*VirtConfigResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: "not a client",
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for wrong ProviderData type")
-	}
-}
 
 // Test helpers
 
@@ -209,7 +159,7 @@ func TestVirtConfigResource_Create_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &VirtConfigResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.global.update" {
 					capturedMethod = method
@@ -231,7 +181,8 @@ func TestVirtConfigResource_Create_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -308,7 +259,7 @@ func TestVirtConfigResource_Create_PartialConfig(t *testing.T) {
 	var capturedParams any
 
 	r := &VirtConfigResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.global.update" {
 					capturedParams = params
@@ -329,7 +280,8 @@ func TestVirtConfigResource_Create_PartialConfig(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -403,11 +355,12 @@ func TestVirtConfigResource_Create_PartialConfig(t *testing.T) {
 
 func TestVirtConfigResource_Create_APIError(t *testing.T) {
 	r := &VirtConfigResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -445,7 +398,7 @@ func TestVirtConfigResource_Create_APIError(t *testing.T) {
 
 func TestVirtConfigResource_Read_Success(t *testing.T) {
 	r := &VirtConfigResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "virt.global.config" {
 					t.Errorf("expected method 'virt.global.config', got %q", method)
@@ -461,7 +414,8 @@ func TestVirtConfigResource_Read_Success(t *testing.T) {
 					"pool": "tank"
 				}`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -514,7 +468,7 @@ func TestVirtConfigResource_Read_Success(t *testing.T) {
 
 func TestVirtConfigResource_Read_NullFields(t *testing.T) {
 	r := &VirtConfigResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`{
 					"bridge": null,
@@ -523,7 +477,8 @@ func TestVirtConfigResource_Read_NullFields(t *testing.T) {
 					"pool": null
 				}`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -576,11 +531,12 @@ func TestVirtConfigResource_Read_NullFields(t *testing.T) {
 
 func TestVirtConfigResource_Read_APIError(t *testing.T) {
 	r := &VirtConfigResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -614,11 +570,12 @@ func TestVirtConfigResource_Read_APIError(t *testing.T) {
 
 func TestVirtConfigResource_Read_InvalidJSON(t *testing.T) {
 	r := &VirtConfigResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -655,7 +612,7 @@ func TestVirtConfigResource_Update_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &VirtConfigResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.global.update" {
 					capturedMethod = method
@@ -677,7 +634,8 @@ func TestVirtConfigResource_Update_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -768,11 +726,12 @@ func TestVirtConfigResource_Update_Success(t *testing.T) {
 
 func TestVirtConfigResource_Update_APIError(t *testing.T) {
 	r := &VirtConfigResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -824,7 +783,7 @@ func TestVirtConfigResource_Delete_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &VirtConfigResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedMethod = method
 				capturedParams = params
@@ -835,7 +794,8 @@ func TestVirtConfigResource_Delete_Success(t *testing.T) {
 					"pool": null
 				}`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -888,11 +848,12 @@ func TestVirtConfigResource_Delete_Success(t *testing.T) {
 
 func TestVirtConfigResource_Delete_APIError(t *testing.T) {
 	r := &VirtConfigResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("unable to reset config")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -961,7 +922,7 @@ func TestVirtConfigResource_ImportState(t *testing.T) {
 
 func TestVirtConfigResource_ImportState_InvalidID(t *testing.T) {
 	r := &VirtConfigResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)

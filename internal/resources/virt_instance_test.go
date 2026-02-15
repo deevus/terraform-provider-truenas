@@ -103,56 +103,6 @@ func TestVirtInstanceResource_Schema(t *testing.T) {
 	}
 }
 
-func TestVirtInstanceResource_Configure_Success(t *testing.T) {
-	r := NewVirtInstanceResource().(*VirtInstanceResource)
-
-	mockClient := &client.MockClient{}
-
-	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-
-	if r.client == nil {
-		t.Error("expected client to be set")
-	}
-}
-
-func TestVirtInstanceResource_Configure_NilProviderData(t *testing.T) {
-	r := NewVirtInstanceResource().(*VirtInstanceResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: nil,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-}
-
-func TestVirtInstanceResource_Configure_WrongType(t *testing.T) {
-	r := NewVirtInstanceResource().(*VirtInstanceResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: "not a client",
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for wrong ProviderData type")
-	}
-}
 
 // Test helpers
 
@@ -400,9 +350,10 @@ func createVirtInstanceModelValue(p virtInstanceModelParams) tftypes.Value {
 
 func TestVirtInstanceResource_Create_VersionCheck(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -449,9 +400,10 @@ func TestVirtInstanceResource_Create_VersionCheck(t *testing.T) {
 
 func TestVirtInstanceResource_Read_VersionCheck(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -489,9 +441,10 @@ func TestVirtInstanceResource_Read_VersionCheck(t *testing.T) {
 
 func TestVirtInstanceResource_Update_VersionCheck(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -546,7 +499,7 @@ func TestVirtInstanceResource_Create_Success(t *testing.T) {
 	var capturedCreateParams any
 
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedCreateMethod = method
@@ -557,7 +510,8 @@ func TestVirtInstanceResource_Create_Success(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -633,7 +587,7 @@ func TestVirtInstanceResource_Create_WithDesiredStateStopped(t *testing.T) {
 	var methods []string
 	queryCount := 0
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
@@ -647,7 +601,8 @@ func TestVirtInstanceResource_Create_WithDesiredStateStopped(t *testing.T) {
 				}
 				return mockVirtInstanceResponse("test-container", "STOPPED", false), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -703,12 +658,13 @@ func TestVirtInstanceResource_Create_WithDesiredStateStopped(t *testing.T) {
 
 func TestVirtInstanceResource_Create_APIError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("container already exists")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -743,7 +699,7 @@ func TestVirtInstanceResource_Create_APIError(t *testing.T) {
 
 func TestVirtInstanceResource_Create_QueryErrorAfterCreate(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`1`), nil
@@ -751,7 +707,8 @@ func TestVirtInstanceResource_Create_QueryErrorAfterCreate(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("query failed")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -786,7 +743,7 @@ func TestVirtInstanceResource_Create_QueryErrorAfterCreate(t *testing.T) {
 
 func TestVirtInstanceResource_Create_NotFoundAfterCreate(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`1`), nil
@@ -795,7 +752,8 @@ func TestVirtInstanceResource_Create_NotFoundAfterCreate(t *testing.T) {
 				// virt.instance.get_instance returns error when not found
 				return nil, errors.New("No such instance: test-container")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -832,7 +790,7 @@ func TestVirtInstanceResource_Create_NotFoundAfterCreate(t *testing.T) {
 
 func TestVirtInstanceResource_Read_Success(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "virt.instance.get_instance" {
@@ -840,7 +798,8 @@ func TestVirtInstanceResource_Read_Success(t *testing.T) {
 				}
 				return mockVirtInstanceResponse("test-container", "RUNNING", true), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -894,13 +853,14 @@ func TestVirtInstanceResource_Read_Success(t *testing.T) {
 
 func TestVirtInstanceResource_Read_NotFound(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// virt.instance.get_instance returns an error when not found
 				return nil, errors.New("No such instance: test-container")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -942,12 +902,13 @@ func TestVirtInstanceResource_Read_NotFound(t *testing.T) {
 
 func TestVirtInstanceResource_Read_APIError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection failed")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -983,12 +944,13 @@ func TestVirtInstanceResource_Read_APIError(t *testing.T) {
 
 func TestVirtInstanceResource_Read_InvalidJSON(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -1024,13 +986,14 @@ func TestVirtInstanceResource_Read_InvalidJSON(t *testing.T) {
 
 func TestVirtInstanceResource_Read_PreservesDesiredState(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// API reports RUNNING state, but user wants it STOPPED
 				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -1091,7 +1054,7 @@ func TestVirtInstanceResource_Update_ChangeConfig(t *testing.T) {
 	var capturedUpdateParams any
 
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.update" {
@@ -1102,7 +1065,8 @@ func TestVirtInstanceResource_Update_ChangeConfig(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return mockVirtInstanceResponse("test-container", "RUNNING", true), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -1175,7 +1139,7 @@ func TestVirtInstanceResource_Update_ChangeDesiredState(t *testing.T) {
 	var methods []string
 	queryCount := 0
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
@@ -1189,7 +1153,8 @@ func TestVirtInstanceResource_Update_ChangeDesiredState(t *testing.T) {
 				}
 				return mockVirtInstanceResponse("test-container", "STOPPED", false), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -1261,7 +1226,7 @@ func TestVirtInstanceResource_Update_ChangeDesiredState(t *testing.T) {
 
 func TestVirtInstanceResource_Update_APIError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("update failed")
@@ -1277,7 +1242,8 @@ func TestVirtInstanceResource_Update_APIError(t *testing.T) {
 					"dataset": "tank/containers/test-container"
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -1332,7 +1298,7 @@ func TestVirtInstanceResource_Update_APIError(t *testing.T) {
 func TestVirtInstanceResource_Delete_RunningContainer(t *testing.T) {
 	var methods []string
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
@@ -1341,7 +1307,8 @@ func TestVirtInstanceResource_Delete_RunningContainer(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -1386,7 +1353,7 @@ func TestVirtInstanceResource_Delete_RunningContainer(t *testing.T) {
 func TestVirtInstanceResource_Delete_StoppedContainer(t *testing.T) {
 	var methods []string
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
@@ -1395,7 +1362,8 @@ func TestVirtInstanceResource_Delete_StoppedContainer(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return mockVirtInstanceResponse("test-container", "STOPPED", false), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -1436,7 +1404,7 @@ func TestVirtInstanceResource_Delete_StoppedContainer(t *testing.T) {
 
 func TestVirtInstanceResource_Delete_APIError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("delete failed")
@@ -1448,7 +1416,8 @@ func TestVirtInstanceResource_Delete_APIError(t *testing.T) {
 					"state": "STOPPED"
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -1522,7 +1491,7 @@ func TestVirtInstanceResource_Create_WithDevices(t *testing.T) {
 	var deviceListCalled bool
 
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.create" {
@@ -1547,7 +1516,8 @@ func TestVirtInstanceResource_Create_WithDevices(t *testing.T) {
 					"aliases": []
 				}`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -1606,7 +1576,7 @@ func TestVirtInstanceResource_Create_WithDevices(t *testing.T) {
 
 func TestVirtInstanceResource_getVirtInstanceState(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "virt.instance.get_instance" {
@@ -1614,7 +1584,8 @@ func TestVirtInstanceResource_getVirtInstanceState(t *testing.T) {
 				}
 				return json.RawMessage(`{"id": "1", "name": "test-container", "status": "RUNNING", "storage_pool": "tank", "autostart": false, "aliases": [], "image": {"os": "ubuntu", "release": "24.04", "architecture": "amd64", "description": "", "variant": ""}}`), nil
 			},
-		},
+		}},
+
 	}
 
 	state, err := r.getVirtInstanceState(context.Background(), "test-container")
@@ -1628,13 +1599,14 @@ func TestVirtInstanceResource_getVirtInstanceState(t *testing.T) {
 
 func TestVirtInstanceResource_getVirtInstanceState_NotFound(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// virt.instance.get_instance returns error when not found
 				return nil, errors.New("No such instance: test-container")
 			},
-		},
+		}},
+
 	}
 
 	_, err := r.getVirtInstanceState(context.Background(), "test-container")
@@ -1646,7 +1618,7 @@ func TestVirtInstanceResource_getVirtInstanceState_NotFound(t *testing.T) {
 func TestVirtInstanceResource_reconcileDesiredState_StartContainer(t *testing.T) {
 	var calledMethod string
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				calledMethod = method
@@ -1655,7 +1627,8 @@ func TestVirtInstanceResource_reconcileDesiredState_StartContainer(t *testing.T)
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`{"id": "1", "name": "test-container", "status": "RUNNING", "storage_pool": "tank", "autostart": false, "aliases": [], "image": {"os": "ubuntu", "release": "24.04", "architecture": "amd64", "description": "", "variant": ""}}`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -1677,7 +1650,7 @@ func TestVirtInstanceResource_reconcileDesiredState_StartContainer(t *testing.T)
 func TestVirtInstanceResource_reconcileDesiredState_StopContainer(t *testing.T) {
 	var calledMethod string
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				calledMethod = method
@@ -1686,7 +1659,8 @@ func TestVirtInstanceResource_reconcileDesiredState_StopContainer(t *testing.T) 
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`{"id": "1", "name": "test-container", "status": "STOPPED", "storage_pool": "tank", "autostart": false, "aliases": [], "image": {"os": "ubuntu", "release": "24.04", "architecture": "amd64", "description": "", "variant": ""}}`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -1708,13 +1682,14 @@ func TestVirtInstanceResource_reconcileDesiredState_StopContainer(t *testing.T) 
 func TestVirtInstanceResource_reconcileDesiredState_NoChangeNeeded(t *testing.T) {
 	callCount := 0
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				callCount++
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -2292,13 +2267,14 @@ func TestVirtInstanceResource_matchCreatedDevices_NoMatch(t *testing.T) {
 func TestVirtInstanceResource_reconcileDevices_NoChanges(t *testing.T) {
 	callCount := 0
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				callCount++
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	plan := &VirtInstanceResourceModel{
 		Disks: []DiskModel{{Name: types.StringValue("disk1")}},
@@ -2318,7 +2294,7 @@ func TestVirtInstanceResource_reconcileDevices_NoChanges(t *testing.T) {
 func TestVirtInstanceResource_reconcileDevices_DeleteDevice(t *testing.T) {
 	var deletedDevices []string
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_delete" {
@@ -2327,7 +2303,8 @@ func TestVirtInstanceResource_reconcileDevices_DeleteDevice(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	plan := &VirtInstanceResourceModel{
 		Disks: []DiskModel{}, // No disks in plan
@@ -2350,7 +2327,7 @@ func TestVirtInstanceResource_reconcileDevices_DeleteDevice(t *testing.T) {
 func TestVirtInstanceResource_reconcileDevices_AddDisk(t *testing.T) {
 	var addedDevices []map[string]any
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
@@ -2359,7 +2336,8 @@ func TestVirtInstanceResource_reconcileDevices_AddDisk(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	plan := &VirtInstanceResourceModel{
 		Disks: []DiskModel{
@@ -2388,7 +2366,7 @@ func TestVirtInstanceResource_reconcileDevices_AddDisk(t *testing.T) {
 func TestVirtInstanceResource_reconcileDevices_AddNIC(t *testing.T) {
 	var addedDevices []map[string]any
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
@@ -2397,7 +2375,8 @@ func TestVirtInstanceResource_reconcileDevices_AddNIC(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	plan := &VirtInstanceResourceModel{
 		NICs: []NICModel{
@@ -2423,7 +2402,7 @@ func TestVirtInstanceResource_reconcileDevices_AddNIC(t *testing.T) {
 func TestVirtInstanceResource_reconcileDevices_AddNIC_WithParent(t *testing.T) {
 	var addedDevices []map[string]any
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
@@ -2432,7 +2411,8 @@ func TestVirtInstanceResource_reconcileDevices_AddNIC_WithParent(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	plan := &VirtInstanceResourceModel{
 		NICs: []NICModel{
@@ -2455,7 +2435,7 @@ func TestVirtInstanceResource_reconcileDevices_AddNIC_WithParent(t *testing.T) {
 func TestVirtInstanceResource_reconcileDevices_AddProxy(t *testing.T) {
 	var addedDevices []map[string]any
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
@@ -2464,7 +2444,8 @@ func TestVirtInstanceResource_reconcileDevices_AddProxy(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	plan := &VirtInstanceResourceModel{
 		Proxies: []ProxyModel{
@@ -2489,7 +2470,7 @@ func TestVirtInstanceResource_reconcileDevices_AddProxy(t *testing.T) {
 
 func TestVirtInstanceResource_reconcileDevices_DeleteError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_delete" {
@@ -2497,7 +2478,8 @@ func TestVirtInstanceResource_reconcileDevices_DeleteError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	plan := &VirtInstanceResourceModel{}
 	state := &VirtInstanceResourceModel{
@@ -2514,7 +2496,7 @@ func TestVirtInstanceResource_reconcileDevices_DeleteError(t *testing.T) {
 
 func TestVirtInstanceResource_reconcileDevices_AddDiskError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
@@ -2522,7 +2504,8 @@ func TestVirtInstanceResource_reconcileDevices_AddDiskError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	plan := &VirtInstanceResourceModel{
 		Disks: []DiskModel{{Name: types.StringValue("disk1"), Source: types.StringValue("/src"), Destination: types.StringValue("/dst")}},
@@ -2539,7 +2522,7 @@ func TestVirtInstanceResource_reconcileDevices_AddDiskError(t *testing.T) {
 
 func TestVirtInstanceResource_reconcileDevices_AddNICError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
@@ -2547,7 +2530,8 @@ func TestVirtInstanceResource_reconcileDevices_AddNICError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	plan := &VirtInstanceResourceModel{
 		NICs: []NICModel{{Name: types.StringValue("eth0"), Network: types.StringValue("bridge0")}},
@@ -2564,7 +2548,7 @@ func TestVirtInstanceResource_reconcileDevices_AddNICError(t *testing.T) {
 
 func TestVirtInstanceResource_reconcileDevices_AddProxyError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
@@ -2572,7 +2556,8 @@ func TestVirtInstanceResource_reconcileDevices_AddProxyError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	plan := &VirtInstanceResourceModel{
 		Proxies: []ProxyModel{{Name: types.StringValue("http"), SourceProto: types.StringValue("TCP"), SourcePort: types.Int64Value(80), DestProto: types.StringValue("TCP"), DestPort: types.Int64Value(80)}},
@@ -2590,13 +2575,14 @@ func TestVirtInstanceResource_reconcileDevices_AddProxyError(t *testing.T) {
 func TestVirtInstanceResource_reconcileDevices_SkipsEmptyNames(t *testing.T) {
 	callCount := 0
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				callCount++
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	plan := &VirtInstanceResourceModel{
 		Disks: []DiskModel{{Name: types.StringValue(""), Source: types.StringValue("/src"), Destination: types.StringValue("/dst")}}, // Empty name
@@ -2617,7 +2603,7 @@ func TestVirtInstanceResource_reconcileDevices_SkipsEmptyNames(t *testing.T) {
 // Tests for queryDevices
 func TestVirtInstanceResource_queryDevices_Success(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_list" {
@@ -2628,7 +2614,8 @@ func TestVirtInstanceResource_queryDevices_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	devices, err := r.queryDevices(context.Background(), "test-id")
 	if err != nil {
@@ -2641,12 +2628,13 @@ func TestVirtInstanceResource_queryDevices_Success(t *testing.T) {
 
 func TestVirtInstanceResource_queryDevices_APIError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("API error")
 			},
-		},
+		}},
+
 	}
 	_, err := r.queryDevices(context.Background(), "test-id")
 	if err == nil {
@@ -2656,12 +2644,13 @@ func TestVirtInstanceResource_queryDevices_APIError(t *testing.T) {
 
 func TestVirtInstanceResource_queryDevices_InvalidJSON(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`invalid json`), nil
 			},
-		},
+		}},
+
 	}
 	_, err := r.queryDevices(context.Background(), "test-id")
 	if err == nil {
@@ -2675,7 +2664,7 @@ func TestVirtInstanceResource_queryDevices_InvalidJSON(t *testing.T) {
 // Tests for reconcileDesiredState error paths
 func TestVirtInstanceResource_reconcileDesiredState_StartError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.start" {
@@ -2683,7 +2672,8 @@ func TestVirtInstanceResource_reconcileDesiredState_StartError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	schemaResp := getVirtInstanceResourceSchema(t)
 	resp := &resource.UpdateResponse{
@@ -2702,7 +2692,7 @@ func TestVirtInstanceResource_reconcileDesiredState_StartError(t *testing.T) {
 
 func TestVirtInstanceResource_reconcileDesiredState_StopError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.stop" {
@@ -2710,7 +2700,8 @@ func TestVirtInstanceResource_reconcileDesiredState_StopError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 	schemaResp := getVirtInstanceResourceSchema(t)
 	resp := &resource.UpdateResponse{
@@ -2729,7 +2720,7 @@ func TestVirtInstanceResource_reconcileDesiredState_StopError(t *testing.T) {
 
 func TestVirtInstanceResource_reconcileDesiredState_WrongFinalState(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil
@@ -2738,7 +2729,8 @@ func TestVirtInstanceResource_reconcileDesiredState_WrongFinalState(t *testing.T
 				// Return STOPPED instead of RUNNING
 				return json.RawMessage(`{"id": "test-id", "name": "test", "status": "STOPPED", "storage_pool": "tank", "autostart": false, "aliases": [], "image": {"os": "ubuntu", "release": "24.04", "architecture": "amd64", "description": "", "variant": ""}}`), nil
 			},
-		},
+		}},
+
 	}
 	schemaResp := getVirtInstanceResourceSchema(t)
 	resp := &resource.UpdateResponse{
@@ -2758,7 +2750,7 @@ func TestVirtInstanceResource_reconcileDesiredState_WrongFinalState(t *testing.T
 // Tests for Update edge cases
 func TestVirtInstanceResource_Update_QueryStateError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil
@@ -2766,7 +2758,8 @@ func TestVirtInstanceResource_Update_QueryStateError(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("query state failed")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -2818,7 +2811,7 @@ func TestVirtInstanceResource_Update_QueryStateError(t *testing.T) {
 func TestVirtInstanceResource_Update_ReconcileDevicesError(t *testing.T) {
 	queryCount := 0
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_delete" {
@@ -2830,7 +2823,8 @@ func TestVirtInstanceResource_Update_ReconcileDevicesError(t *testing.T) {
 				queryCount++
 				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -2885,7 +2879,7 @@ func TestVirtInstanceResource_Update_ReconcileDevicesError(t *testing.T) {
 // Test Delete error paths
 func TestVirtInstanceResource_Delete_StopError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.stop" {
@@ -2896,7 +2890,8 @@ func TestVirtInstanceResource_Delete_StopError(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -2929,12 +2924,13 @@ func TestVirtInstanceResource_Delete_StopError(t *testing.T) {
 
 func TestVirtInstanceResource_Delete_QueryStateError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("query failed")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -2968,7 +2964,7 @@ func TestVirtInstanceResource_Delete_QueryStateError(t *testing.T) {
 // Test Create with stop error when desired_state is STOPPED
 func TestVirtInstanceResource_Create_StopError(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.stop" {
@@ -2979,7 +2975,8 @@ func TestVirtInstanceResource_Create_StopError(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -3138,7 +3135,7 @@ func TestMapAliasesToAddresses(t *testing.T) {
 // Test addresses populated when running
 func TestVirtInstanceResource_Read_WithAddresses(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.get_instance" {
@@ -3154,7 +3151,8 @@ func TestVirtInstanceResource_Read_WithAddresses(t *testing.T) {
 				}
 				return nil, errors.New("unexpected method: " + method)
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -3210,7 +3208,7 @@ func TestVirtInstanceResource_Read_WithAddresses(t *testing.T) {
 // Test addresses empty when stopped
 func TestVirtInstanceResource_Read_AddressesEmptyWhenStopped(t *testing.T) {
 	r := &VirtInstanceResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.get_instance" {
@@ -3219,7 +3217,8 @@ func TestVirtInstanceResource_Read_AddressesEmptyWhenStopped(t *testing.T) {
 				}
 				return nil, errors.New("unexpected method: " + method)
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)

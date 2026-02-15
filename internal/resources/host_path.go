@@ -23,7 +23,7 @@ var _ resource.ResourceWithImportState = &HostPathResource{}
 
 // HostPathResource defines the resource implementation.
 type HostPathResource struct {
-	client client.Client
+	BaseResource
 }
 
 // HostPathResourceModel describes the resource data model.
@@ -103,23 +103,6 @@ func (r *HostPathResource) Schema(ctx context.Context, req resource.SchemaReques
 	}
 }
 
-func (r *HostPathResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	// Prevent panic if the provider has not been configured
-	if req.ProviderData == nil {
-		return
-	}
-
-	c, ok := req.ProviderData.(client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = c
-}
 
 func (r *HostPathResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data HostPathResourceModel

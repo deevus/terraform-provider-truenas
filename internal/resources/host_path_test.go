@@ -121,53 +121,6 @@ func TestHostPathResource_Schema(t *testing.T) {
 	}
 }
 
-func TestHostPathResource_Configure_Success(t *testing.T) {
-	r := NewHostPathResource().(*HostPathResource)
-
-	mockClient := &client.MockClient{}
-
-	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-}
-
-func TestHostPathResource_Configure_NilProviderData(t *testing.T) {
-	r := NewHostPathResource().(*HostPathResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: nil,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	// Should not error - nil ProviderData is valid during schema validation
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-}
-
-func TestHostPathResource_Configure_WrongType(t *testing.T) {
-	r := NewHostPathResource().(*HostPathResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: "not a client",
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for wrong ProviderData type")
-	}
-}
 
 // getHostPathResourceSchema returns the schema for the host_path resource
 func getHostPathResourceSchema(t *testing.T) resource.SchemaResponse {
@@ -210,13 +163,14 @@ func TestHostPathResource_Create_Success(t *testing.T) {
 	var createdPath string
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
 				mkdirCalled = true
 				createdPath = path
 				return nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -275,7 +229,7 @@ func TestHostPathResource_Create_WithPermissions(t *testing.T) {
 	var setpermParams any
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
 				mkdirCalled = true
 				createdPath = path
@@ -289,7 +243,8 @@ func TestHostPathResource_Create_WithPermissions(t *testing.T) {
 				}
 				return json.RawMessage(`null`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -346,11 +301,12 @@ func TestHostPathResource_Create_WithPermissions(t *testing.T) {
 
 func TestHostPathResource_Create_APIError(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
 				return errors.New("permission denied")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -379,7 +335,7 @@ func TestHostPathResource_Create_APIError(t *testing.T) {
 
 func TestHostPathResource_Create_SetPermError(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
 				return nil
 			},
@@ -387,7 +343,8 @@ func TestHostPathResource_Create_SetPermError(t *testing.T) {
 				// setperm fails
 				return nil, errors.New("permission denied on setperm")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -417,7 +374,7 @@ func TestHostPathResource_Create_SetPermError(t *testing.T) {
 
 func TestHostPathResource_Read_Success(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "filesystem.stat" {
 					t.Errorf("expected method 'filesystem.stat', got %q", method)
@@ -428,7 +385,8 @@ func TestHostPathResource_Read_Success(t *testing.T) {
 					"gid": 1000
 				}`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -468,11 +426,12 @@ func TestHostPathResource_Read_Success(t *testing.T) {
 
 func TestHostPathResource_Read_NotFound(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("path not found")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -507,11 +466,12 @@ func TestHostPathResource_Read_NotFound(t *testing.T) {
 
 func TestHostPathResource_Read_APIError(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection failed")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -551,13 +511,14 @@ func TestHostPathResource_Update_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedMethod = method
 				capturedParams = params
 				return json.RawMessage(`null`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -609,11 +570,12 @@ func TestHostPathResource_Update_Success(t *testing.T) {
 
 func TestHostPathResource_Update_APIError(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("update failed")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -649,12 +611,13 @@ func TestHostPathResource_Delete_Success(t *testing.T) {
 	var removedPath string
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			RemoveDirFunc: func(ctx context.Context, path string) error {
 				removedPath = path
 				return nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -688,11 +651,12 @@ func TestHostPathResource_Delete_Success(t *testing.T) {
 
 func TestHostPathResource_Delete_APIError(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			RemoveDirFunc: func(ctx context.Context, path string) error {
 				return errors.New("directory not empty")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -730,7 +694,7 @@ func TestHostPathResource_ImplementsInterfaces(t *testing.T) {
 // Test Create with plan parsing error
 func TestHostPathResource_Create_PlanParseError(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -775,7 +739,7 @@ func TestHostPathResource_Create_PlanParseError(t *testing.T) {
 // Test Read with state parsing error
 func TestHostPathResource_Read_StateParseError(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -820,7 +784,7 @@ func TestHostPathResource_Read_StateParseError(t *testing.T) {
 // Test Update with plan parsing error
 func TestHostPathResource_Update_PlanParseError(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -872,7 +836,7 @@ func TestHostPathResource_Update_PlanParseError(t *testing.T) {
 // Test Update with state parsing error
 func TestHostPathResource_Update_StateParseError(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -924,7 +888,7 @@ func TestHostPathResource_Update_StateParseError(t *testing.T) {
 // Test Delete with state parsing error
 func TestHostPathResource_Delete_StateParseError(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -971,12 +935,13 @@ func TestHostPathResource_Update_UIDChange(t *testing.T) {
 	var capturedParams any
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedParams = params
 				return json.RawMessage(`null`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1027,12 +992,13 @@ func TestHostPathResource_Update_GIDChange(t *testing.T) {
 	var capturedParams any
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedParams = params
 				return json.RawMessage(`null`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1081,11 +1047,12 @@ func TestHostPathResource_Update_GIDChange(t *testing.T) {
 // Test Read with invalid JSON response
 func TestHostPathResource_Read_InvalidJSONResponse(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1117,12 +1084,13 @@ func TestHostPathResource_Update_NoChanges(t *testing.T) {
 	apiCalled := false
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				apiCalled = true
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1163,7 +1131,7 @@ func TestHostPathResource_Update_NoChanges(t *testing.T) {
 // Test Read syncs mode/uid/gid from API response
 func TestHostPathResource_Read_SyncsStateFromAPI(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "filesystem.stat" {
 					t.Errorf("expected method 'filesystem.stat', got %q", method)
@@ -1176,7 +1144,8 @@ func TestHostPathResource_Read_SyncsStateFromAPI(t *testing.T) {
 					"gid": 3000
 				}`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1303,7 +1272,7 @@ func TestHostPathResource_Delete_ForceDestroy(t *testing.T) {
 	var callOrder []string
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "filesystem.stat" {
 					// Return mock parent stat response with mode 755 (16877 = 040755)
@@ -1341,7 +1310,8 @@ func TestHostPathResource_Delete_ForceDestroy(t *testing.T) {
 				removeDirCalled = true
 				return nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1450,7 +1420,7 @@ func TestHostPathResource_Delete_NoForceDestroy(t *testing.T) {
 	var removedPath string
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			RemoveAllFunc: func(ctx context.Context, path string) error {
 				removeAllCalled = true
 				return nil
@@ -1460,7 +1430,8 @@ func TestHostPathResource_Delete_NoForceDestroy(t *testing.T) {
 				removedPath = path
 				return nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1509,7 +1480,7 @@ func TestHostPathResource_Delete_ForceDestroyNil(t *testing.T) {
 	var removedPath string
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			RemoveAllFunc: func(ctx context.Context, path string) error {
 				removeAllCalled = true
 				return nil
@@ -1519,7 +1490,8 @@ func TestHostPathResource_Delete_ForceDestroyNil(t *testing.T) {
 				removedPath = path
 				return nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1564,7 +1536,7 @@ func TestHostPathResource_Delete_ForceDestroyNil(t *testing.T) {
 // Test that Read preserves null mode when not set in config
 func TestHostPathResource_Read_PreservesNullMode(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// API returns mode from filesystem even when user didn't specify it
 				return json.RawMessage(`{
@@ -1573,7 +1545,8 @@ func TestHostPathResource_Read_PreservesNullMode(t *testing.T) {
 					"gid": 0
 				}`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1616,7 +1589,7 @@ func TestHostPathResource_Read_PreservesNullMode(t *testing.T) {
 // Test Delete with force_destroy error
 func TestHostPathResource_Delete_ForceDestroy_Error(t *testing.T) {
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "filesystem.stat" {
 					return json.RawMessage(`{"mode": 16877, "uid": 1000, "gid": 1000}`), nil
@@ -1629,7 +1602,8 @@ func TestHostPathResource_Delete_ForceDestroy_Error(t *testing.T) {
 			RemoveAllFunc: func(ctx context.Context, path string) error {
 				return errors.New("permission denied")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1662,7 +1636,7 @@ func TestHostPathResource_Delete_ForceDestroy_SetpermFails(t *testing.T) {
 	var removeAllCalled bool
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "filesystem.stat" {
 					// Return mock parent stat response
@@ -1681,7 +1655,8 @@ func TestHostPathResource_Delete_ForceDestroy_SetpermFails(t *testing.T) {
 				removeAllCalled = true
 				return nil // RemoveAll succeeds
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1890,7 +1865,7 @@ func TestHostPathResource_Delete_ForceDestroy_RestoreFails(t *testing.T) {
 	var removeAllCalled bool
 
 	r := &HostPathResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "filesystem.stat" {
 					// Return mock parent stat response
@@ -1912,7 +1887,8 @@ func TestHostPathResource_Delete_ForceDestroy_RestoreFails(t *testing.T) {
 				removeAllCalled = true
 				return nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
