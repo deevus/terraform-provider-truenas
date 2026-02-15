@@ -214,7 +214,7 @@ func TestSnapshotResource_Create_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
@@ -236,7 +236,7 @@ func TestSnapshotResource_Create_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -287,7 +287,7 @@ func TestSnapshotResource_Create_WithHold(t *testing.T) {
 	var methods []string
 
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
@@ -311,7 +311,7 @@ func TestSnapshotResource_Create_WithHold(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -356,12 +356,12 @@ func TestSnapshotResource_Create_WithHold(t *testing.T) {
 
 func TestSnapshotResource_Create_APIError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("snapshot already exists")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -394,7 +394,7 @@ func TestSnapshotResource_Create_APIError(t *testing.T) {
 
 func TestSnapshotResource_Read_Success(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
@@ -408,7 +408,7 @@ func TestSnapshotResource_Read_Success(t *testing.T) {
 					}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -455,12 +455,12 @@ func TestSnapshotResource_Read_Success(t *testing.T) {
 
 func TestSnapshotResource_Read_NotFound(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -505,7 +505,7 @@ func TestSnapshotResource_Update_HoldToRelease(t *testing.T) {
 	var releaseCalled bool
 
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.release" {
@@ -526,7 +526,7 @@ func TestSnapshotResource_Update_HoldToRelease(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -587,7 +587,7 @@ func TestSnapshotResource_Update_ReleaseToHold(t *testing.T) {
 	var holdCalled bool
 
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.hold" {
@@ -609,7 +609,7 @@ func TestSnapshotResource_Update_ReleaseToHold(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -669,7 +669,7 @@ func TestSnapshotResource_Delete_Success(t *testing.T) {
 	var deleteID string
 
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.delete" {
@@ -679,7 +679,7 @@ func TestSnapshotResource_Delete_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -722,13 +722,13 @@ func TestSnapshotResource_Delete_WithHold(t *testing.T) {
 	var methods []string
 
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				return json.RawMessage(`true`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -783,7 +783,7 @@ func TestSnapshotResource_Delete_WithHold(t *testing.T) {
 
 func TestSnapshotResource_Create_InvalidJSONResponse(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
@@ -794,7 +794,7 @@ func TestSnapshotResource_Create_InvalidJSONResponse(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -827,12 +827,12 @@ func TestSnapshotResource_Create_InvalidJSONResponse(t *testing.T) {
 
 func TestSnapshotResource_Read_APIError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -869,12 +869,12 @@ func TestSnapshotResource_Read_APIError(t *testing.T) {
 
 func TestSnapshotResource_Delete_APIError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("snapshot is busy")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -954,7 +954,7 @@ func TestSnapshotResource_Create_WithRecursive(t *testing.T) {
 	var capturedParams map[string]any
 
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
@@ -975,7 +975,7 @@ func TestSnapshotResource_Create_WithRecursive(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1012,7 +1012,7 @@ func TestSnapshotResource_Create_WithRecursive(t *testing.T) {
 
 func TestSnapshotResource_Create_HoldError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
@@ -1023,7 +1023,7 @@ func TestSnapshotResource_Create_HoldError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1056,7 +1056,7 @@ func TestSnapshotResource_Create_HoldError(t *testing.T) {
 
 func TestSnapshotResource_Create_QueryError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
@@ -1067,7 +1067,7 @@ func TestSnapshotResource_Create_QueryError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1100,7 +1100,7 @@ func TestSnapshotResource_Create_QueryError(t *testing.T) {
 
 func TestSnapshotResource_Create_SnapshotNotFound(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.create" {
@@ -1111,7 +1111,7 @@ func TestSnapshotResource_Create_SnapshotNotFound(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1144,7 +1144,7 @@ func TestSnapshotResource_Create_SnapshotNotFound(t *testing.T) {
 
 func TestSnapshotResource_Update_ReleaseError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.release" {
@@ -1152,7 +1152,7 @@ func TestSnapshotResource_Update_ReleaseError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1205,7 +1205,7 @@ func TestSnapshotResource_Update_ReleaseError(t *testing.T) {
 
 func TestSnapshotResource_Update_HoldError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.hold" {
@@ -1213,7 +1213,7 @@ func TestSnapshotResource_Update_HoldError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1266,7 +1266,7 @@ func TestSnapshotResource_Update_HoldError(t *testing.T) {
 
 func TestSnapshotResource_Update_QueryError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.query" {
@@ -1274,7 +1274,7 @@ func TestSnapshotResource_Update_QueryError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1328,7 +1328,7 @@ func TestSnapshotResource_Update_QueryError(t *testing.T) {
 
 func TestSnapshotResource_Update_SnapshotNotFound(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.query" {
@@ -1336,7 +1336,7 @@ func TestSnapshotResource_Update_SnapshotNotFound(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1389,7 +1389,7 @@ func TestSnapshotResource_Update_SnapshotNotFound(t *testing.T) {
 
 func TestSnapshotResource_Delete_ReleaseError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: testVersion(),
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "zfs.snapshot.release" {
@@ -1397,7 +1397,7 @@ func TestSnapshotResource_Delete_ReleaseError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1455,7 +1455,7 @@ func createInvalidSnapshotModelValue() tftypes.Value {
 
 func TestSnapshotResource_Create_GetPlanError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1483,7 +1483,7 @@ func TestSnapshotResource_Create_GetPlanError(t *testing.T) {
 
 func TestSnapshotResource_Read_GetStateError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1511,7 +1511,7 @@ func TestSnapshotResource_Read_GetStateError(t *testing.T) {
 
 func TestSnapshotResource_Update_GetStateOrPlanError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1543,7 +1543,7 @@ func TestSnapshotResource_Update_GetStateOrPlanError(t *testing.T) {
 
 func TestSnapshotResource_Delete_GetStateError(t *testing.T) {
 	r := &SnapshotResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)

@@ -223,7 +223,7 @@ func TestCronJobResource_Create_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cronjob.create" {
 					capturedMethod = method
@@ -244,7 +244,7 @@ func TestCronJobResource_Create_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)
@@ -365,11 +365,11 @@ func TestCronJobResource_Create_Success(t *testing.T) {
 
 func TestCronJobResource_Create_APIError(t *testing.T) {
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)
@@ -416,7 +416,7 @@ func TestCronJobResource_Create_APIError(t *testing.T) {
 
 func TestCronJobResource_Read_Success(t *testing.T) {
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": 5,
@@ -429,7 +429,7 @@ func TestCronJobResource_Read_Success(t *testing.T) {
 					"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)
@@ -517,11 +517,11 @@ func TestCronJobResource_Read_Success(t *testing.T) {
 
 func TestCronJobResource_Read_NotFound(t *testing.T) {
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)
@@ -569,11 +569,11 @@ func TestCronJobResource_Read_NotFound(t *testing.T) {
 
 func TestCronJobResource_Read_APIError(t *testing.T) {
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)
@@ -620,7 +620,7 @@ func TestCronJobResource_Update_Success(t *testing.T) {
 	var capturedUpdateData map[string]any
 
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cronjob.update" {
 					capturedMethod = method
@@ -643,7 +643,7 @@ func TestCronJobResource_Update_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)
@@ -800,11 +800,11 @@ func TestCronJobResource_Update_Success(t *testing.T) {
 
 func TestCronJobResource_Update_APIError(t *testing.T) {
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)
@@ -874,13 +874,13 @@ func TestCronJobResource_Delete_Success(t *testing.T) {
 	var capturedID int64
 
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedMethod = method
 				capturedID = params.(int64)
 				return json.RawMessage(`true`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)
@@ -927,11 +927,11 @@ func TestCronJobResource_Delete_Success(t *testing.T) {
 
 func TestCronJobResource_Delete_APIError(t *testing.T) {
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("cron job in use")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)
@@ -972,7 +972,7 @@ func TestCronJobResource_Create_CustomSchedule(t *testing.T) {
 	var capturedParams any
 
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cronjob.create" {
 					capturedParams = params
@@ -992,7 +992,7 @@ func TestCronJobResource_Create_CustomSchedule(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)
@@ -1085,7 +1085,7 @@ func TestCronJobResource_Update_ScheduleOnly(t *testing.T) {
 	var capturedUpdateData map[string]any
 
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cronjob.update" {
 					args := params.([]any)
@@ -1106,7 +1106,7 @@ func TestCronJobResource_Update_ScheduleOnly(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)
@@ -1237,7 +1237,7 @@ func TestCronJobResource_Create_DisabledJob(t *testing.T) {
 	var capturedParams any
 
 	r := &CronJobResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cronjob.create" {
 					capturedParams = params
@@ -1257,7 +1257,7 @@ func TestCronJobResource_Create_DisabledJob(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCronJobResourceSchema(t)

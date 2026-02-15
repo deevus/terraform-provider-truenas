@@ -6,8 +6,6 @@ import (
 	"fmt"
 
 	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
@@ -24,7 +22,7 @@ var _ resource.ResourceWithImportState = &SnapshotResource{}
 
 // SnapshotResource defines the resource implementation.
 type SnapshotResource struct {
-	client client.Client
+	BaseResource
 }
 
 // SnapshotResourceModel describes the resource data model.
@@ -114,22 +112,6 @@ func (r *SnapshotResource) Schema(ctx context.Context, req resource.SchemaReques
 	}
 }
 
-func (r *SnapshotResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	c, ok := req.ProviderData.(client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = c
-}
 
 // querySnapshot queries a snapshot by ID and returns the response.
 // Returns nil if the snapshot is not found.
@@ -370,6 +352,3 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 }
 
-func (r *SnapshotResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
-}

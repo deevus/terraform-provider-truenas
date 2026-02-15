@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/deevus/terraform-provider-truenas/internal/client"
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -26,7 +25,7 @@ var _ resource.ResourceWithValidateConfig = &FileResource{}
 
 // FileResource defines the resource implementation.
 type FileResource struct {
-	client client.Client
+	BaseResource
 }
 
 // FileResourceModel describes the resource data model.
@@ -111,22 +110,6 @@ func (r *FileResource) Schema(ctx context.Context, req resource.SchemaRequest, r
 	}
 }
 
-func (r *FileResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	c, ok := req.ProviderData.(client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = c
-}
 
 func (r *FileResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
 	var data FileResourceModel
@@ -435,6 +418,3 @@ func (r *FileResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 	}
 }
 
-func (r *FileResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
-}

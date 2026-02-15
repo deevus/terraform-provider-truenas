@@ -404,7 +404,7 @@ func TestCloudSyncTaskResource_Create_S3_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.create" {
 					capturedMethod = method
@@ -431,7 +431,7 @@ func TestCloudSyncTaskResource_Create_S3_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -535,7 +535,7 @@ func TestCloudSyncTaskResource_Create_B2_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.create" {
 					capturedMethod = method
@@ -562,7 +562,7 @@ func TestCloudSyncTaskResource_Create_B2_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -666,7 +666,7 @@ func TestCloudSyncTaskResource_Create_GCS_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.create" {
 					capturedMethod = method
@@ -693,7 +693,7 @@ func TestCloudSyncTaskResource_Create_GCS_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -797,7 +797,7 @@ func TestCloudSyncTaskResource_Create_Azure_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.create" {
 					capturedMethod = method
@@ -824,7 +824,7 @@ func TestCloudSyncTaskResource_Create_Azure_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -929,7 +929,7 @@ func TestCloudSyncTaskResource_Create_Azure_Success(t *testing.T) {
 
 func TestCloudSyncTaskResource_Read_Success(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": 10,
@@ -950,7 +950,7 @@ func TestCloudSyncTaskResource_Read_Success(t *testing.T) {
 					"enabled": true
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -995,11 +995,11 @@ func TestCloudSyncTaskResource_Read_Success(t *testing.T) {
 
 func TestCloudSyncTaskResource_Read_NotFound(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1046,7 +1046,7 @@ func TestCloudSyncTaskResource_Update_Success(t *testing.T) {
 	var capturedUpdateData map[string]any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.update" {
 					capturedMethod = method
@@ -1075,7 +1075,7 @@ func TestCloudSyncTaskResource_Update_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1168,7 +1168,7 @@ func TestCloudSyncTaskResource_Update_SyncOnChange(t *testing.T) {
 	var syncID int64
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.update" {
 					return json.RawMessage(`{"id": 10}`), nil
@@ -1198,7 +1198,7 @@ func TestCloudSyncTaskResource_Update_SyncOnChange(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1280,13 +1280,13 @@ func TestCloudSyncTaskResource_Delete_Success(t *testing.T) {
 	var capturedID int64
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedMethod = method
 				capturedID = params.(int64)
 				return json.RawMessage(`true`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1328,11 +1328,11 @@ func TestCloudSyncTaskResource_Delete_Success(t *testing.T) {
 
 func TestCloudSyncTaskResource_Create_APIError(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1369,7 +1369,7 @@ func TestCloudSyncTaskResource_Create_APIError(t *testing.T) {
 
 func TestCloudSyncTaskResource_Create_NoProviderBlock(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1403,11 +1403,11 @@ func TestCloudSyncTaskResource_Create_NoProviderBlock(t *testing.T) {
 
 func TestCloudSyncTaskResource_Read_APIError(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1445,11 +1445,11 @@ func TestCloudSyncTaskResource_Read_APIError(t *testing.T) {
 
 func TestCloudSyncTaskResource_Update_APIError(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1503,11 +1503,11 @@ func TestCloudSyncTaskResource_Update_APIError(t *testing.T) {
 
 func TestCloudSyncTaskResource_Delete_APIError(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("task in use by active job")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1541,7 +1541,7 @@ func TestCloudSyncTaskResource_Delete_APIError(t *testing.T) {
 
 func TestCloudSyncTaskResource_Create_MultipleProviderBlocks(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1584,7 +1584,7 @@ func TestCloudSyncTaskResource_Create_ScheduleWithWildcards(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.create" {
 					capturedParams = params
@@ -1610,7 +1610,7 @@ func TestCloudSyncTaskResource_Create_ScheduleWithWildcards(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1704,7 +1704,7 @@ func TestCloudSyncTaskResource_Create_CustomSchedule(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.create" {
 					capturedParams = params
@@ -1730,7 +1730,7 @@ func TestCloudSyncTaskResource_Create_CustomSchedule(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1836,7 +1836,7 @@ func TestCloudSyncTaskResource_Update_ScheduleOnly(t *testing.T) {
 	var capturedUpdateData map[string]any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.update" {
 					capturedMethod = method
@@ -1865,7 +1865,7 @@ func TestCloudSyncTaskResource_Update_ScheduleOnly(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1989,7 +1989,7 @@ func TestCloudSyncTaskResource_Create_WithEncryption(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.create" {
 					capturedMethod = method
@@ -2018,7 +2018,7 @@ func TestCloudSyncTaskResource_Create_WithEncryption(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -2109,7 +2109,7 @@ func TestCloudSyncTaskResource_Create_WithEncryption_NoSalt(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.create" {
 					capturedParams = params
@@ -2136,7 +2136,7 @@ func TestCloudSyncTaskResource_Create_WithEncryption_NoSalt(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -2220,7 +2220,7 @@ func TestCloudSyncTaskResource_Update_EnableEncryption(t *testing.T) {
 	var capturedUpdateData map[string]any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.update" {
 					capturedMethod = method
@@ -2251,7 +2251,7 @@ func TestCloudSyncTaskResource_Update_EnableEncryption(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -2365,7 +2365,7 @@ func TestCloudSyncTaskResource_Update_EnableEncryption(t *testing.T) {
 
 func TestCloudSyncTaskResource_Read_WithEncryption(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": 33,
@@ -2388,7 +2388,7 @@ func TestCloudSyncTaskResource_Read_WithEncryption(t *testing.T) {
 					"enabled": true
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -2459,7 +2459,7 @@ func TestCloudSyncTaskResource_Create_WithIncludePatterns(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.create" {
 					capturedParams = params
@@ -2487,7 +2487,7 @@ func TestCloudSyncTaskResource_Create_WithIncludePatterns(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -2557,7 +2557,7 @@ func TestCloudSyncTaskResource_Create_WithIncludeAndExclude(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncTaskResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.create" {
 					capturedParams = params
@@ -2585,7 +2585,7 @@ func TestCloudSyncTaskResource_Create_WithIncludeAndExclude(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)

@@ -383,54 +383,6 @@ func TestDatasetResource_Schema(t *testing.T) {
 	}
 }
 
-func TestDatasetResource_Configure_Success(t *testing.T) {
-	r := NewDatasetResource().(*DatasetResource)
-
-	mockClient := &client.MockClient{}
-
-	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-}
-
-func TestDatasetResource_Configure_NilProviderData(t *testing.T) {
-	r := NewDatasetResource().(*DatasetResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: nil,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	// Should not error - nil ProviderData is valid during schema validation
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-}
-
-func TestDatasetResource_Configure_WrongType(t *testing.T) {
-	r := NewDatasetResource().(*DatasetResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: "not a client",
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for wrong ProviderData type")
-	}
-}
-
 // getDatasetResourceSchema returns the schema for the dataset resource
 func getDatasetResourceSchema(t *testing.T) resource.SchemaResponse {
 	t.Helper()
@@ -537,7 +489,7 @@ func TestDatasetResource_Create_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					capturedMethod = method
@@ -559,7 +511,7 @@ func TestDatasetResource_Create_Success(t *testing.T) {
 					"atime": {"value": "on"}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -617,7 +569,7 @@ func TestDatasetResource_Create_Success(t *testing.T) {
 
 func TestDatasetResource_Create_InvalidConfig(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -649,7 +601,7 @@ func TestDatasetResource_Create_WithParentName(t *testing.T) {
 	var capturedParams any
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					capturedParams = params
@@ -670,7 +622,7 @@ func TestDatasetResource_Create_WithParentName(t *testing.T) {
 					"atime": {"value": "on"}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -721,11 +673,11 @@ func TestDatasetResource_Create_WithParentName(t *testing.T) {
 
 func TestDatasetResource_Create_APIError(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("dataset already exists")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -754,7 +706,7 @@ func TestDatasetResource_Create_APIError(t *testing.T) {
 
 func TestDatasetResource_Create_QueryAPIError(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					return json.RawMessage(`{
@@ -766,7 +718,7 @@ func TestDatasetResource_Create_QueryAPIError(t *testing.T) {
 				// pool.dataset.query fails
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -794,7 +746,7 @@ func TestDatasetResource_Create_QueryAPIError(t *testing.T) {
 
 func TestDatasetResource_Create_QueryInvalidJSON(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					return json.RawMessage(`{
@@ -806,7 +758,7 @@ func TestDatasetResource_Create_QueryInvalidJSON(t *testing.T) {
 				// pool.dataset.query returns invalid JSON
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -834,7 +786,7 @@ func TestDatasetResource_Create_QueryInvalidJSON(t *testing.T) {
 
 func TestDatasetResource_Create_DatasetNotFoundAfterCreate(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					return json.RawMessage(`{
@@ -846,7 +798,7 @@ func TestDatasetResource_Create_DatasetNotFoundAfterCreate(t *testing.T) {
 				// pool.dataset.query returns empty array
 				return json.RawMessage(`[]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -874,7 +826,7 @@ func TestDatasetResource_Create_DatasetNotFoundAfterCreate(t *testing.T) {
 
 func TestDatasetResource_Read_Success(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "pool.dataset.query" {
 					t.Errorf("expected method 'pool.dataset.query', got %q", method)
@@ -889,7 +841,7 @@ func TestDatasetResource_Read_Success(t *testing.T) {
 					"atime": {"value": "on"}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -948,12 +900,12 @@ func TestDatasetResource_Read_Success(t *testing.T) {
 
 func TestDatasetResource_Read_DatasetNotFound(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// Return empty array - dataset not found
 				return json.RawMessage(`[]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -988,11 +940,11 @@ func TestDatasetResource_Read_DatasetNotFound(t *testing.T) {
 
 func TestDatasetResource_Read_APIError(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection failed")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1024,7 +976,7 @@ func TestDatasetResource_Update_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedMethod = method
 				capturedParams = params
@@ -1038,7 +990,7 @@ func TestDatasetResource_Update_Success(t *testing.T) {
 					"atime": {"value": "off"}
 				}`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1123,12 +1075,12 @@ func TestDatasetResource_Update_NoChanges(t *testing.T) {
 	apiCalled := false
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				apiCalled = true
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1168,11 +1120,11 @@ func TestDatasetResource_Update_NoChanges(t *testing.T) {
 
 func TestDatasetResource_Update_APIError(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("update failed")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1209,13 +1161,13 @@ func TestDatasetResource_Delete_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedMethod = method
 				capturedParams = params
 				return json.RawMessage(`null`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1254,11 +1206,11 @@ func TestDatasetResource_Delete_Success(t *testing.T) {
 
 func TestDatasetResource_Delete_APIError(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("dataset is busy")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1290,13 +1242,13 @@ func TestDatasetResource_Delete_WithForceDestroy(t *testing.T) {
 	var capturedParams any
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedMethod = method
 				capturedParams = params
 				return json.RawMessage(`null`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1506,7 +1458,7 @@ func TestDatasetResource_Create_AllOptions(t *testing.T) {
 	var capturedParams any
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					capturedParams = params
@@ -1527,7 +1479,7 @@ func TestDatasetResource_Create_AllOptions(t *testing.T) {
 					"atime": {"value": "on"}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1580,7 +1532,7 @@ func TestDatasetResource_Create_AllOptions(t *testing.T) {
 // Test Read with parent/name mode
 func TestDatasetResource_Read_WithParentName(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": "tank/data/apps",
@@ -1592,7 +1544,7 @@ func TestDatasetResource_Read_WithParentName(t *testing.T) {
 					"atime": {"value": "on"}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1632,11 +1584,11 @@ func TestDatasetResource_Read_WithParentName(t *testing.T) {
 // Test Create with invalid JSON response
 func TestDatasetResource_Create_InvalidJSONResponse(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1666,11 +1618,11 @@ func TestDatasetResource_Create_InvalidJSONResponse(t *testing.T) {
 // Test Read with invalid JSON response
 func TestDatasetResource_Read_InvalidJSONResponse(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1700,11 +1652,11 @@ func TestDatasetResource_Read_InvalidJSONResponse(t *testing.T) {
 // Test Update with invalid JSON response
 func TestDatasetResource_Update_InvalidJSONResponse(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1741,7 +1693,7 @@ func TestDatasetResource_Update_QuotaChange(t *testing.T) {
 	var capturedParams any
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedParams = params
 				return json.RawMessage(`{
@@ -1754,7 +1706,7 @@ func TestDatasetResource_Update_QuotaChange(t *testing.T) {
 					"atime": {"value": "on"}
 				}`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1810,7 +1762,7 @@ func TestDatasetResource_Update_RefQuotaChange(t *testing.T) {
 	var capturedParams any
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedParams = params
 				return json.RawMessage(`{
@@ -1823,7 +1775,7 @@ func TestDatasetResource_Update_RefQuotaChange(t *testing.T) {
 					"atime": {"value": "on"}
 				}`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1875,7 +1827,7 @@ func TestDatasetResource_Update_AtimeChange(t *testing.T) {
 	var capturedParams any
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedParams = params
 				return json.RawMessage(`{
@@ -1888,7 +1840,7 @@ func TestDatasetResource_Update_AtimeChange(t *testing.T) {
 					"atime": {"value": "off"}
 				}`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1937,7 +1889,7 @@ func TestDatasetResource_Update_AtimeChange(t *testing.T) {
 // Test Create with plan parsing error
 func TestDatasetResource_Create_PlanParseError(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2002,7 +1954,7 @@ func TestDatasetResource_Create_PlanParseError(t *testing.T) {
 // Test Read with state parsing error
 func TestDatasetResource_Read_StateParseError(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2067,7 +2019,7 @@ func TestDatasetResource_Read_StateParseError(t *testing.T) {
 // Test Update with plan parsing error
 func TestDatasetResource_Update_PlanParseError(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2139,7 +2091,7 @@ func TestDatasetResource_Update_PlanParseError(t *testing.T) {
 // Test Update with state parsing error
 func TestDatasetResource_Update_StateParseError(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2249,7 +2201,7 @@ func TestDatasetResource_Schema_AtimeIsComputed(t *testing.T) {
 // Test that Read preserves null compression when not set in config
 func TestDatasetResource_Read_PopulatesComputedAttributes(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// API returns actual server values
 				return json.RawMessage(`[{
@@ -2262,7 +2214,7 @@ func TestDatasetResource_Read_PopulatesComputedAttributes(t *testing.T) {
 					"atime": {"value": "OFF"}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2313,7 +2265,7 @@ func TestDatasetResource_Read_PopulatesComputedAttributes(t *testing.T) {
 // Test Delete with state parsing error
 func TestDatasetResource_Delete_StateParseError(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2381,7 +2333,7 @@ func TestDatasetResource_Create_WithPermissions(t *testing.T) {
 	var setpermParams map[string]any
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					return json.RawMessage(`{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps"}`), nil
@@ -2398,7 +2350,7 @@ func TestDatasetResource_Create_WithPermissions(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2450,7 +2402,7 @@ func TestDatasetResource_Create_NoPermissions(t *testing.T) {
 	var setpermCalled bool
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					return json.RawMessage(`{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps"}`), nil
@@ -2466,7 +2418,7 @@ func TestDatasetResource_Create_NoPermissions(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2504,7 +2456,7 @@ func TestDatasetResource_Update_PermissionChange(t *testing.T) {
 	var setpermParams map[string]any
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil
 			},
@@ -2515,7 +2467,7 @@ func TestDatasetResource_Update_PermissionChange(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2576,7 +2528,7 @@ func TestDatasetResource_Schema_FullPathExists(t *testing.T) {
 // Test Read populates both mount_path and full_path from API response
 func TestDatasetResource_Read_BothMountPathAndFullPath(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": "storage/apps",
@@ -2588,7 +2540,7 @@ func TestDatasetResource_Read_BothMountPathAndFullPath(t *testing.T) {
 					"atime": {"value": "on"}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2665,7 +2617,7 @@ func TestDatasetResource_Schema_NameDeprecated(t *testing.T) {
 
 func TestDatasetResource_Read_WithPermissions(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.query" {
 					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0","parsed":0},"refquota":{"value":"0","parsed":0},"atime":{"value":"off"}}]`), nil
@@ -2676,7 +2628,7 @@ func TestDatasetResource_Read_WithPermissions(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2724,7 +2676,7 @@ func TestDatasetResource_Read_WithPermissions(t *testing.T) {
 // Test Read after import populates pool/path from ID
 func TestDatasetResource_Read_AfterImport_PopulatesPoolAndPath(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": "tank/data/apps",
@@ -2736,7 +2688,7 @@ func TestDatasetResource_Read_AfterImport_PopulatesPoolAndPath(t *testing.T) {
 					"atime": {"value": "on"}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2781,7 +2733,7 @@ func TestDatasetResource_Read_AfterImport_PopulatesPoolAndPath(t *testing.T) {
 // Test Read after import with simple pool-level dataset
 func TestDatasetResource_Read_AfterImport_SimpleDataset(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": "tank/apps",
@@ -2793,7 +2745,7 @@ func TestDatasetResource_Read_AfterImport_SimpleDataset(t *testing.T) {
 					"atime": {"value": "on"}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2838,7 +2790,7 @@ func TestDatasetResource_Read_AfterImport_SimpleDataset(t *testing.T) {
 // Test Read does NOT override pool/path when already set (not import scenario)
 func TestDatasetResource_Read_DoesNotOverridePoolPathWhenSet(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": "tank/data/apps",
@@ -2850,7 +2802,7 @@ func TestDatasetResource_Read_DoesNotOverridePoolPathWhenSet(t *testing.T) {
 					"atime": {"value": "on"}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2895,7 +2847,7 @@ func TestDatasetResource_Read_DoesNotOverridePoolPathWhenSet(t *testing.T) {
 // Test Read with permissions returns warning on filesystem.stat error
 func TestDatasetResource_Read_PermissionsStatError_ReturnsWarning(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.query" {
 					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0","parsed":0},"refquota":{"value":"0","parsed":0},"atime":{"value":"off"}}]`), nil
@@ -2905,7 +2857,7 @@ func TestDatasetResource_Read_PermissionsStatError_ReturnsWarning(t *testing.T) 
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2965,7 +2917,7 @@ func TestDatasetResource_Read_PermissionsStatError_ReturnsWarning(t *testing.T) 
 // Test Read with permissions returns warning on invalid JSON from filesystem.stat
 func TestDatasetResource_Read_PermissionsInvalidJSON_ReturnsWarning(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.query" {
 					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0","parsed":0},"refquota":{"value":"0","parsed":0},"atime":{"value":"off"}}]`), nil
@@ -2975,7 +2927,7 @@ func TestDatasetResource_Read_PermissionsInvalidJSON_ReturnsWarning(t *testing.T
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -3015,7 +2967,7 @@ func TestDatasetResource_Create_WithSnapshotId(t *testing.T) {
 	var createCalled bool
 
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.snapshot.clone" {
 					cloneCalled = true
@@ -3042,7 +2994,7 @@ func TestDatasetResource_Create_WithSnapshotId(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -3092,14 +3044,14 @@ func TestDatasetResource_Create_WithSnapshotId(t *testing.T) {
 
 func TestDatasetResource_Create_WithSnapshotId_APIError(t *testing.T) {
 	r := &DatasetResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.snapshot.clone" {
 					return nil, errors.New("snapshot not found")
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)

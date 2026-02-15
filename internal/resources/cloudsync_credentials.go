@@ -7,8 +7,6 @@ import (
 	"strconv"
 
 	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -33,7 +31,7 @@ type CloudSyncCredentialsResourceModel struct {
 // S3Block represents S3 credentials.
 type S3Block struct {
 	AccessKeyID     types.String `tfsdk:"access_key_id"`
-	SecretAccessKey types.String `tfsdk:"secret_access_key"`
+	SecretAccessKey  types.String `tfsdk:"secret_access_key"`
 	Endpoint        types.String `tfsdk:"endpoint"`
 	Region          types.String `tfsdk:"region"`
 }
@@ -57,7 +55,7 @@ type AzureBlock struct {
 
 // CloudSyncCredentialsResource defines the resource implementation.
 type CloudSyncCredentialsResource struct {
-	client client.Client
+	BaseResource
 }
 
 // NewCloudSyncCredentialsResource creates a new CloudSyncCredentialsResource.
@@ -151,23 +149,6 @@ func (r *CloudSyncCredentialsResource) Schema(ctx context.Context, req resource.
 			},
 		},
 	}
-}
-
-func (r *CloudSyncCredentialsResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	c, ok := req.ProviderData.(client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = c
 }
 
 // queryCredential queries a credential by ID and returns the response.
@@ -476,8 +457,4 @@ func (r *CloudSyncCredentialsResource) Delete(ctx context.Context, req resource.
 		)
 		return
 	}
-}
-
-func (r *CloudSyncCredentialsResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

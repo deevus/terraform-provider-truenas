@@ -185,7 +185,7 @@ func TestAppRegistryResource_Create_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "app.registry.create" {
 					capturedMethod = method
@@ -204,7 +204,7 @@ func TestAppRegistryResource_Create_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -288,7 +288,7 @@ func TestAppRegistryResource_Create_MinimalFields(t *testing.T) {
 	var capturedParams any
 
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "app.registry.create" {
 					capturedParams = params
@@ -306,7 +306,7 @@ func TestAppRegistryResource_Create_MinimalFields(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -357,11 +357,11 @@ func TestAppRegistryResource_Create_MinimalFields(t *testing.T) {
 
 func TestAppRegistryResource_Create_APIError(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -400,7 +400,7 @@ func TestAppRegistryResource_Create_APIError(t *testing.T) {
 
 func TestAppRegistryResource_Create_QueryError(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "app.registry.create" {
 					return json.RawMessage(`{"id": 1}`), nil
@@ -410,7 +410,7 @@ func TestAppRegistryResource_Create_QueryError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -444,7 +444,7 @@ func TestAppRegistryResource_Create_QueryError(t *testing.T) {
 
 func TestAppRegistryResource_Create_QueryNotFound(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "app.registry.create" {
 					return json.RawMessage(`{"id": 1}`), nil
@@ -454,7 +454,7 @@ func TestAppRegistryResource_Create_QueryNotFound(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -488,7 +488,7 @@ func TestAppRegistryResource_Create_QueryNotFound(t *testing.T) {
 
 func TestAppRegistryResource_Read_Success(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": 1,
@@ -499,7 +499,7 @@ func TestAppRegistryResource_Read_Success(t *testing.T) {
 					"uri": "https://ghcr.io"
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -547,11 +547,11 @@ func TestAppRegistryResource_Read_Success(t *testing.T) {
 
 func TestAppRegistryResource_Read_NotFound(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -591,11 +591,11 @@ func TestAppRegistryResource_Read_NotFound(t *testing.T) {
 
 func TestAppRegistryResource_Read_APIError(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -630,7 +630,7 @@ func TestAppRegistryResource_Read_APIError(t *testing.T) {
 
 func TestAppRegistryResource_Read_InvalidID(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -669,7 +669,7 @@ func TestAppRegistryResource_Update_Success(t *testing.T) {
 	var capturedUpdateData map[string]any
 
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "app.registry.update" {
 					capturedMethod = method
@@ -690,7 +690,7 @@ func TestAppRegistryResource_Update_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -776,11 +776,11 @@ func TestAppRegistryResource_Update_Success(t *testing.T) {
 
 func TestAppRegistryResource_Update_APIError(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -829,7 +829,7 @@ func TestAppRegistryResource_Update_APIError(t *testing.T) {
 
 func TestAppRegistryResource_Update_InvalidID(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -878,7 +878,7 @@ func TestAppRegistryResource_Update_InvalidID(t *testing.T) {
 
 func TestAppRegistryResource_Update_QueryError(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "app.registry.update" {
 					return json.RawMessage(`{"id": 1}`), nil
@@ -888,7 +888,7 @@ func TestAppRegistryResource_Update_QueryError(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -937,7 +937,7 @@ func TestAppRegistryResource_Update_QueryError(t *testing.T) {
 
 func TestAppRegistryResource_Update_QueryNotFound(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "app.registry.update" {
 					return json.RawMessage(`{"id": 1}`), nil
@@ -947,7 +947,7 @@ func TestAppRegistryResource_Update_QueryNotFound(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -999,13 +999,13 @@ func TestAppRegistryResource_Delete_Success(t *testing.T) {
 	var capturedID int64
 
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedMethod = method
 				capturedID = params.(int64)
 				return json.RawMessage(`true`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -1044,11 +1044,11 @@ func TestAppRegistryResource_Delete_Success(t *testing.T) {
 
 func TestAppRegistryResource_Delete_APIError(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("registry in use")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -1079,7 +1079,7 @@ func TestAppRegistryResource_Delete_APIError(t *testing.T) {
 
 func TestAppRegistryResource_Delete_InvalidID(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -1110,14 +1110,14 @@ func TestAppRegistryResource_Delete_InvalidID(t *testing.T) {
 
 func TestAppRegistryResource_Create_ParseError(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "app.registry.create" {
 					return json.RawMessage(`not valid json`), nil
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -1151,7 +1151,7 @@ func TestAppRegistryResource_Create_ParseError(t *testing.T) {
 
 func TestAppRegistryResource_Read_NullDescription(t *testing.T) {
 	r := &AppRegistryResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": 1,
@@ -1162,7 +1162,7 @@ func TestAppRegistryResource_Read_NullDescription(t *testing.T) {
 					"uri": "https://index.docker.io/v1/"
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)

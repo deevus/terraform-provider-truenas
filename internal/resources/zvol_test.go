@@ -58,7 +58,7 @@ func TestZvolResource_Create_Basic(t *testing.T) {
 	var createParams map[string]any
 
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					createCalled = true
@@ -70,7 +70,7 @@ func TestZvolResource_Create_Basic(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -115,7 +115,7 @@ func TestZvolResource_Create_WithOptionalFields(t *testing.T) {
 	var createParams map[string]any
 
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					createParams = params.(map[string]any)
@@ -126,7 +126,7 @@ func TestZvolResource_Create_WithOptionalFields(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -164,7 +164,7 @@ func TestZvolResource_Create_WithOptionalFields(t *testing.T) {
 }
 
 func TestZvolResource_Create_InvalidName(t *testing.T) {
-	r := &ZvolResource{client: &client.MockClient{}}
+	r := &ZvolResource{BaseResource: BaseResource{client: &client.MockClient{}}}
 
 	schemaResp := getZvolResourceSchema(t)
 	p := zvolModelParams{Volsize: strPtr("10G")} // no pool/path
@@ -186,11 +186,11 @@ func TestZvolResource_Create_InvalidName(t *testing.T) {
 
 func TestZvolResource_Create_APIError(t *testing.T) {
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("pool not found")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -212,11 +212,11 @@ func TestZvolResource_Create_APIError(t *testing.T) {
 
 func TestZvolResource_Read_Basic(t *testing.T) {
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(mockZvolQueryResponse("tank/myvol", "lz4", "", 10737418240, "16K", false)), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -252,11 +252,11 @@ func TestZvolResource_Read_Basic(t *testing.T) {
 
 func TestZvolResource_Read_NotFound(t *testing.T) {
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -288,7 +288,7 @@ func TestZvolResource_Update_Volsize(t *testing.T) {
 	var updateParams map[string]any
 
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.update" {
 					args := params.([]any)
@@ -301,7 +301,7 @@ func TestZvolResource_Update_Volsize(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -344,7 +344,7 @@ func TestZvolResource_Update_NoChanges(t *testing.T) {
 	var updateCalled bool
 
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.update" {
 					updateCalled = true
@@ -355,7 +355,7 @@ func TestZvolResource_Update_NoChanges(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -386,14 +386,14 @@ func TestZvolResource_Update_NoChanges(t *testing.T) {
 
 func TestZvolResource_Update_APIError(t *testing.T) {
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.update" {
 					return nil, errors.New("update failed")
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -431,7 +431,7 @@ func TestZvolResource_Delete_Basic(t *testing.T) {
 	var deleteID string
 
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.delete" {
 					deleteCalled = true
@@ -440,7 +440,7 @@ func TestZvolResource_Delete_Basic(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -470,7 +470,7 @@ func TestZvolResource_Delete_ForceDestroy(t *testing.T) {
 	var deleteParams []any
 
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.delete" {
 					deleteParams = params.([]any)
@@ -478,7 +478,7 @@ func TestZvolResource_Delete_ForceDestroy(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -508,11 +508,11 @@ func TestZvolResource_Delete_ForceDestroy(t *testing.T) {
 
 func TestZvolResource_Delete_APIError(t *testing.T) {
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("zvol is busy")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -536,7 +536,7 @@ func TestZvolResource_Update_CompressionAndComments(t *testing.T) {
 	var updateParams map[string]any
 
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.update" {
 					args := params.([]any)
@@ -548,7 +548,7 @@ func TestZvolResource_Update_CompressionAndComments(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -592,7 +592,7 @@ func TestZvolResource_Update_ClearComments(t *testing.T) {
 	var updateParams map[string]any
 
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.update" {
 					args := params.([]any)
@@ -604,7 +604,7 @@ func TestZvolResource_Update_ClearComments(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -643,14 +643,14 @@ func TestZvolResource_Update_ClearComments(t *testing.T) {
 
 func TestZvolResource_Create_BadCreateResponse(t *testing.T) {
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					return json.RawMessage(`not json`), nil
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -671,7 +671,7 @@ func TestZvolResource_Create_BadCreateResponse(t *testing.T) {
 }
 
 func TestZvolResource_Create_InvalidVolsizeFormat(t *testing.T) {
-	r := &ZvolResource{client: &client.MockClient{}}
+	r := &ZvolResource{BaseResource: BaseResource{client: &client.MockClient{}}}
 
 	schemaResp := getZvolResourceSchema(t)
 	p := defaultZvolPlanParams()
@@ -695,7 +695,7 @@ func TestZvolResource_Create_InvalidVolsizeFormat(t *testing.T) {
 func TestZvolResource_Update_ReadAfterUpdateFails(t *testing.T) {
 	callCount := 0
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.update" {
 					return json.RawMessage(`{"id":"tank/myvol"}`), nil
@@ -706,7 +706,7 @@ func TestZvolResource_Update_ReadAfterUpdateFails(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -741,7 +741,7 @@ func TestZvolResource_Update_ReadAfterUpdateFails(t *testing.T) {
 
 func TestZvolResource_Create_QueryAfterCreateNotFound(t *testing.T) {
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					return json.RawMessage(`{"id":"tank/myvol"}`), nil
@@ -751,7 +751,7 @@ func TestZvolResource_Create_QueryAfterCreateNotFound(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -800,11 +800,11 @@ func TestZvolResource_ImportState(t *testing.T) {
 
 func TestZvolResource_Read_PopulatesPoolPath_AfterImport(t *testing.T) {
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(mockZvolQueryResponse("tank/vms/disk0", "lz4", "", 10737418240, "16K", false)), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -843,12 +843,12 @@ func TestZvolResource_Read_PopulatesPoolPath_AfterImport(t *testing.T) {
 
 func TestZvolResource_Read_InvalidJSON(t *testing.T) {
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// Valid JSON array but first element is not a valid object for zvolQueryResponse unmarshal
 				return json.RawMessage(`["not_an_object"]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -872,11 +872,11 @@ func TestZvolResource_Read_InvalidJSON(t *testing.T) {
 
 func TestZvolResource_Read_APIError(t *testing.T) {
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection failed")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)
@@ -900,7 +900,7 @@ func TestZvolResource_Read_APIError(t *testing.T) {
 
 func TestZvolResource_Create_QueryAfterCreateFails(t *testing.T) {
 	r := &ZvolResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "pool.dataset.create" {
 					return json.RawMessage(`{"id":"tank/myvol"}`), nil
@@ -910,7 +910,7 @@ func TestZvolResource_Create_QueryAfterCreateFails(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getZvolResourceSchema(t)

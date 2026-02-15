@@ -7,8 +7,6 @@ import (
 	"strconv"
 
 	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -35,7 +33,7 @@ type AppRegistryResourceModel struct {
 
 // AppRegistryResource defines the resource implementation.
 type AppRegistryResource struct {
-	client client.Client
+	BaseResource
 }
 
 // NewAppRegistryResource creates a new AppRegistryResource.
@@ -87,22 +85,6 @@ func (r *AppRegistryResource) Schema(ctx context.Context, req resource.SchemaReq
 	}
 }
 
-func (r *AppRegistryResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	c, ok := req.ProviderData.(client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = c
-}
 
 func (r *AppRegistryResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data AppRegistryResourceModel
@@ -282,9 +264,6 @@ func (r *AppRegistryResource) Delete(ctx context.Context, req resource.DeleteReq
 	}
 }
 
-func (r *AppRegistryResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
-}
 
 // queryAppRegistry queries an app registry by ID and returns the response.
 func (r *AppRegistryResource) queryAppRegistry(ctx context.Context, id int64) (*api.AppRegistryResponse, error) {

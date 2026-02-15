@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
@@ -174,7 +172,7 @@ type vmDeviceAPIResponse struct {
 
 // VMResource defines the resource implementation.
 type VMResource struct {
-	client client.Client
+	BaseResource
 }
 
 // NewVMResource creates a new VMResource.
@@ -501,23 +499,6 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 	}
 }
 
-func (r *VMResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	c, ok := req.ProviderData.(client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = c
-}
-
 // -- CRUD --
 
 func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -793,6 +774,3 @@ func (r *VMResource) Delete(ctx context.Context, req resource.DeleteRequest, res
 	}
 }
 
-func (r *VMResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
-}

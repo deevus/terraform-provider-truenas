@@ -453,41 +453,6 @@ func TestVMResource_Schema(t *testing.T) {
 	}
 }
 
-func TestVMResource_Configure_Success(t *testing.T) {
-	r := NewVMResource().(*VMResource)
-	mockClient := &client.MockClient{}
-	req := resource.ConfigureRequest{ProviderData: mockClient}
-	resp := &resource.ConfigureResponse{}
-	r.Configure(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-	if r.client == nil {
-		t.Error("expected client to be set")
-	}
-}
-
-func TestVMResource_Configure_NilProviderData(t *testing.T) {
-	r := NewVMResource().(*VMResource)
-	req := resource.ConfigureRequest{ProviderData: nil}
-	resp := &resource.ConfigureResponse{}
-	r.Configure(context.Background(), req, resp)
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-}
-
-func TestVMResource_Configure_WrongType(t *testing.T) {
-	r := NewVMResource().(*VMResource)
-	req := resource.ConfigureRequest{ProviderData: "not a client"}
-	resp := &resource.ConfigureResponse{}
-	r.Configure(context.Background(), req, resp)
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for wrong ProviderData type")
-	}
-}
-
 // -- buildCreateParams tests --
 
 func TestVMResource_buildCreateParams(t *testing.T) {
@@ -566,7 +531,7 @@ func TestVMResource_Create_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -581,7 +546,7 @@ func TestVMResource_Create_Success(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -628,7 +593,7 @@ func TestVMResource_Create_WithStateRunning(t *testing.T) {
 	var methods []string
 
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
@@ -644,7 +609,7 @@ func TestVMResource_Create_WithStateRunning(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -679,12 +644,12 @@ func TestVMResource_Create_WithStateRunning(t *testing.T) {
 
 func TestVMResource_Create_APIError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("vm already exists")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -706,7 +671,7 @@ func TestVMResource_Create_WithDevices(t *testing.T) {
 	var deviceCreateCalls []map[string]any
 
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -728,7 +693,7 @@ func TestVMResource_Create_WithDevices(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -765,7 +730,7 @@ func TestVMResource_Create_WithDevices(t *testing.T) {
 
 func TestVMResource_Read_Success(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -776,7 +741,7 @@ func TestVMResource_Read_Success(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -808,12 +773,12 @@ func TestVMResource_Read_Success(t *testing.T) {
 
 func TestVMResource_Read_NotFound(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("does not exist")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -841,7 +806,7 @@ func TestVMResource_Read_NotFound(t *testing.T) {
 
 func TestVMResource_Read_WithDevices(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -857,7 +822,7 @@ func TestVMResource_Read_WithDevices(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -906,7 +871,7 @@ func TestVMResource_Update_TopLevel(t *testing.T) {
 	var capturedUpdateParams any
 
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -920,7 +885,7 @@ func TestVMResource_Update_TopLevel(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -974,7 +939,7 @@ func TestVMResource_Delete_Stopped(t *testing.T) {
 	var methods []string
 
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
@@ -986,7 +951,7 @@ func TestVMResource_Delete_Stopped(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1016,7 +981,7 @@ func TestVMResource_Delete_Running(t *testing.T) {
 	var methods []string
 
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
@@ -1032,7 +997,7 @@ func TestVMResource_Delete_Running(t *testing.T) {
 				methods = append(methods, method)
 				return json.RawMessage(`true`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1275,7 +1240,7 @@ func TestVMResource_reconcileDevices(t *testing.T) {
 	t.Run("create new device", func(t *testing.T) {
 		var createdDevices []map[string]any
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						p, _ := params.(map[string]any)
@@ -1284,7 +1249,7 @@ func TestVMResource_reconcileDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := &VMResourceModel{
@@ -1307,7 +1272,7 @@ func TestVMResource_reconcileDevices(t *testing.T) {
 	t.Run("delete removed device", func(t *testing.T) {
 		var deletedIDs []int64
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.delete" {
 						// params is device ID
@@ -1319,7 +1284,7 @@ func TestVMResource_reconcileDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := &VMResourceModel{}
@@ -1343,7 +1308,7 @@ func TestVMResource_reconcileDevices(t *testing.T) {
 	t.Run("update existing device", func(t *testing.T) {
 		var updatedParams []any
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.update" {
 						updatedParams = append(updatedParams, params)
@@ -1351,7 +1316,7 @@ func TestVMResource_reconcileDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := &VMResourceModel{
@@ -1381,12 +1346,12 @@ func TestVMResource_reconcileDevices(t *testing.T) {
 	t.Run("no changes no calls", func(t *testing.T) {
 		callCount := 0
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					callCount++
 					return nil, fmt.Errorf("unexpected call: %s", method)
 				},
-			},
+			}},
 		}
 
 		disk := VMDiskModel{
@@ -1413,12 +1378,12 @@ func TestVMResource_reconcileState(t *testing.T) {
 	t.Run("stopped to running calls vm.start", func(t *testing.T) {
 		var calledMethod string
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					calledMethod = method
 					return json.RawMessage(`true`), nil
 				},
-			},
+			}},
 		}
 
 		err := r.reconcileState(context.Background(), 1, "STOPPED", "RUNNING")
@@ -1433,12 +1398,12 @@ func TestVMResource_reconcileState(t *testing.T) {
 	t.Run("running to stopped calls vm.stop via CallAndWait", func(t *testing.T) {
 		var calledMethod string
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					calledMethod = method
 					return json.RawMessage(`true`), nil
 				},
-			},
+			}},
 		}
 
 		err := r.reconcileState(context.Background(), 1, "RUNNING", "STOPPED")
@@ -1453,12 +1418,12 @@ func TestVMResource_reconcileState(t *testing.T) {
 	t.Run("same state is no-op", func(t *testing.T) {
 		callCount := 0
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					callCount++
 					return nil, nil
 				},
-			},
+			}},
 		}
 
 		err := r.reconcileState(context.Background(), 1, "RUNNING", "RUNNING")
@@ -1661,7 +1626,7 @@ func createVMModelValueFull(p vmModelParams, raws []vmRawParams, pcis []vmPCIPar
 
 func TestVMResource_Create_DeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -1672,7 +1637,7 @@ func TestVMResource_Create_DeviceCreateError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1698,7 +1663,7 @@ func TestVMResource_Create_DeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_StartError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -1709,7 +1674,7 @@ func TestVMResource_Create_StartError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1731,7 +1696,7 @@ func TestVMResource_Create_StartError(t *testing.T) {
 
 func TestVMResource_Create_ReadBackError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -1742,7 +1707,7 @@ func TestVMResource_Create_ReadBackError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1762,7 +1727,7 @@ func TestVMResource_Create_ReadBackError(t *testing.T) {
 
 func TestVMResource_Create_DeviceQueryError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -1775,7 +1740,7 @@ func TestVMResource_Create_DeviceQueryError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1796,7 +1761,7 @@ func TestVMResource_Create_DeviceQueryError(t *testing.T) {
 func TestVMResource_Create_WithCDROMDevice(t *testing.T) {
 	var deviceMethods []string
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				deviceMethods = append(deviceMethods, method)
@@ -1815,7 +1780,7 @@ func TestVMResource_Create_WithCDROMDevice(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1850,7 +1815,7 @@ func TestVMResource_Create_WithCDROMDevice(t *testing.T) {
 func TestVMResource_Create_WithDisplayDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -1870,7 +1835,7 @@ func TestVMResource_Create_WithDisplayDevice(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1899,7 +1864,7 @@ func TestVMResource_Create_WithDisplayDevice(t *testing.T) {
 func TestVMResource_Create_WithRawDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -1918,7 +1883,7 @@ func TestVMResource_Create_WithRawDevice(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1950,7 +1915,7 @@ func TestVMResource_Create_WithRawDevice(t *testing.T) {
 func TestVMResource_Create_WithPCIDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -1969,7 +1934,7 @@ func TestVMResource_Create_WithPCIDevice(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1997,7 +1962,7 @@ func TestVMResource_Create_WithPCIDevice(t *testing.T) {
 func TestVMResource_Create_WithUSBDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2016,7 +1981,7 @@ func TestVMResource_Create_WithUSBDevice(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2042,7 +2007,7 @@ func TestVMResource_Create_WithUSBDevice(t *testing.T) {
 
 func TestVMResource_Create_RawDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2053,7 +2018,7 @@ func TestVMResource_Create_RawDeviceCreateError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2081,7 +2046,7 @@ func TestVMResource_Create_RawDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_CDROMDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2092,7 +2057,7 @@ func TestVMResource_Create_CDROMDeviceCreateError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2114,7 +2079,7 @@ func TestVMResource_Create_CDROMDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_NICDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2125,7 +2090,7 @@ func TestVMResource_Create_NICDeviceCreateError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2147,7 +2112,7 @@ func TestVMResource_Create_NICDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_DisplayDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2158,7 +2123,7 @@ func TestVMResource_Create_DisplayDeviceCreateError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2183,7 +2148,7 @@ func TestVMResource_Create_DisplayDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_PCIDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2194,7 +2159,7 @@ func TestVMResource_Create_PCIDeviceCreateError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2218,7 +2183,7 @@ func TestVMResource_Create_PCIDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_USBDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2229,7 +2194,7 @@ func TestVMResource_Create_USBDeviceCreateError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2254,12 +2219,12 @@ func TestVMResource_Create_USBDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Read_NonNotFoundError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("internal server error")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2281,7 +2246,7 @@ func TestVMResource_Read_NonNotFoundError(t *testing.T) {
 
 func TestVMResource_Read_DeviceQueryError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2292,7 +2257,7 @@ func TestVMResource_Read_DeviceQueryError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2317,7 +2282,7 @@ func TestVMResource_Read_DeviceQueryError(t *testing.T) {
 func TestVMResource_Update_WithDeviceReconciliation(t *testing.T) {
 	var methods []string
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
@@ -2338,7 +2303,7 @@ func TestVMResource_Update_WithDeviceReconciliation(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2396,7 +2361,7 @@ func TestVMResource_Update_WithDeviceReconciliation(t *testing.T) {
 func TestVMResource_Update_StateTransition(t *testing.T) {
 	var methods []string
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
@@ -2412,7 +2377,7 @@ func TestVMResource_Update_StateTransition(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2453,7 +2418,7 @@ func TestVMResource_Update_StateTransition(t *testing.T) {
 
 func TestVMResource_Update_UpdateError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "vm.update" {
@@ -2461,7 +2426,7 @@ func TestVMResource_Update_UpdateError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2492,7 +2457,7 @@ func TestVMResource_Update_UpdateError(t *testing.T) {
 
 func TestVMResource_Update_DeviceReconcileError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2501,7 +2466,7 @@ func TestVMResource_Update_DeviceReconcileError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2537,7 +2502,7 @@ func TestVMResource_Update_DeviceReconcileError(t *testing.T) {
 func TestVMResource_Update_StateTransitionQueryError(t *testing.T) {
 	callCount := 0
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2553,7 +2518,7 @@ func TestVMResource_Update_StateTransitionQueryError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2584,7 +2549,7 @@ func TestVMResource_Update_StateTransitionQueryError(t *testing.T) {
 
 func TestVMResource_Update_StateReconcileError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2597,7 +2562,7 @@ func TestVMResource_Update_StateReconcileError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2629,7 +2594,7 @@ func TestVMResource_Update_StateReconcileError(t *testing.T) {
 func TestVMResource_Update_ReadBackError(t *testing.T) {
 	getInstanceCallCount := 0
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2647,7 +2612,7 @@ func TestVMResource_Update_ReadBackError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2678,7 +2643,7 @@ func TestVMResource_Update_ReadBackError(t *testing.T) {
 
 func TestVMResource_Update_DeviceQueryError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2689,7 +2654,7 @@ func TestVMResource_Update_DeviceQueryError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2720,7 +2685,7 @@ func TestVMResource_Update_DeviceQueryError(t *testing.T) {
 
 func TestVMResource_Delete_StatusError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "vm.get_instance" {
@@ -2728,7 +2693,7 @@ func TestVMResource_Delete_StatusError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2748,7 +2713,7 @@ func TestVMResource_Delete_StatusError(t *testing.T) {
 
 func TestVMResource_Delete_StopError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "vm.get_instance" {
@@ -2759,7 +2724,7 @@ func TestVMResource_Delete_StopError(t *testing.T) {
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("stop failed")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2780,7 +2745,7 @@ func TestVMResource_Delete_StopError(t *testing.T) {
 
 func TestVMResource_Delete_DeleteError(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
@@ -2791,7 +2756,7 @@ func TestVMResource_Delete_DeleteError(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2811,7 +2776,7 @@ func TestVMResource_Delete_DeleteError(t *testing.T) {
 
 func TestVMResource_Delete_AlreadyDeleted(t *testing.T) {
 	r := &VMResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "vm.get_instance" {
@@ -2819,7 +2784,7 @@ func TestVMResource_Delete_AlreadyDeleted(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected method: %s", method)
 			},
-		},
+		}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -3101,7 +3066,7 @@ func TestVMResource_reconcileRawDevices(t *testing.T) {
 	t.Run("create new raw device", func(t *testing.T) {
 		var createdDevices []map[string]any
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						p, _ := params.(map[string]any)
@@ -3110,7 +3075,7 @@ func TestVMResource_reconcileRawDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMRawModel{{
@@ -3132,7 +3097,7 @@ func TestVMResource_reconcileRawDevices(t *testing.T) {
 	t.Run("update changed raw device", func(t *testing.T) {
 		var updatedParams []any
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.update" {
 						updatedParams = append(updatedParams, params)
@@ -3140,7 +3105,7 @@ func TestVMResource_reconcileRawDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMRawModel{{
@@ -3167,11 +3132,11 @@ func TestVMResource_reconcileRawDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("create failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMRawModel{{
@@ -3186,11 +3151,11 @@ func TestVMResource_reconcileRawDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("update failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMRawModel{{
@@ -3216,7 +3181,7 @@ func TestVMResource_reconcileCDROMDevices(t *testing.T) {
 	t.Run("create new cdrom", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						createdDevices++
@@ -3224,7 +3189,7 @@ func TestVMResource_reconcileCDROMDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMCDROMModel{{
@@ -3242,7 +3207,7 @@ func TestVMResource_reconcileCDROMDevices(t *testing.T) {
 	t.Run("update changed cdrom", func(t *testing.T) {
 		var updatedCount int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.update" {
 						updatedCount++
@@ -3250,7 +3215,7 @@ func TestVMResource_reconcileCDROMDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMCDROMModel{{
@@ -3272,11 +3237,11 @@ func TestVMResource_reconcileCDROMDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("create failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMCDROMModel{{Path: types.StringValue("/mnt/tank/iso/test.iso")}}
@@ -3288,11 +3253,11 @@ func TestVMResource_reconcileCDROMDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("update failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMCDROMModel{{DeviceID: types.Int64Value(50), Path: types.StringValue("/mnt/tank/iso/new.iso")}}
@@ -3308,7 +3273,7 @@ func TestVMResource_reconcileNICDevices(t *testing.T) {
 	t.Run("create new nic", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						createdDevices++
@@ -3316,7 +3281,7 @@ func TestVMResource_reconcileNICDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMNICModel{{
@@ -3335,7 +3300,7 @@ func TestVMResource_reconcileNICDevices(t *testing.T) {
 	t.Run("update changed nic", func(t *testing.T) {
 		var updatedCount int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.update" {
 						updatedCount++
@@ -3343,7 +3308,7 @@ func TestVMResource_reconcileNICDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMNICModel{{
@@ -3367,11 +3332,11 @@ func TestVMResource_reconcileNICDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("create failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMNICModel{{Type: types.StringValue("VIRTIO"), NICAttach: types.StringValue("br0")}}
@@ -3383,11 +3348,11 @@ func TestVMResource_reconcileNICDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("update failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMNICModel{{DeviceID: types.Int64Value(50), Type: types.StringValue("E1000"), NICAttach: types.StringValue("br0")}}
@@ -3403,7 +3368,7 @@ func TestVMResource_reconcileDisplayDevices(t *testing.T) {
 	t.Run("create new display", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						createdDevices++
@@ -3411,7 +3376,7 @@ func TestVMResource_reconcileDisplayDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMDisplayModel{{
@@ -3432,7 +3397,7 @@ func TestVMResource_reconcileDisplayDevices(t *testing.T) {
 	t.Run("update changed display", func(t *testing.T) {
 		var updatedCount int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.update" {
 						updatedCount++
@@ -3440,7 +3405,7 @@ func TestVMResource_reconcileDisplayDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMDisplayModel{{
@@ -3474,11 +3439,11 @@ func TestVMResource_reconcileDisplayDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("create failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMDisplayModel{{Type: types.StringValue("SPICE"), Resolution: types.StringValue("1024x768"), Bind: types.StringValue("0.0.0.0")}}
@@ -3490,11 +3455,11 @@ func TestVMResource_reconcileDisplayDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("update failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMDisplayModel{{DeviceID: types.Int64Value(50), Type: types.StringValue("SPICE"), Resolution: types.StringValue("1920x1080"), Bind: types.StringValue("0.0.0.0"), Web: types.BoolValue(true), Wait: types.BoolValue(false), Port: types.Int64Value(5900), WebPort: types.Int64Value(5901)}}
@@ -3510,7 +3475,7 @@ func TestVMResource_reconcilePCIDevices(t *testing.T) {
 	t.Run("create new pci", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						createdDevices++
@@ -3518,7 +3483,7 @@ func TestVMResource_reconcilePCIDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMPCIModel{{PPTDev: types.StringValue("0000:01:00.0")}}
@@ -3534,7 +3499,7 @@ func TestVMResource_reconcilePCIDevices(t *testing.T) {
 	t.Run("update changed pci", func(t *testing.T) {
 		var updatedCount int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.update" {
 						updatedCount++
@@ -3542,7 +3507,7 @@ func TestVMResource_reconcilePCIDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMPCIModel{{DeviceID: types.Int64Value(50), PPTDev: types.StringValue("0000:02:00.0")}}
@@ -3558,11 +3523,11 @@ func TestVMResource_reconcilePCIDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("create failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMPCIModel{{PPTDev: types.StringValue("0000:01:00.0")}}
@@ -3574,11 +3539,11 @@ func TestVMResource_reconcilePCIDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("update failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMPCIModel{{DeviceID: types.Int64Value(50), PPTDev: types.StringValue("0000:02:00.0")}}
@@ -3594,7 +3559,7 @@ func TestVMResource_reconcileUSBDevices(t *testing.T) {
 	t.Run("create new usb", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						createdDevices++
@@ -3602,7 +3567,7 @@ func TestVMResource_reconcileUSBDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMUSBModel{{ControllerType: types.StringValue("qemu-xhci"), Device: types.StringValue("usb_0001")}}
@@ -3618,7 +3583,7 @@ func TestVMResource_reconcileUSBDevices(t *testing.T) {
 	t.Run("update changed usb", func(t *testing.T) {
 		var updatedCount int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.update" {
 						updatedCount++
@@ -3626,7 +3591,7 @@ func TestVMResource_reconcileUSBDevices(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := []VMUSBModel{{DeviceID: types.Int64Value(50), ControllerType: types.StringValue("nec-xhci"), Device: types.StringValue("usb_0001")}}
@@ -3642,11 +3607,11 @@ func TestVMResource_reconcileUSBDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("create failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMUSBModel{{ControllerType: types.StringValue("qemu-xhci"), Device: types.StringValue("usb_0001")}}
@@ -3658,11 +3623,11 @@ func TestVMResource_reconcileUSBDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					return nil, errors.New("update failed")
 				},
-			},
+			}},
 		}
 
 		plan := []VMUSBModel{{DeviceID: types.Int64Value(50), ControllerType: types.StringValue("nec-xhci"), Device: types.StringValue("usb_0001")}}
@@ -3964,7 +3929,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to raw reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						createdDevices++
@@ -3972,7 +3937,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := &VMResourceModel{
@@ -3997,7 +3962,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to cdrom reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						createdDevices++
@@ -4005,7 +3970,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := &VMResourceModel{
@@ -4025,7 +3990,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to nic reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						createdDevices++
@@ -4033,7 +3998,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := &VMResourceModel{
@@ -4053,7 +4018,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to display reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						createdDevices++
@@ -4061,7 +4026,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := &VMResourceModel{
@@ -4081,7 +4046,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to pci reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						createdDevices++
@@ -4089,7 +4054,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := &VMResourceModel{
@@ -4109,7 +4074,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to usb reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			client: &client.MockClient{
+			BaseResource: BaseResource{client: &client.MockClient{
 				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 					if method == "vm.device.create" {
 						createdDevices++
@@ -4117,7 +4082,7 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 					}
 					return nil, fmt.Errorf("unexpected method: %s", method)
 				},
-			},
+			}},
 		}
 
 		plan := &VMResourceModel{
