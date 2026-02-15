@@ -111,53 +111,6 @@ func TestAppResource_Schema(t *testing.T) {
 	}
 }
 
-func TestAppResource_Configure_Success(t *testing.T) {
-	r := NewAppResource().(*AppResource)
-
-	mockClient := &client.MockClient{}
-
-	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-}
-
-func TestAppResource_Configure_NilProviderData(t *testing.T) {
-	r := NewAppResource().(*AppResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: nil,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	// Should not error - nil ProviderData is valid during schema validation
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-}
-
-func TestAppResource_Configure_WrongType(t *testing.T) {
-	r := NewAppResource().(*AppResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: "not a client",
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for wrong ProviderData type")
-	}
-}
 
 // getAppResourceSchema returns the schema for the app resource
 func getAppResourceSchema(t *testing.T) resource.SchemaResponse {
@@ -268,7 +221,7 @@ func TestAppResource_Create_Success(t *testing.T) {
 	var capturedCreateParams any
 
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedCreateMethod = method
 				capturedCreateParams = params
@@ -282,7 +235,8 @@ func TestAppResource_Create_Success(t *testing.T) {
 					"state": "RUNNING"
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -347,7 +301,7 @@ func TestAppResource_Create_WithComposeConfig(t *testing.T) {
 	var capturedParams any
 
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedParams = params
 				// app.create response is ignored
@@ -360,7 +314,8 @@ func TestAppResource_Create_WithComposeConfig(t *testing.T) {
 					"state": "RUNNING"
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -400,11 +355,12 @@ func TestAppResource_Create_WithComposeConfig(t *testing.T) {
 
 func TestAppResource_Create_APIError(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("app already exists")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -433,7 +389,7 @@ func TestAppResource_Create_APIError(t *testing.T) {
 
 func TestAppResource_Read_Success(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "app.query" {
 					t.Errorf("expected method 'app.query', got %q", method)
@@ -452,7 +408,8 @@ func TestAppResource_Read_Success(t *testing.T) {
 					}
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -509,12 +466,13 @@ func TestAppResource_Read_Success(t *testing.T) {
 
 func TestAppResource_Read_NotFound(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// Return empty array - app not found
 				return json.RawMessage(`[]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -549,11 +507,12 @@ func TestAppResource_Read_NotFound(t *testing.T) {
 
 func TestAppResource_Read_APIError(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection failed")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -586,7 +545,7 @@ func TestAppResource_Update_Success(t *testing.T) {
 	var capturedQueryMethod string
 
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedUpdateMethod = method
 				capturedUpdateParams = params
@@ -601,7 +560,8 @@ func TestAppResource_Update_Success(t *testing.T) {
 					"state": "RUNNING"
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -663,11 +623,12 @@ func TestAppResource_Update_Success(t *testing.T) {
 
 func TestAppResource_Update_APIError(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("update failed")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -704,13 +665,14 @@ func TestAppResource_Delete_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedMethod = method
 				capturedParams = params
 				return json.RawMessage(`null`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -749,11 +711,12 @@ func TestAppResource_Delete_Success(t *testing.T) {
 
 func TestAppResource_Delete_APIError(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("app is running")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -833,11 +796,12 @@ func TestAppResource_ImplementsInterfaces(t *testing.T) {
 // Test Read with invalid JSON response
 func TestAppResource_Read_InvalidJSONResponse(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -867,11 +831,12 @@ func TestAppResource_Read_InvalidJSONResponse(t *testing.T) {
 // Test Create with invalid JSON response
 func TestAppResource_Create_InvalidJSONResponse(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -901,11 +866,12 @@ func TestAppResource_Create_InvalidJSONResponse(t *testing.T) {
 // Test Update with invalid JSON response
 func TestAppResource_Update_InvalidJSONResponse(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -940,7 +906,7 @@ func TestAppResource_Update_InvalidJSONResponse(t *testing.T) {
 // Test Read with empty compose_config sets null
 func TestAppResource_Read_EmptyComposeConfigSetsNull(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// Empty config object means no compose config
 				return json.RawMessage(`[{
@@ -950,7 +916,8 @@ func TestAppResource_Read_EmptyComposeConfigSetsNull(t *testing.T) {
 					"config": {}
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -996,14 +963,15 @@ func TestAppResource_Read_EmptyComposeConfigSetsNull(t *testing.T) {
 // Test Create with query error after create
 func TestAppResource_Create_QueryErrorAfterCreate(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil // create succeeds
 			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("query failed")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1033,14 +1001,15 @@ func TestAppResource_Create_QueryErrorAfterCreate(t *testing.T) {
 // Test Create when app is not found after create
 func TestAppResource_Create_AppNotFoundAfterCreate(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil // create succeeds
 			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil // empty array
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1070,14 +1039,15 @@ func TestAppResource_Create_AppNotFoundAfterCreate(t *testing.T) {
 // Test Update with query error after update
 func TestAppResource_Update_QueryErrorAfterUpdate(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil // update succeeds
 			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("query failed")
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1112,14 +1082,15 @@ func TestAppResource_Update_QueryErrorAfterUpdate(t *testing.T) {
 // Test Update when app is not found after update
 func TestAppResource_Update_AppNotFoundAfterUpdate(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil // update succeeds
 			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil // empty array
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1154,14 +1125,15 @@ func TestAppResource_Update_AppNotFoundAfterUpdate(t *testing.T) {
 // Test Update with invalid JSON response from query
 func TestAppResource_Update_QueryInvalidJSONResponse(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil // update succeeds
 			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1196,14 +1168,15 @@ func TestAppResource_Update_QueryInvalidJSONResponse(t *testing.T) {
 // Test Create with invalid JSON response from query
 func TestAppResource_Create_QueryInvalidJSONResponse(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil // create succeeds
 			},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1260,14 +1233,15 @@ func TestAppResource_Schema_DesiredStateAttribute(t *testing.T) {
 // Test ImportState followed by Read verifies the flow works
 func TestAppResource_queryAppState_Success(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "app.query" {
 					t.Errorf("expected method 'app.query', got %q", method)
 				}
 				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	state, err := r.queryAppState(context.Background(), "myapp")
@@ -1281,11 +1255,12 @@ func TestAppResource_queryAppState_Success(t *testing.T) {
 
 func TestAppResource_queryAppState_NotFound(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil
 			},
-		},
+		}},
+
 	}
 
 	_, err := r.queryAppState(context.Background(), "myapp")
@@ -1296,11 +1271,12 @@ func TestAppResource_queryAppState_NotFound(t *testing.T) {
 
 func TestAppResource_queryAppState_APIError(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection failed")
 			},
-		},
+		}},
+
 	}
 
 	_, err := r.queryAppState(context.Background(), "myapp")
@@ -1311,11 +1287,12 @@ func TestAppResource_queryAppState_APIError(t *testing.T) {
 
 func TestAppResource_queryAppState_InvalidJSON(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
-		},
+		}},
+
 	}
 
 	_, err := r.queryAppState(context.Background(), "myapp")
@@ -1326,7 +1303,7 @@ func TestAppResource_queryAppState_InvalidJSON(t *testing.T) {
 
 func TestAppResource_ImportState_FollowedByRead(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "app.query" {
 					t.Errorf("expected method 'app.query', got %q", method)
@@ -1341,7 +1318,8 @@ func TestAppResource_ImportState_FollowedByRead(t *testing.T) {
 					}
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1416,7 +1394,7 @@ func TestAppResource_ImportState_FollowedByRead(t *testing.T) {
 func TestAppResource_reconcileDesiredState_StartApp(t *testing.T) {
 	var calledMethod string
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				calledMethod = method
 				return nil, nil
@@ -1424,7 +1402,8 @@ func TestAppResource_reconcileDesiredState_StartApp(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1446,7 +1425,7 @@ func TestAppResource_reconcileDesiredState_StartApp(t *testing.T) {
 func TestAppResource_reconcileDesiredState_StopApp(t *testing.T) {
 	var calledMethod string
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				calledMethod = method
 				return nil, nil
@@ -1454,7 +1433,8 @@ func TestAppResource_reconcileDesiredState_StopApp(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{"name": "myapp", "state": "STOPPED"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1476,12 +1456,13 @@ func TestAppResource_reconcileDesiredState_StopApp(t *testing.T) {
 func TestAppResource_reconcileDesiredState_NoChangeNeeded(t *testing.T) {
 	callCount := 0
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				callCount++
 				return nil, nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1504,7 +1485,7 @@ func TestAppResource_Update_ReconcileStateFromStoppedToRunning(t *testing.T) {
 	var methods []string
 	queryCount := 0
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				return nil, nil
@@ -1518,7 +1499,8 @@ func TestAppResource_Update_ReconcileStateFromStoppedToRunning(t *testing.T) {
 				}
 				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1577,7 +1559,7 @@ func TestAppResource_Update_ReconcileStateFromStoppedToRunning(t *testing.T) {
 
 func TestAppResource_Read_PreservesDesiredState(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// API reports RUNNING state, but user wants it STOPPED
 				return json.RawMessage(`[{
@@ -1587,7 +1569,8 @@ func TestAppResource_Read_PreservesDesiredState(t *testing.T) {
 					"config": {}
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1642,7 +1625,7 @@ func TestAppResource_Read_PreservesDesiredState(t *testing.T) {
 // not match config value" errors).
 func TestAppResource_Read_PreservesDesiredStateCase(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"name": "myapp",
@@ -1651,7 +1634,8 @@ func TestAppResource_Read_PreservesDesiredStateCase(t *testing.T) {
 					"config": {}
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1699,7 +1683,7 @@ func TestAppResource_Read_PreservesDesiredStateCase(t *testing.T) {
 
 func TestAppResource_Read_DefaultsDesiredStateWhenNull(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"name": "myapp",
@@ -1708,7 +1692,8 @@ func TestAppResource_Read_DefaultsDesiredStateWhenNull(t *testing.T) {
 					"config": {}
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1755,7 +1740,7 @@ func TestAppResource_Read_DefaultsDesiredStateWhenNull(t *testing.T) {
 func TestAppResource_Create_WithDesiredStateStopped(t *testing.T) {
 	var methods []string
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				return nil, nil
@@ -1767,7 +1752,8 @@ func TestAppResource_Create_WithDesiredStateStopped(t *testing.T) {
 				}
 				return json.RawMessage(`[{"name": "myapp", "state": "STOPPED"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1856,7 +1842,7 @@ func TestAppResource_Create_DesiredStateCasePreservation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var methods []string
 			r := &AppResource{
-				client: &client.MockClient{
+				BaseResource: BaseResource{client: &client.MockClient{
 					CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 						methods = append(methods, method)
 						return nil, nil
@@ -1865,7 +1851,8 @@ func TestAppResource_Create_DesiredStateCasePreservation(t *testing.T) {
 						// Simulate API returning state based on what was requested
 						return json.RawMessage(`[{"name": "myapp", "state": "` + tc.expectedState + `"}]`), nil
 					},
-				},
+				}},
+
 			}
 
 			schemaResp := getAppResourceSchema(t)
@@ -1919,7 +1906,7 @@ func TestAppResource_Update_CrashedAppStartAttempt(t *testing.T) {
 	var calledMethod string
 	queryCount := 0
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				calledMethod = method
 				return nil, nil
@@ -1933,7 +1920,8 @@ func TestAppResource_Update_CrashedAppStartAttempt(t *testing.T) {
 				}
 				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1974,7 +1962,7 @@ func TestAppResource_Update_CrashedAppStartAttempt(t *testing.T) {
 func TestAppResource_Update_CrashedAppDesiredStopped(t *testing.T) {
 	callCount := 0
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				callCount++
 				return nil, nil
@@ -1982,7 +1970,8 @@ func TestAppResource_Update_CrashedAppDesiredStopped(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{"name": "myapp", "state": "CRASHED"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2043,7 +2032,7 @@ func TestAppResource_Update_RestartTriggersChange(t *testing.T) {
 	var methods []string
 	queryCount := 0
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				return nil, nil
@@ -2053,7 +2042,8 @@ func TestAppResource_Update_RestartTriggersChange(t *testing.T) {
 				// Return RUNNING state throughout - app should be restarted
 				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2120,7 +2110,7 @@ func TestAppResource_Update_RestartTriggersChange(t *testing.T) {
 func TestAppResource_Update_RestartTriggersNoChangeNoRestart(t *testing.T) {
 	callCount := 0
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				callCount++
 				return nil, nil
@@ -2128,7 +2118,8 @@ func TestAppResource_Update_RestartTriggersNoChangeNoRestart(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2176,7 +2167,7 @@ func TestAppResource_Update_RestartTriggersNoChangeNoRestart(t *testing.T) {
 func TestAppResource_Update_RestartTriggersStoppedAppNoRestart(t *testing.T) {
 	callCount := 0
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				callCount++
 				return nil, nil
@@ -2184,7 +2175,8 @@ func TestAppResource_Update_RestartTriggersStoppedAppNoRestart(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{"name": "myapp", "state": "STOPPED"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2230,7 +2222,7 @@ func TestAppResource_Update_RestartTriggersStoppedAppNoRestart(t *testing.T) {
 
 func TestAppResource_Read_PreservesRestartTriggers(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"name": "myapp",
@@ -2239,7 +2231,8 @@ func TestAppResource_Read_PreservesRestartTriggers(t *testing.T) {
 					"config": {}
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2294,7 +2287,7 @@ func TestAppResource_Read_PreservesRestartTriggers(t *testing.T) {
 func TestAppResource_Update_RestartTriggersAddedFirstTime(t *testing.T) {
 	var methods []string
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				return nil, nil
@@ -2302,7 +2295,8 @@ func TestAppResource_Update_RestartTriggersAddedFirstTime(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2353,7 +2347,7 @@ func TestAppResource_Update_RestartTriggersAddedFirstTime(t *testing.T) {
 func TestAppResource_Update_RestartTriggersRemoved(t *testing.T) {
 	var methods []string
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				return nil, nil
@@ -2361,7 +2355,8 @@ func TestAppResource_Update_RestartTriggersRemoved(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2411,7 +2406,7 @@ func TestAppResource_Update_RestartTriggersRemoved(t *testing.T) {
 
 func TestAppResource_Update_RestartTriggersStopError(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "app.stop" {
 					return nil, errors.New("stop failed: container busy")
@@ -2421,7 +2416,8 @@ func TestAppResource_Update_RestartTriggersStopError(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2476,7 +2472,7 @@ func TestAppResource_Update_RestartTriggersStopError(t *testing.T) {
 
 func TestAppResource_Update_RestartTriggersStartError(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "app.stop" {
 					return nil, nil // stop succeeds
@@ -2489,7 +2485,8 @@ func TestAppResource_Update_RestartTriggersStartError(t *testing.T) {
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2547,7 +2544,7 @@ func TestAppResource_Update_RestartTriggersStartError(t *testing.T) {
 // match config value" errors).
 func TestAppResource_Update_DesiredStateCasePreservation(t *testing.T) {
 	r := &AppResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil
 			},
@@ -2559,7 +2556,8 @@ func TestAppResource_Update_DesiredStateCasePreservation(t *testing.T) {
 					"config": {}
 				}]`), nil
 			},
-		},
+		}},
+
 	}
 
 	schemaResp := getAppResourceSchema(t)

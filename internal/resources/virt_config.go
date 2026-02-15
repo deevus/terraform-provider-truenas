@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/deevus/terraform-provider-truenas/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -39,7 +38,7 @@ type virtConfigAPIResponse struct {
 
 // VirtConfigResource defines the resource implementation.
 type VirtConfigResource struct {
-	client client.Client
+	BaseResource
 }
 
 // NewVirtConfigResource creates a new VirtConfigResource.
@@ -82,22 +81,6 @@ func (r *VirtConfigResource) Schema(ctx context.Context, req resource.SchemaRequ
 	}
 }
 
-func (r *VirtConfigResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	c, ok := req.ProviderData.(client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = c
-}
 
 func (r *VirtConfigResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data VirtConfigResourceModel

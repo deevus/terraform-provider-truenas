@@ -78,57 +78,6 @@ func TestCloudSyncCredentialsResource_Schema(t *testing.T) {
 	}
 }
 
-func TestCloudSyncCredentialsResource_Configure_Success(t *testing.T) {
-	r := NewCloudSyncCredentialsResource().(*CloudSyncCredentialsResource)
-
-	mockClient := &client.MockClient{}
-
-	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-
-	if r.client == nil {
-		t.Error("expected client to be set")
-	}
-}
-
-func TestCloudSyncCredentialsResource_Configure_NilProviderData(t *testing.T) {
-	r := NewCloudSyncCredentialsResource().(*CloudSyncCredentialsResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: nil,
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-}
-
-func TestCloudSyncCredentialsResource_Configure_WrongType(t *testing.T) {
-	r := NewCloudSyncCredentialsResource().(*CloudSyncCredentialsResource)
-
-	req := resource.ConfigureRequest{
-		ProviderData: "not a client",
-	}
-	resp := &resource.ConfigureResponse{}
-
-	r.Configure(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for wrong ProviderData type")
-	}
-}
-
 // Test helpers
 
 func getCloudSyncCredentialsResourceSchema(t *testing.T) resource.SchemaResponse {
@@ -292,7 +241,7 @@ func TestCloudSyncCredentialsResource_Create_S3_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
@@ -315,7 +264,7 @@ func TestCloudSyncCredentialsResource_Create_S3_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -392,7 +341,7 @@ func TestCloudSyncCredentialsResource_Create_S3_Success(t *testing.T) {
 
 func TestCloudSyncCredentialsResource_Read_Success(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
@@ -407,7 +356,7 @@ func TestCloudSyncCredentialsResource_Read_Success(t *testing.T) {
 					}
 				}]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -454,12 +403,12 @@ func TestCloudSyncCredentialsResource_Read_Success(t *testing.T) {
 
 func TestCloudSyncCredentialsResource_Read_NotFound(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -503,7 +452,7 @@ func TestCloudSyncCredentialsResource_Update_Success(t *testing.T) {
 	var capturedUpdateData map[string]any
 
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.update" {
@@ -529,7 +478,7 @@ func TestCloudSyncCredentialsResource_Update_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -629,13 +578,13 @@ func TestCloudSyncCredentialsResource_Delete_Success(t *testing.T) {
 	var capturedID int64
 
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedMethod = method
 				capturedID = params.(int64)
 				return json.RawMessage(`true`), nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -674,12 +623,12 @@ func TestCloudSyncCredentialsResource_Delete_Success(t *testing.T) {
 
 func TestCloudSyncCredentialsResource_Create_APIError(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -713,7 +662,7 @@ func TestCloudSyncCredentialsResource_Create_APIError(t *testing.T) {
 
 func TestCloudSyncCredentialsResource_Create_NoProviderBlock(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -743,7 +692,7 @@ func TestCloudSyncCredentialsResource_Create_NoProviderBlock(t *testing.T) {
 
 func TestCloudSyncCredentialsResource_Create_S3_MissingRequiredFields(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{},
+		BaseResource: BaseResource{client: &client.MockClient{}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -785,12 +734,12 @@ func TestCloudSyncCredentialsResource_Create_S3_MissingRequiredFields(t *testing
 
 func TestCloudSyncCredentialsResource_Read_APIError(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -825,11 +774,11 @@ func TestCloudSyncCredentialsResource_Read_APIError(t *testing.T) {
 
 func TestCloudSyncCredentialsResource_Delete_APIError(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("credentials in use")
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -862,7 +811,7 @@ func TestCloudSyncCredentialsResource_Create_B2_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
@@ -882,7 +831,7 @@ func TestCloudSyncCredentialsResource_Create_B2_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -949,7 +898,7 @@ func TestCloudSyncCredentialsResource_Create_GCS_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
@@ -968,7 +917,7 @@ func TestCloudSyncCredentialsResource_Create_GCS_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -1031,7 +980,7 @@ func TestCloudSyncCredentialsResource_Create_Azure_Success(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
@@ -1051,7 +1000,7 @@ func TestCloudSyncCredentialsResource_Create_Azure_Success(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -1153,7 +1102,7 @@ func TestCloudSyncCredentialsResource_Create_S3_Legacy(t *testing.T) {
 	var capturedParams any
 
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
@@ -1173,7 +1122,7 @@ func TestCloudSyncCredentialsResource_Create_S3_Legacy(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)
@@ -1233,7 +1182,7 @@ func TestCloudSyncCredentialsResource_Update_S3_Legacy(t *testing.T) {
 	var capturedUpdateData map[string]any
 
 	r := &CloudSyncCredentialsResource{
-		client: &client.MockClient{
+		BaseResource: BaseResource{client: &client.MockClient{
 			VersionVal: api.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.update" {
@@ -1257,7 +1206,7 @@ func TestCloudSyncCredentialsResource_Update_S3_Legacy(t *testing.T) {
 				}
 				return nil, nil
 			},
-		},
+		}},
 	}
 
 	schemaResp := getCloudSyncCredentialsResourceSchema(t)

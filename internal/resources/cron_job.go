@@ -7,8 +7,6 @@ import (
 	"strconv"
 
 	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
@@ -38,7 +36,7 @@ type CronJobResourceModel struct {
 
 // CronJobResource defines the resource implementation.
 type CronJobResource struct {
-	client client.Client
+	BaseResource
 }
 
 // NewCronJobResource creates a new CronJobResource.
@@ -130,22 +128,6 @@ func (r *CronJobResource) Schema(ctx context.Context, req resource.SchemaRequest
 	}
 }
 
-func (r *CronJobResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	c, ok := req.ProviderData.(client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = c
-}
 
 func (r *CronJobResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data CronJobResourceModel
@@ -325,9 +307,6 @@ func (r *CronJobResource) Delete(ctx context.Context, req resource.DeleteRequest
 	}
 }
 
-func (r *CronJobResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
-}
 
 // queryCronJob queries a cron job by ID and returns the response.
 func (r *CronJobResource) queryCronJob(ctx context.Context, id int64) (*api.CronJobResponse, error) {

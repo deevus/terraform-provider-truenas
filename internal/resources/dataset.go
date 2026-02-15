@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
 	customtypes "github.com/deevus/terraform-provider-truenas/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -23,7 +22,7 @@ var _ resource.ResourceWithValidateConfig = &DatasetResource{}
 
 // DatasetResource defines the resource implementation.
 type DatasetResource struct {
-	client client.Client
+	BaseResource
 }
 
 // DatasetResourceModel describes the resource data model.
@@ -230,24 +229,6 @@ func (r *DatasetResource) Schema(ctx context.Context, req resource.SchemaRequest
 			},
 		},
 	}
-}
-
-func (r *DatasetResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	// Prevent panic if the provider has not been configured
-	if req.ProviderData == nil {
-		return
-	}
-
-	c, ok := req.ProviderData.(client.Client)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = c
 }
 
 func (r *DatasetResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
@@ -616,10 +597,6 @@ func (r *DatasetResource) Delete(ctx context.Context, req resource.DeleteRequest
 			fmt.Sprintf("Unable to delete dataset %q: %s", datasetID, err.Error()),
 		)
 	}
-}
-
-func (r *DatasetResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
 // getFullName returns the full dataset name from the model.
