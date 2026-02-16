@@ -48,11 +48,14 @@ func BuildCommand(method string, params any) string {
 }
 
 // AppCreateParams represents parameters for app.create.
-// Simplified for custom Docker Compose apps only.
 type AppCreateParams struct {
-	AppName                   string `json:"app_name"`
-	CustomApp                 bool   `json:"custom_app"`
-	CustomComposeConfigString string `json:"custom_compose_config_string,omitempty"`
+	AppName                   string         `json:"app_name"`
+	CustomApp                 bool           `json:"custom_app"`
+	CustomComposeConfigString string         `json:"custom_compose_config_string,omitempty"`
+	CatalogApp                string         `json:"catalog_app,omitempty"`
+	Train                     string         `json:"train,omitempty"`
+	Version                   string         `json:"version,omitempty"`
+	Values                    map[string]any `json:"values,omitempty"`
 }
 
 // DatasetCreateParams represents parameters for pool.dataset.create.

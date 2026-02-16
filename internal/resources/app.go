@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -24,6 +25,7 @@ import (
 var _ resource.Resource = &AppResource{}
 var _ resource.ResourceWithConfigure = &AppResource{}
 var _ resource.ResourceWithImportState = &AppResource{}
+var _ resource.ResourceWithValidateConfig = &AppResource{}
 
 // AppResource defines the resource implementation.
 type AppResource struct {
@@ -31,26 +33,35 @@ type AppResource struct {
 }
 
 // AppResourceModel describes the resource data model.
-// Simplified for custom Docker Compose apps only.
 type AppResourceModel struct {
-	ID              types.String                `tfsdk:"id"`
-	Name            types.String                `tfsdk:"name"`
-	CustomApp       types.Bool                  `tfsdk:"custom_app"`
-	ComposeConfig   customtypes.YAMLStringValue `tfsdk:"compose_config"`
+	ID              types.String                           `tfsdk:"id"`
+	Name            types.String                           `tfsdk:"name"`
+	CustomApp       types.Bool                             `tfsdk:"custom_app"`
+	ComposeConfig   customtypes.YAMLStringValue            `tfsdk:"compose_config"`
+	CatalogApp      types.String                           `tfsdk:"catalog_app"`
+	Train           types.String                           `tfsdk:"train"`
+	Version         types.String                           `tfsdk:"version"`
+	Values          types.String                           `tfsdk:"values"`
 	DesiredState    customtypes.CaseInsensitiveStringValue `tfsdk:"desired_state"`
-	StateTimeout    types.Int64                 `tfsdk:"state_timeout"`
-	State           types.String                `tfsdk:"state"`
-	RestartTriggers types.Map                   `tfsdk:"restart_triggers"`
+	StateTimeout    types.Int64                            `tfsdk:"state_timeout"`
+	State           types.String                           `tfsdk:"state"`
+	RestartTriggers types.Map                              `tfsdk:"restart_triggers"`
 }
 
 // appAPIResponse represents the JSON response from app API calls.
-// Simplified to only parse fields needed for custom Docker Compose apps.
 type appAPIResponse struct {
 	Name      string            `json:"name"`
 	State     string            `json:"state"`
 	CustomApp bool              `json:"custom_app"`
+	Version   string            `json:"version"`
 	Config    appConfigResponse `json:"config"`
-	// active_workloads is ignored - it's runtime info, not configuration
+	Metadata  appMetadata       `json:"metadata"`
+}
+
+// appMetadata contains catalog metadata from the API response.
+type appMetadata struct {
+	Name  string `json:"name"`
+	Train string `json:"train"`
 }
 
 // appConfigResponse contains config fields from the API.
@@ -85,13 +96,43 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 				},
 			},
 			"custom_app": schema.BoolAttribute{
-				Description: "Whether this is a custom Docker Compose application.",
-				Required:    true,
+				Description: "Whether this is a custom Docker Compose application. Computed from whether compose_config is set.",
+				Computed:    true,
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"compose_config": schema.StringAttribute{
-				Description: "Docker Compose YAML configuration string (required for custom apps).",
+				Description: "Docker Compose YAML configuration string. Mutually exclusive with catalog_app.",
 				Optional:    true,
 				CustomType:  customtypes.YAMLStringType{},
+			},
+			"catalog_app": schema.StringAttribute{
+				Description: "Catalog application name (e.g., 'plex', 'tailscale'). Mutually exclusive with compose_config.",
+				Optional:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"train": schema.StringAttribute{
+				Description: "Catalog train. Defaults to 'stable'.",
+				Optional:    true,
+				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"version": schema.StringAttribute{
+				Description: "Catalog app version. Defaults to 'latest' on creation, then tracks the installed version.",
+				Optional:    true,
+				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"values": schema.StringAttribute{
+				Description: "JSON-encoded configuration values for catalog apps.",
+				Optional:    true,
 			},
 			"desired_state": schema.StringAttribute{
 				Description: "Desired application state: 'running' or 'stopped' (case-insensitive). Defaults to 'RUNNING'.",
@@ -132,6 +173,44 @@ func (r *AppResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 	}
 }
 
+func (r *AppResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data AppResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if data.CatalogApp.IsUnknown() || data.ComposeConfig.IsUnknown() || data.Values.IsUnknown() {
+		return
+	}
+
+	hasCatalog := !data.CatalogApp.IsNull()
+	hasCompose := !data.ComposeConfig.IsNull()
+
+	if hasCatalog && hasCompose {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"catalog_app and compose_config are mutually exclusive. Use catalog_app for catalog apps or compose_config for custom Docker Compose apps.",
+		)
+		return
+	}
+
+	if !hasCatalog && !hasCompose {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"Either catalog_app or compose_config must be set.",
+		)
+		return
+	}
+
+	hasValues := !data.Values.IsNull()
+	if hasValues && hasCompose {
+		resp.Diagnostics.AddError(
+			"Invalid Configuration",
+			"values can only be used with catalog_app, not compose_config.",
+		)
+	}
+}
 
 func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data AppResourceModel
@@ -147,7 +226,6 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 	appName := data.Name.ValueString()
 
 	// Call the TrueNAS API (app.create returns a job, use CallAndWait)
-	// Ignore the response as it contains unparseable progress output mixed with JSON
 	_, err := r.client.CallAndWait(ctx, "app.create", params)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -157,9 +235,8 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
-	// Query the app to get current state
-	filter := [][]any{{"name", "=", appName}}
-	result, err := r.client.Call(ctx, "app.query", filter)
+	// Query the app to get current state and metadata
+	app, err := r.queryApp(ctx, appName)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Query App After Create",
@@ -167,17 +244,7 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 		)
 		return
 	}
-
-	var apps []appAPIResponse
-	if err := json.Unmarshal(result, &apps); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse App Response",
-			fmt.Sprintf("Unable to parse app query response: %s", err.Error()),
-		)
-		return
-	}
-
-	if len(apps) == 0 {
+	if app == nil {
 		resp.Diagnostics.AddError(
 			"App Not Found After Create",
 			fmt.Sprintf("App %q was not found after create", appName),
@@ -186,9 +253,17 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 	}
 
 	// Map response to model
-	app := apps[0]
 	data.ID = types.StringValue(app.Name)
 	data.State = types.StringValue(app.State)
+	data.CustomApp = types.BoolValue(app.CustomApp)
+
+	// For catalog apps, populate computed fields from API
+	if !app.CustomApp {
+		if data.Train.IsNull() || data.Train.IsUnknown() {
+			data.Train = types.StringValue(app.Metadata.Train)
+		}
+		data.Version = types.StringValue(app.Version)
+	}
 
 	// Handle desired_state - if user wants STOPPED but app started as RUNNING
 	desiredState := data.DesiredState.ValueString()
@@ -250,23 +325,20 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var data AppResourceModel
 
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Preserve user-specified values from prior state (these are not returned by API)
+	// Preserve user-specified values from prior state (not returned by API)
 	priorDesiredState := data.DesiredState
 	priorStateTimeout := data.StateTimeout
 	priorRestartTriggers := data.RestartTriggers
+	priorValues := data.Values
 
-	// Use the name to query the app
 	appName := data.Name.ValueString()
 
-	// Build query params: [filter, options]
-	// Filter: [["name", "=", "appName"]]
-	// Options: {"extra": {"retrieve_config": true}} to get compose config
+	// Query with retrieve_config for custom apps (compose config)
 	filter := [][]any{{"name", "=", appName}}
 	options := map[string]any{
 		"extra": map[string]any{
@@ -275,7 +347,6 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	}
 	queryParams := []any{filter, options}
 
-	// Call the TrueNAS API
 	result, err := r.client.Call(ctx, "app.query", queryParams)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -285,7 +356,6 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		return
 	}
 
-	// Parse the response
 	var apps []appAPIResponse
 	if err := json.Unmarshal(result, &apps); err != nil {
 		resp.Diagnostics.AddError(
@@ -295,34 +365,43 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		return
 	}
 
-	// Check if app was found
 	if len(apps) == 0 {
-		// App was deleted outside of Terraform - remove from state
 		resp.State.RemoveResource(ctx)
 		return
 	}
 
 	app := apps[0]
 
-	// Map response to model - sync all fields from API
 	data.ID = types.StringValue(app.Name)
 	data.State = types.StringValue(app.State)
 	data.CustomApp = types.BoolValue(app.CustomApp)
 
-	// Sync compose_config if present
-	// The API returns the parsed compose config as a map, convert back to YAML
-	if len(app.Config) > 0 {
-		yamlBytes, err := yaml.Marshal(app.Config)
-		if err != nil {
-			resp.Diagnostics.AddError(
-				"Unable to Marshal Config",
-				fmt.Sprintf("Unable to marshal app config to YAML: %s", err.Error()),
-			)
-			return
+	if app.CustomApp {
+		// Custom app: sync compose_config from API
+		if len(app.Config) > 0 {
+			yamlBytes, err := yaml.Marshal(app.Config)
+			if err != nil {
+				resp.Diagnostics.AddError(
+					"Unable to Marshal Config",
+					fmt.Sprintf("Unable to marshal app config to YAML: %s", err.Error()),
+				)
+				return
+			}
+			data.ComposeConfig = customtypes.NewYAMLStringValue(string(yamlBytes))
+		} else {
+			data.ComposeConfig = customtypes.NewYAMLStringNull()
 		}
-		data.ComposeConfig = customtypes.NewYAMLStringValue(string(yamlBytes))
+		data.CatalogApp = types.StringNull()
+		data.Train = types.StringNull()
+		data.Version = types.StringNull()
+		data.Values = types.StringNull()
 	} else {
+		// Catalog app: sync metadata from API, preserve user values
 		data.ComposeConfig = customtypes.NewYAMLStringNull()
+		data.CatalogApp = types.StringValue(app.Metadata.Name)
+		data.Train = types.StringValue(app.Metadata.Train)
+		data.Version = types.StringValue(app.Version)
+		data.Values = priorValues
 	}
 
 	// Restore user-specified values from prior state
@@ -330,17 +409,14 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	data.StateTimeout = priorStateTimeout
 	data.RestartTriggers = priorRestartTriggers
 
-	// Default desired_state if null/unknown (e.g., after import)
 	if data.DesiredState.IsNull() || data.DesiredState.IsUnknown() {
 		data.DesiredState = customtypes.NewCaseInsensitiveStringValue(app.State)
 	}
 
-	// Default state_timeout if null/unknown
 	if data.StateTimeout.IsNull() || data.StateTimeout.IsUnknown() {
 		data.StateTimeout = types.Int64Value(120)
 	}
 
-	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -362,14 +438,20 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 
 	appName := data.Name.ValueString()
 
-	// Handle compose_config changes first (if any)
-	// Check if compose_config changed by comparing old and new values
-	composeConfigChanged := !data.ComposeConfig.Equal(stateData.ComposeConfig)
-	if composeConfigChanged {
+	// Detect config changes and update if needed
+	configChanged := false
+	if data.CustomApp.ValueBool() {
+		// Custom app: check compose_config changes
+		configChanged = !data.ComposeConfig.Equal(stateData.ComposeConfig)
+	} else {
+		// Catalog app: check values changes
+		configChanged = !data.Values.Equal(stateData.Values)
+	}
+
+	if configChanged {
 		updateParams := r.buildUpdateParams(ctx, &data)
 		params := []any{appName, updateParams}
 
-		// Call app.update and wait for completion
 		_, err := r.client.CallAndWait(ctx, "app.update", params)
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -519,14 +601,31 @@ func (r *AppResource) ImportState(ctx context.Context, req resource.ImportStateR
 
 // buildCreateParams builds the AppCreateParams from the model.
 func (r *AppResource) buildCreateParams(_ context.Context, data *AppResourceModel) client.AppCreateParams {
+	isCatalog := !data.CatalogApp.IsNull() && !data.CatalogApp.IsUnknown()
+
 	params := client.AppCreateParams{
 		AppName:   data.Name.ValueString(),
-		CustomApp: data.CustomApp.ValueBool(),
+		CustomApp: !isCatalog,
 	}
 
-	// Add compose config if set
-	if !data.ComposeConfig.IsNull() && !data.ComposeConfig.IsUnknown() {
-		params.CustomComposeConfigString = data.ComposeConfig.ValueString()
+	if isCatalog {
+		params.CatalogApp = data.CatalogApp.ValueString()
+		if !data.Train.IsNull() && !data.Train.IsUnknown() {
+			params.Train = data.Train.ValueString()
+		}
+		if !data.Version.IsNull() && !data.Version.IsUnknown() {
+			params.Version = data.Version.ValueString()
+		}
+		if !data.Values.IsNull() && !data.Values.IsUnknown() {
+			var values map[string]any
+			if err := json.Unmarshal([]byte(data.Values.ValueString()), &values); err == nil {
+				params.Values = values
+			}
+		}
+	} else {
+		if !data.ComposeConfig.IsNull() && !data.ComposeConfig.IsUnknown() {
+			params.CustomComposeConfigString = data.ComposeConfig.ValueString()
+		}
 	}
 
 	return params
@@ -536,12 +635,38 @@ func (r *AppResource) buildCreateParams(_ context.Context, data *AppResourceMode
 func (r *AppResource) buildUpdateParams(_ context.Context, data *AppResourceModel) map[string]any {
 	params := map[string]any{}
 
-	// Add compose config if set
 	if !data.ComposeConfig.IsNull() && !data.ComposeConfig.IsUnknown() {
 		params["custom_compose_config_string"] = data.ComposeConfig.ValueString()
 	}
 
+	if !data.Values.IsNull() && !data.Values.IsUnknown() {
+		var values map[string]any
+		if err := json.Unmarshal([]byte(data.Values.ValueString()), &values); err == nil {
+			params["values"] = values
+		}
+	}
+
 	return params
+}
+
+// queryApp queries the TrueNAS API for an app by name, returning nil if not found.
+func (r *AppResource) queryApp(ctx context.Context, name string) (*appAPIResponse, error) {
+	filter := [][]any{{"name", "=", name}}
+	result, err := r.client.Call(ctx, "app.query", filter)
+	if err != nil {
+		return nil, err
+	}
+
+	var apps []appAPIResponse
+	if err := json.Unmarshal(result, &apps); err != nil {
+		return nil, err
+	}
+
+	if len(apps) == 0 {
+		return nil, nil
+	}
+
+	return &apps[0], nil
 }
 
 // queryAppState queries the TrueNAS API for the current state of an app.
