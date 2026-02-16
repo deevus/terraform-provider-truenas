@@ -74,13 +74,31 @@ func TestAppResource_Schema(t *testing.T) {
 		t.Error("expected 'name' attribute to be required")
 	}
 
-	// Verify custom_app attribute exists and is required
+	// Verify custom_app attribute exists and is computed
 	customAppAttr, ok := resp.Schema.Attributes["custom_app"]
 	if !ok {
 		t.Fatal("expected 'custom_app' attribute in schema")
 	}
-	if !customAppAttr.IsRequired() {
-		t.Error("expected 'custom_app' attribute to be required")
+	if !customAppAttr.IsComputed() {
+		t.Error("expected 'custom_app' attribute to be computed")
+	}
+
+	// Verify catalog_app attribute exists and is optional
+	catalogAppAttr, ok := resp.Schema.Attributes["catalog_app"]
+	if !ok {
+		t.Fatal("expected 'catalog_app' attribute in schema")
+	}
+	if !catalogAppAttr.IsOptional() {
+		t.Error("expected 'catalog_app' attribute to be optional")
+	}
+
+	// Verify values attribute exists and is optional
+	valuesAttr, ok := resp.Schema.Attributes["values"]
+	if !ok {
+		t.Fatal("expected 'values' attribute in schema")
+	}
+	if !valuesAttr.IsOptional() {
+		t.Error("expected 'values' attribute to be optional")
 	}
 
 	// Verify compose_config attribute exists and is optional
@@ -127,8 +145,12 @@ func getAppResourceSchema(t *testing.T) resource.SchemaResponse {
 type appModelParams struct {
 	ID              interface{}            // Resource ID (usually same as Name)
 	Name            interface{}            // App name
-	CustomApp       interface{}            // Whether this is a custom app (usually true)
+	CustomApp       interface{}            // Whether this is a custom app
 	ComposeConfig   interface{}            // Docker Compose YAML config
+	CatalogApp      interface{}            // Catalog app name (e.g., "plex")
+	Train           interface{}            // Catalog train (e.g., "stable")
+	Version         interface{}            // Catalog app version
+	Values          interface{}            // JSON-encoded catalog app values
 	DesiredState    interface{}            // Desired state: "RUNNING", "STOPPED", "running", "stopped"
 	StateTimeout    interface{}            // Timeout in seconds (as float64)
 	State           interface{}            // Actual state from API
@@ -137,7 +159,6 @@ type appModelParams struct {
 
 // newAppModelValue creates a tftypes.Value from appModelParams.
 func newAppModelValue(p appModelParams) tftypes.Value {
-	// Convert restartTriggers to tftypes.Value
 	var triggersValue tftypes.Value
 	if p.RestartTriggers == nil {
 		triggersValue = tftypes.NewValue(tftypes.Map{ElementType: tftypes.String}, nil)
@@ -155,6 +176,10 @@ func newAppModelValue(p appModelParams) tftypes.Value {
 			"name":             tftypes.String,
 			"custom_app":       tftypes.Bool,
 			"compose_config":   tftypes.String,
+			"catalog_app":      tftypes.String,
+			"train":            tftypes.String,
+			"version":          tftypes.String,
+			"values":           tftypes.String,
 			"desired_state":    tftypes.String,
 			"state_timeout":    tftypes.Number,
 			"state":            tftypes.String,
@@ -165,6 +190,10 @@ func newAppModelValue(p appModelParams) tftypes.Value {
 		"name":             tftypes.NewValue(tftypes.String, p.Name),
 		"custom_app":       tftypes.NewValue(tftypes.Bool, p.CustomApp),
 		"compose_config":   tftypes.NewValue(tftypes.String, p.ComposeConfig),
+		"catalog_app":      tftypes.NewValue(tftypes.String, p.CatalogApp),
+		"train":            tftypes.NewValue(tftypes.String, p.Train),
+		"version":          tftypes.NewValue(tftypes.String, p.Version),
+		"values":           tftypes.NewValue(tftypes.String, p.Values),
 		"desired_state":    tftypes.NewValue(tftypes.String, p.DesiredState),
 		"state_timeout":    tftypes.NewValue(tftypes.Number, p.StateTimeout),
 		"state":            tftypes.NewValue(tftypes.String, p.State),
@@ -2618,5 +2647,394 @@ func TestAppResource_Update_DesiredStateCasePreservation(t *testing.T) {
 	// State should reflect the actual API state
 	if model.State.ValueString() != "STOPPED" {
 		t.Errorf("expected state 'STOPPED', got %q", model.State.ValueString())
+	}
+}
+
+// --- Catalog App Tests ---
+
+func TestAppResource_Create_CatalogApp(t *testing.T) {
+	var capturedCreateMethod string
+	var capturedCreateParams any
+
+	r := &AppResource{
+		BaseResource: BaseResource{client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				capturedCreateMethod = method
+				capturedCreateParams = params
+				return nil, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"name": "tailscale",
+					"state": "RUNNING",
+					"custom_app": false,
+					"version": "1.3.32",
+					"metadata": {"name": "tailscale", "train": "community"}
+				}]`), nil
+			},
+		}},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+	planValue := newAppModelValue(appModelParams{
+		Name:       "tailscale",
+		CatalogApp: "tailscale",
+		Train:      "community",
+		Values:     `{"tailscale":{"auth_key":"tskey-xxx"}}`,
+		DesiredState: "RUNNING",
+		StateTimeout: float64(120),
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
+	}
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedCreateMethod != "app.create" {
+		t.Errorf("expected method 'app.create', got %q", capturedCreateMethod)
+	}
+
+	// Verify create params include catalog fields
+	createParams, ok := capturedCreateParams.(client.AppCreateParams)
+	if !ok {
+		t.Fatalf("expected AppCreateParams, got %T", capturedCreateParams)
+	}
+	if createParams.CatalogApp != "tailscale" {
+		t.Errorf("expected catalog_app 'tailscale', got %q", createParams.CatalogApp)
+	}
+	if createParams.Train != "community" {
+		t.Errorf("expected train 'community', got %q", createParams.Train)
+	}
+	if createParams.CustomApp {
+		t.Error("expected custom_app to be false for catalog app")
+	}
+	if createParams.Values == nil {
+		t.Fatal("expected values to be set")
+	}
+	ts, ok := createParams.Values["tailscale"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected tailscale values map, got %T", createParams.Values["tailscale"])
+	}
+	if ts["auth_key"] != "tskey-xxx" {
+		t.Errorf("expected auth_key 'tskey-xxx', got %q", ts["auth_key"])
+	}
+
+	// Verify model state
+	var model AppResourceModel
+	resp.State.Get(context.Background(), &model)
+
+	if model.CustomApp.ValueBool() {
+		t.Error("expected custom_app to be false")
+	}
+	if model.Version.ValueString() != "1.3.32" {
+		t.Errorf("expected version '1.3.32', got %q", model.Version.ValueString())
+	}
+	if model.Train.ValueString() != "community" {
+		t.Errorf("expected train 'community', got %q", model.Train.ValueString())
+	}
+}
+
+func TestAppResource_Read_CatalogApp(t *testing.T) {
+	r := &AppResource{
+		BaseResource: BaseResource{client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"name": "plex",
+					"state": "RUNNING",
+					"custom_app": false,
+					"version": "1.5.0",
+					"metadata": {"name": "plex", "train": "stable"},
+					"config": {}
+				}]`), nil
+			},
+		}},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+	stateValue := newAppModelValue(appModelParams{
+		ID:           "plex",
+		Name:         "plex",
+		CustomApp:    false,
+		CatalogApp:   "plex",
+		Train:        "stable",
+		Version:      "1.4.0",
+		Values:       `{"TZ":"America/Los_Angeles"}`,
+		DesiredState: "RUNNING",
+		StateTimeout: float64(120),
+		State:        "RUNNING",
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model AppResourceModel
+	resp.State.Get(context.Background(), &model)
+
+	if model.CustomApp.ValueBool() {
+		t.Error("expected custom_app false")
+	}
+	if model.CatalogApp.ValueString() != "plex" {
+		t.Errorf("expected catalog_app 'plex', got %q", model.CatalogApp.ValueString())
+	}
+	if model.Train.ValueString() != "stable" {
+		t.Errorf("expected train 'stable', got %q", model.Train.ValueString())
+	}
+	if model.Version.ValueString() != "1.5.0" {
+		t.Errorf("expected version '1.5.0' (from API), got %q", model.Version.ValueString())
+	}
+	// Values should be preserved from prior state
+	if model.Values.ValueString() != `{"TZ":"America/Los_Angeles"}` {
+		t.Errorf("expected values preserved from state, got %q", model.Values.ValueString())
+	}
+	if !model.ComposeConfig.IsNull() {
+		t.Error("expected compose_config to be null for catalog app")
+	}
+}
+
+func TestAppResource_Update_CatalogAppValues(t *testing.T) {
+	var capturedUpdateMethod string
+	var capturedUpdateParams any
+
+	queryCount := 0
+	r := &AppResource{
+		BaseResource: BaseResource{client: &client.MockClient{
+			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				capturedUpdateMethod = method
+				capturedUpdateParams = params
+				return nil, nil
+			},
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				queryCount++
+				return json.RawMessage(`[{
+					"name": "plex",
+					"state": "RUNNING",
+					"custom_app": false,
+					"version": "1.5.0",
+					"metadata": {"name": "plex", "train": "stable"}
+				}]`), nil
+			},
+		}},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+
+	// Old state: old values
+	stateValue := newAppModelValue(appModelParams{
+		ID:           "plex",
+		Name:         "plex",
+		CustomApp:    false,
+		CatalogApp:   "plex",
+		Train:        "stable",
+		Version:      "1.5.0",
+		Values:       `{"TZ":"America/Los_Angeles"}`,
+		DesiredState: "RUNNING",
+		StateTimeout: float64(120),
+		State:        "RUNNING",
+	})
+
+	// New plan: updated values
+	planValue := newAppModelValue(appModelParams{
+		ID:           "plex",
+		Name:         "plex",
+		CustomApp:    false,
+		CatalogApp:   "plex",
+		Train:        "stable",
+		Version:      "1.5.0",
+		Values:       `{"TZ":"America/New_York"}`,
+		DesiredState: "RUNNING",
+		StateTimeout: float64(120),
+		State:        "RUNNING",
+	})
+
+	req := resource.UpdateRequest{
+		Plan:  tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedUpdateMethod != "app.update" {
+		t.Errorf("expected method 'app.update', got %q", capturedUpdateMethod)
+	}
+
+	// Verify update params contain values
+	updateSlice, ok := capturedUpdateParams.([]any)
+	if !ok || len(updateSlice) != 2 {
+		t.Fatalf("expected [name, params] slice, got %T", capturedUpdateParams)
+	}
+	updateMap, ok := updateSlice[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected update params map, got %T", updateSlice[1])
+	}
+	valuesMap, ok := updateMap["values"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected 'values' in update params, got %v", updateMap)
+	}
+	if valuesMap["TZ"] != "America/New_York" {
+		t.Errorf("expected TZ 'America/New_York', got %v", valuesMap["TZ"])
+	}
+}
+
+func TestAppResource_ValidateConfig_MutualExclusivity(t *testing.T) {
+	r := NewAppResource().(*AppResource)
+	schemaResp := getAppResourceSchema(t)
+
+	tests := []struct {
+		name      string
+		params    appModelParams
+		wantError bool
+		errorMsg  string
+	}{
+		{
+			name: "catalog_app only - valid",
+			params: appModelParams{
+				Name:       "myapp",
+				CatalogApp: "plex",
+			},
+			wantError: false,
+		},
+		{
+			name: "compose_config only - valid",
+			params: appModelParams{
+				Name:          "myapp",
+				ComposeConfig: "services:\n  web:\n    image: nginx",
+			},
+			wantError: false,
+		},
+		{
+			name: "both set - invalid",
+			params: appModelParams{
+				Name:          "myapp",
+				CatalogApp:    "plex",
+				ComposeConfig: "services:\n  web:\n    image: nginx",
+			},
+			wantError: true,
+			errorMsg:  "mutually exclusive",
+		},
+		{
+			name: "neither set - invalid",
+			params: appModelParams{
+				Name: "myapp",
+			},
+			wantError: true,
+			errorMsg:  "must be set",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configValue := newAppModelValue(tt.params)
+			req := resource.ValidateConfigRequest{
+				Config: tfsdk.Config{Schema: schemaResp.Schema, Raw: configValue},
+			}
+			resp := &resource.ValidateConfigResponse{}
+
+			r.ValidateConfig(context.Background(), req, resp)
+
+			if tt.wantError && !resp.Diagnostics.HasError() {
+				t.Error("expected validation error, got none")
+			}
+			if !tt.wantError && resp.Diagnostics.HasError() {
+				t.Errorf("unexpected validation error: %v", resp.Diagnostics)
+			}
+			if tt.wantError && resp.Diagnostics.HasError() && tt.errorMsg != "" {
+				found := false
+				for _, d := range resp.Diagnostics {
+					if strings.Contains(d.Detail(), tt.errorMsg) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected error containing %q, got %v", tt.errorMsg, resp.Diagnostics)
+				}
+			}
+		})
+	}
+}
+
+func TestAppResource_ImportState_CatalogApp(t *testing.T) {
+	r := &AppResource{
+		BaseResource: BaseResource{client: &client.MockClient{
+			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+				return json.RawMessage(`[{
+					"name": "tailscale",
+					"state": "RUNNING",
+					"custom_app": false,
+					"version": "1.3.32",
+					"metadata": {"name": "tailscale", "train": "community"},
+					"config": {}
+				}]`), nil
+			},
+		}},
+	}
+
+	schemaResp := getAppResourceSchema(t)
+	emptyState := newAppModelValue(appModelParams{})
+
+	// Import
+	importReq := resource.ImportStateRequest{ID: "tailscale"}
+	importResp := &resource.ImportStateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: emptyState},
+	}
+
+	r.ImportState(context.Background(), importReq, importResp)
+	if importResp.Diagnostics.HasError() {
+		t.Fatalf("import errors: %v", importResp.Diagnostics)
+	}
+
+	// Read to populate full state
+	readReq := resource.ReadRequest{State: importResp.State}
+	readResp := &resource.ReadResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Read(context.Background(), readReq, readResp)
+	if readResp.Diagnostics.HasError() {
+		t.Fatalf("read errors: %v", readResp.Diagnostics)
+	}
+
+	var model AppResourceModel
+	readResp.State.Get(context.Background(), &model)
+
+	if model.CustomApp.ValueBool() {
+		t.Error("expected custom_app false for imported catalog app")
+	}
+	if model.CatalogApp.ValueString() != "tailscale" {
+		t.Errorf("expected catalog_app 'tailscale', got %q", model.CatalogApp.ValueString())
+	}
+	if model.Train.ValueString() != "community" {
+		t.Errorf("expected train 'community', got %q", model.Train.ValueString())
+	}
+	if model.Version.ValueString() != "1.3.32" {
+		t.Errorf("expected version '1.3.32', got %q", model.Version.ValueString())
+	}
+	if !model.Values.IsNull() {
+		t.Error("expected values to be null after import (no prior state)")
 	}
 }
