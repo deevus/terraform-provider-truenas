@@ -208,8 +208,82 @@ func TestSSHConfig_Validate_MissingPrivateKey(t *testing.T) {
 		t.Fatal("expected error for missing private key")
 	}
 
-	if err.Error() != "private_key is required" {
-		t.Errorf("expected 'private_key is required', got %q", err.Error())
+	if err.Error() != "private_key is required when use_agent is false" {
+		t.Errorf("expected 'private_key is required when use_agent is false', got %q", err.Error())
+	}
+}
+
+func TestSSHConfig_Validate_AgentAndPrivateKeyMutuallyExclusive(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		PrivateKey:         testPrivateKey,
+		UseAgent:           true,
+		HostKeyFingerprint: "SHA256:test",
+	}
+
+	err := config.Validate()
+	if err == nil {
+		t.Fatal("expected error for both private_key and use_agent set")
+	}
+
+	if err.Error() != "private_key and use_agent are mutually exclusive" {
+		t.Errorf("expected mutual exclusivity error, got %q", err.Error())
+	}
+}
+
+func TestSSHConfig_Validate_AgentWithSocket(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		UseAgent:           true,
+		AgentSocket:        "/tmp/test-agent.sock",
+		HostKeyFingerprint: "SHA256:test",
+	}
+
+	err := config.Validate()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if config.AgentSocket != "/tmp/test-agent.sock" {
+		t.Errorf("expected agent socket /tmp/test-agent.sock, got %q", config.AgentSocket)
+	}
+}
+
+func TestSSHConfig_Validate_AgentWithoutSocket(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/env-agent.sock")
+
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		UseAgent:           true,
+		HostKeyFingerprint: "SHA256:test",
+	}
+
+	err := config.Validate()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if config.AgentSocket != "/tmp/env-agent.sock" {
+		t.Errorf("expected agent socket from env, got %q", config.AgentSocket)
+	}
+}
+
+func TestSSHConfig_Validate_AgentNoSocketAvailable(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		UseAgent:           true,
+		HostKeyFingerprint: "SHA256:test",
+	}
+
+	err := config.Validate()
+	if err == nil {
+		t.Fatal("expected error when no agent socket available")
+	}
+
+	if err.Error() != "SSH_AUTH_SOCK is not set and agent_socket was not provided" {
+		t.Errorf("unexpected error: %q", err.Error())
 	}
 }
 

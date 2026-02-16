@@ -32,6 +32,9 @@ type SSHBlockModel struct {
 	Port               types.Int64  `tfsdk:"port"`
 	User               types.String `tfsdk:"user"`
 	PrivateKey         types.String `tfsdk:"private_key"`
+	UseAgent           types.Bool   `tfsdk:"use_agent"`
+	AgentSocket        types.String `tfsdk:"agent_socket"`
+	UseSudo            types.Bool   `tfsdk:"use_sudo"`
 	HostKeyFingerprint types.String `tfsdk:"host_key_fingerprint"`
 	MaxSessions        types.Int64  `tfsdk:"max_sessions"`
 }
@@ -101,9 +104,21 @@ func (p *TrueNASProvider) Schema(ctx context.Context, req provider.SchemaRequest
 						Optional:    true,
 					},
 					"private_key": schema.StringAttribute{
-						Description: "SSH private key content.",
-						Required:    true,
+						Description: "SSH private key content. Required unless use_agent is true.",
+						Optional:    true,
 						Sensitive:   true,
+					},
+					"use_agent": schema.BoolAttribute{
+						Description: "Use SSH agent (SSH_AUTH_SOCK) for authentication instead of private_key.",
+						Optional:    true,
+					},
+					"agent_socket": schema.StringAttribute{
+						Description: "Path to SSH agent socket. Defaults to SSH_AUTH_SOCK environment variable.",
+						Optional:    true,
+					},
+					"use_sudo": schema.BoolAttribute{
+						Description: "Prefix commands with sudo. Defaults to true. Set to false when the SSH user can run midclt directly.",
+						Optional:    true,
 					},
 					"host_key_fingerprint": schema.StringAttribute{
 						Description: "SHA256 fingerprint of the TrueNAS server's SSH host key. " +
@@ -154,6 +169,35 @@ func (p *TrueNASProvider) Schema(ctx context.Context, req provider.SchemaRequest
 			},
 		},
 	}
+}
+
+func buildSSHConfig(host string, ssh *SSHBlockModel) *client.SSHConfig {
+	cfg := &client.SSHConfig{
+		Host:               host,
+		HostKeyFingerprint: ssh.HostKeyFingerprint.ValueString(),
+	}
+	if !ssh.UseAgent.IsNull() && ssh.UseAgent.ValueBool() {
+		cfg.UseAgent = true
+		if !ssh.AgentSocket.IsNull() {
+			cfg.AgentSocket = ssh.AgentSocket.ValueString()
+		}
+	} else {
+		cfg.PrivateKey = ssh.PrivateKey.ValueString()
+	}
+	if !ssh.Port.IsNull() {
+		cfg.Port = int(ssh.Port.ValueInt64())
+	}
+	if !ssh.User.IsNull() {
+		cfg.User = ssh.User.ValueString()
+	}
+	if !ssh.MaxSessions.IsNull() {
+		cfg.MaxSessions = int(ssh.MaxSessions.ValueInt64())
+	}
+	if !ssh.UseSudo.IsNull() {
+		v := ssh.UseSudo.ValueBool()
+		cfg.UseSudo = &v
+	}
+	return cfg
 }
 
 func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
@@ -210,20 +254,7 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 		}
 
 		// Create SSH client for fallback
-		sshConfig := &client.SSHConfig{
-			Host:               config.Host.ValueString(),
-			PrivateKey:         config.SSH.PrivateKey.ValueString(),
-			HostKeyFingerprint: config.SSH.HostKeyFingerprint.ValueString(),
-		}
-		if !config.SSH.Port.IsNull() {
-			sshConfig.Port = int(config.SSH.Port.ValueInt64())
-		}
-		if !config.SSH.User.IsNull() {
-			sshConfig.User = config.SSH.User.ValueString()
-		}
-		if !config.SSH.MaxSessions.IsNull() {
-			sshConfig.MaxSessions = int(config.SSH.MaxSessions.ValueInt64())
-		}
+		sshConfig := buildSSHConfig(config.Host.ValueString(), config.SSH)
 
 		sshClient, err := factory.NewSSHClient(sshConfig)
 		if err != nil {
@@ -307,22 +338,7 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 		}
 
 		// Build SSH config with values from provider configuration
-		sshConfig := &client.SSHConfig{
-			Host:               config.Host.ValueString(),
-			PrivateKey:         config.SSH.PrivateKey.ValueString(),
-			HostKeyFingerprint: config.SSH.HostKeyFingerprint.ValueString(),
-		}
-
-		// Set optional values if provided
-		if !config.SSH.Port.IsNull() {
-			sshConfig.Port = int(config.SSH.Port.ValueInt64())
-		}
-		if !config.SSH.User.IsNull() {
-			sshConfig.User = config.SSH.User.ValueString()
-		}
-		if !config.SSH.MaxSessions.IsNull() {
-			sshConfig.MaxSessions = int(config.SSH.MaxSessions.ValueInt64())
-		}
+		sshConfig := buildSSHConfig(config.Host.ValueString(), config.SSH)
 
 		// Create SSH client (validates config and applies defaults)
 		sshClient, err := factory.NewSSHClient(sshConfig)
