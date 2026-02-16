@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/deevus/terraform-provider-truenas/internal/api"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 // ansiRegex matches ANSI escape sequences.
@@ -28,6 +30,9 @@ type SSHConfig struct {
 	Port               int
 	User               string
 	PrivateKey         string
+	UseAgent           bool   // Use SSH agent (SSH_AUTH_SOCK) instead of private_key
+	AgentSocket        string // Override SSH_AUTH_SOCK path (optional, defaults to env)
+	UseSudo            *bool  // Prefix commands with sudo (defaults to true)
 	HostKeyFingerprint string
 	MaxSessions        int // Maximum concurrent SSH sessions (0 = default of 5)
 }
@@ -37,8 +42,11 @@ func (c *SSHConfig) Validate() error {
 	if c.Host == "" {
 		return errors.New("host is required")
 	}
-	if c.PrivateKey == "" {
-		return errors.New("private_key is required")
+	if !c.UseAgent && c.PrivateKey == "" {
+		return errors.New("private_key is required when use_agent is false")
+	}
+	if c.UseAgent && c.PrivateKey != "" {
+		return errors.New("private_key and use_agent are mutually exclusive")
 	}
 	if c.HostKeyFingerprint == "" {
 		return errors.New("host_key_fingerprint is required")
@@ -50,6 +58,12 @@ func (c *SSHConfig) Validate() error {
 	}
 	if c.User == "" {
 		c.User = "root"
+	}
+	if c.UseAgent && c.AgentSocket == "" {
+		c.AgentSocket = os.Getenv("SSH_AUTH_SOCK")
+		if c.AgentSocket == "" {
+			return errors.New("SSH_AUTH_SOCK is not set and agent_socket was not provided")
+		}
 	}
 
 	return nil
@@ -149,6 +163,14 @@ func NewSSHClient(config *SSHConfig) (*SSHClient, error) {
 	}, nil
 }
 
+// sudoPrefix returns "sudo " if use_sudo is enabled, or "" if disabled.
+func (c *SSHClient) sudoPrefix() string {
+	if c.config.UseSudo != nil && !*c.config.UseSudo {
+		return ""
+	}
+	return "sudo "
+}
+
 // acquireSession blocks until a session slot is available and returns a release function.
 func (c *SSHClient) acquireSession() func() {
 	c.sessionSem <- struct{}{}
@@ -167,16 +189,26 @@ func (c *SSHClient) connect() error {
 		return nil
 	}
 
-	signer, err := parsePrivateKey(c.config.PrivateKey)
-	if err != nil {
-		return err
+	var authMethods []ssh.AuthMethod
+
+	if c.config.UseAgent {
+		conn, err := net.Dial("unix", c.config.AgentSocket)
+		if err != nil {
+			return fmt.Errorf("failed to connect to SSH agent at %s: %w", c.config.AgentSocket, err)
+		}
+		agentClient := agent.NewClient(conn)
+		authMethods = []ssh.AuthMethod{ssh.PublicKeysCallback(agentClient.Signers)}
+	} else {
+		signer, err := parsePrivateKey(c.config.PrivateKey)
+		if err != nil {
+			return err
+		}
+		authMethods = []ssh.AuthMethod{ssh.PublicKeys(signer)}
 	}
 
 	sshConfig := &ssh.ClientConfig{
-		User: c.config.User,
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(signer),
-		},
+		User:            c.config.User,
+		Auth:            authMethods,
 		HostKeyCallback: verifyHostKey(c.config.HostKeyFingerprint),
 	}
 
@@ -236,7 +268,7 @@ func (c *SSHClient) Call(ctx context.Context, method string, params any) (json.R
 	}
 
 	// Build command (use sudo for non-root users with sudo access)
-	cmd := fmt.Sprintf("sudo midclt call %s", method)
+	cmd := fmt.Sprintf("%smidclt call %s", c.sudoPrefix(), method)
 	paramsStr, err := serializeParams(params)
 	if err != nil {
 		return nil, err
@@ -308,7 +340,7 @@ func (c *SSHClient) callAndWaitWithFlag(ctx context.Context, method string, para
 	}
 
 	// Build command with -j flag for job waiting
-	cmd := fmt.Sprintf("sudo midclt call -j %s", method)
+	cmd := fmt.Sprintf("%smidclt call -j %s", c.sudoPrefix(), method)
 	paramsStr, err := serializeParams(params)
 	if err != nil {
 		return nil, err
@@ -563,7 +595,7 @@ func (c *SSHClient) runSudo(ctx context.Context, args ...string) error {
 	for _, arg := range args {
 		escaped = append(escaped, shellescape.Quote(arg))
 	}
-	cmd := "sudo " + strings.Join(escaped, " ")
+	cmd := c.sudoPrefix() + strings.Join(escaped, " ")
 
 	// Create session
 	session, err := c.clientWrapper.NewSession()
@@ -598,7 +630,7 @@ func (c *SSHClient) runSudoOutput(ctx context.Context, args ...string) ([]byte, 
 	for _, arg := range args {
 		escaped = append(escaped, shellescape.Quote(arg))
 	}
-	cmd := "sudo " + strings.Join(escaped, " ")
+	cmd := c.sudoPrefix() + strings.Join(escaped, " ")
 
 	session, err := c.clientWrapper.NewSession()
 	if err != nil {

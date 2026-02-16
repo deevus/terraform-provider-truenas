@@ -140,16 +140,34 @@ func TestProvider_Schema_SSHBlock(t *testing.T) {
 		t.Error("expected 'user' attribute to be optional")
 	}
 
-	// Verify private_key attribute exists, is required, and is sensitive
+	// Verify private_key attribute exists, is optional (agent can replace it), and is sensitive
 	privateKeyAttr, ok := singleBlock.Attributes["private_key"]
 	if !ok {
 		t.Fatal("expected 'private_key' attribute in ssh block")
 	}
-	if !privateKeyAttr.IsRequired() {
-		t.Error("expected 'private_key' attribute to be required")
+	if !privateKeyAttr.IsOptional() {
+		t.Error("expected 'private_key' attribute to be optional")
 	}
 	if !privateKeyAttr.IsSensitive() {
 		t.Error("expected 'private_key' attribute to be sensitive")
+	}
+
+	// Verify use_agent attribute exists and is optional
+	useAgentAttr, ok := singleBlock.Attributes["use_agent"]
+	if !ok {
+		t.Fatal("expected 'use_agent' attribute in ssh block")
+	}
+	if !useAgentAttr.IsOptional() {
+		t.Error("expected 'use_agent' attribute to be optional")
+	}
+
+	// Verify agent_socket attribute exists and is optional
+	agentSocketAttr, ok := singleBlock.Attributes["agent_socket"]
+	if !ok {
+		t.Fatal("expected 'agent_socket' attribute in ssh block")
+	}
+	if !agentSocketAttr.IsOptional() {
+		t.Error("expected 'agent_socket' attribute to be optional")
 	}
 }
 
@@ -346,6 +364,9 @@ func createTestConfigureRequest(t *testing.T, host, authMethod string, ssh *SSHB
 			"port":                 tftypes.Number,
 			"user":                 tftypes.String,
 			"private_key":          tftypes.String,
+			"use_agent":            tftypes.Bool,
+			"agent_socket":         tftypes.String,
+			"use_sudo":             tftypes.Bool,
 			"host_key_fingerprint": tftypes.String,
 			"max_sessions":         tftypes.Number,
 		},
@@ -374,6 +395,27 @@ func createTestConfigureRequest(t *testing.T, host, authMethod string, ssh *SSHB
 			privateKeyValue = tftypes.NewValue(tftypes.String, ssh.PrivateKey.ValueString())
 		}
 
+		var useAgentValue tftypes.Value
+		if ssh.UseAgent.IsNull() {
+			useAgentValue = tftypes.NewValue(tftypes.Bool, nil)
+		} else {
+			useAgentValue = tftypes.NewValue(tftypes.Bool, ssh.UseAgent.ValueBool())
+		}
+
+		var agentSocketValue tftypes.Value
+		if ssh.AgentSocket.IsNull() {
+			agentSocketValue = tftypes.NewValue(tftypes.String, nil)
+		} else {
+			agentSocketValue = tftypes.NewValue(tftypes.String, ssh.AgentSocket.ValueString())
+		}
+
+		var useSudoValue tftypes.Value
+		if ssh.UseSudo.IsNull() {
+			useSudoValue = tftypes.NewValue(tftypes.Bool, nil)
+		} else {
+			useSudoValue = tftypes.NewValue(tftypes.Bool, ssh.UseSudo.ValueBool())
+		}
+
 		var hostKeyFingerprintValue tftypes.Value
 		if ssh.HostKeyFingerprint.IsNull() {
 			hostKeyFingerprintValue = tftypes.NewValue(tftypes.String, nil)
@@ -392,6 +434,9 @@ func createTestConfigureRequest(t *testing.T, host, authMethod string, ssh *SSHB
 			"port":                 portValue,
 			"user":                 userValue,
 			"private_key":          privateKeyValue,
+			"use_agent":            useAgentValue,
+			"agent_socket":         agentSocketValue,
+			"use_sudo":             useSudoValue,
 			"host_key_fingerprint": hostKeyFingerprintValue,
 			"max_sessions":         maxSessionsValue,
 		})
@@ -563,6 +608,9 @@ func TestProvider_Configure_ConfigParseError(t *testing.T) {
 			"port":                 tftypes.Number,
 			"user":                 tftypes.String,
 			"private_key":          tftypes.String,
+			"use_agent":            tftypes.Bool,
+			"agent_socket":         tftypes.String,
+			"use_sudo":             tftypes.Bool,
 			"host_key_fingerprint": tftypes.String,
 			"max_sessions":         tftypes.Number,
 		},
@@ -593,6 +641,9 @@ func TestProvider_Configure_ConfigParseError(t *testing.T) {
 			"port":                 tftypes.NewValue(tftypes.Number, nil),
 			"user":                 tftypes.NewValue(tftypes.String, nil),
 			"private_key":          tftypes.NewValue(tftypes.String, testPrivateKey),
+			"use_agent":            tftypes.NewValue(tftypes.Bool, nil),
+			"agent_socket":         tftypes.NewValue(tftypes.String, nil),
+			"use_sudo":             tftypes.NewValue(tftypes.Bool, nil),
 			"host_key_fingerprint": tftypes.NewValue(tftypes.String, testHostKeyFingerprint),
 			"max_sessions":         tftypes.NewValue(tftypes.Number, nil),
 		}),
@@ -635,6 +686,9 @@ func TestProvider_Configure_InvalidSSHClient(t *testing.T) {
 			"port":                 tftypes.Number,
 			"user":                 tftypes.String,
 			"private_key":          tftypes.String,
+			"use_agent":            tftypes.Bool,
+			"agent_socket":         tftypes.String,
+			"use_sudo":             tftypes.Bool,
 			"host_key_fingerprint": tftypes.String,
 			"max_sessions":         tftypes.Number,
 		},
@@ -665,6 +719,9 @@ func TestProvider_Configure_InvalidSSHClient(t *testing.T) {
 			"port":                 tftypes.NewValue(tftypes.Number, nil),
 			"user":                 tftypes.NewValue(tftypes.String, nil),
 			"private_key":          tftypes.NewValue(tftypes.String, ""), // Empty private key
+			"use_agent":            tftypes.NewValue(tftypes.Bool, nil),
+			"agent_socket":         tftypes.NewValue(tftypes.String, nil),
+			"use_sudo":             tftypes.NewValue(tftypes.Bool, nil),
 			"host_key_fingerprint": tftypes.NewValue(tftypes.String, testHostKeyFingerprint),
 			"max_sessions":         tftypes.NewValue(tftypes.Number, nil),
 		}),
@@ -790,6 +847,9 @@ func createTestConfigureRequestWithWebSocket(t *testing.T, host, authMethod stri
 			"port":                 tftypes.Number,
 			"user":                 tftypes.String,
 			"private_key":          tftypes.String,
+			"use_agent":            tftypes.Bool,
+			"agent_socket":         tftypes.String,
+			"use_sudo":             tftypes.Bool,
 			"host_key_fingerprint": tftypes.String,
 			"max_sessions":         tftypes.Number,
 		},
@@ -818,6 +878,27 @@ func createTestConfigureRequestWithWebSocket(t *testing.T, host, authMethod stri
 			privateKeyValue = tftypes.NewValue(tftypes.String, ssh.PrivateKey.ValueString())
 		}
 
+		var useAgentValue tftypes.Value
+		if ssh.UseAgent.IsNull() {
+			useAgentValue = tftypes.NewValue(tftypes.Bool, nil)
+		} else {
+			useAgentValue = tftypes.NewValue(tftypes.Bool, ssh.UseAgent.ValueBool())
+		}
+
+		var agentSocketValue tftypes.Value
+		if ssh.AgentSocket.IsNull() {
+			agentSocketValue = tftypes.NewValue(tftypes.String, nil)
+		} else {
+			agentSocketValue = tftypes.NewValue(tftypes.String, ssh.AgentSocket.ValueString())
+		}
+
+		var useSudoValue tftypes.Value
+		if ssh.UseSudo.IsNull() {
+			useSudoValue = tftypes.NewValue(tftypes.Bool, nil)
+		} else {
+			useSudoValue = tftypes.NewValue(tftypes.Bool, ssh.UseSudo.ValueBool())
+		}
+
 		var hostKeyFingerprintValue tftypes.Value
 		if ssh.HostKeyFingerprint.IsNull() {
 			hostKeyFingerprintValue = tftypes.NewValue(tftypes.String, nil)
@@ -836,6 +917,9 @@ func createTestConfigureRequestWithWebSocket(t *testing.T, host, authMethod stri
 			"port":                 portValue,
 			"user":                 userValue,
 			"private_key":          privateKeyValue,
+			"use_agent":            useAgentValue,
+			"agent_socket":         agentSocketValue,
+			"use_sudo":             useSudoValue,
 			"host_key_fingerprint": hostKeyFingerprintValue,
 			"max_sessions":         maxSessionsValue,
 		})
