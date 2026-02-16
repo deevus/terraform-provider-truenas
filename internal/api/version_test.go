@@ -60,6 +60,18 @@ func TestParseVersion(t *testing.T) {
 			},
 		},
 		{
+			name: "TrueNAS 25.10 three-part version",
+			raw:  "TrueNAS-25.10.1",
+			want: Version{
+				Major:  25,
+				Minor:  10,
+				Patch:  1,
+				Build:  0,
+				Flavor: FlavorUnknown,
+				Raw:    "TrueNAS-25.10.1",
+			},
+		},
+		{
 			name:    "invalid version string",
 			raw:     "not-a-version",
 			wantErr: true,
