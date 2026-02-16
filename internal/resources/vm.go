@@ -11,7 +11,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -314,8 +316,9 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 				},
 			},
 			"display_available": schema.BoolAttribute{
-				Description: "Whether a display device is available.",
-				Computed:    true,
+				Description:   "Whether a display device is available.",
+				Computed:      true,
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
 			},
 		},
 		Blocks: map[string]schema.Block{
@@ -324,8 +327,9 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
 						"device_id": schema.Int64Attribute{
-							Description: "Device ID assigned by TrueNAS.",
-							Computed:    true,
+							Description:   "Device ID assigned by TrueNAS.",
+							Computed:      true,
+							PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 						},
 						"path": schema.StringAttribute{
 							Description: "Path to zvol device (e.g., /dev/zvol/tank/vms/disk0).",
@@ -364,14 +368,16 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 							},
 						},
 						"serial": schema.StringAttribute{
-							Description: "Disk serial number. Auto-generated if not set.",
-							Optional:    true,
-							Computed:    true,
+							Description:   "Disk serial number. Auto-generated if not set.",
+							Optional:      true,
+							Computed:      true,
+							PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 						},
 						"order": schema.Int64Attribute{
-							Description: "Device boot/load order.",
-							Optional:    true,
-							Computed:    true,
+							Description:   "Device boot/load order.",
+							Optional:      true,
+							Computed:      true,
+							PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 						},
 					},
 				},
@@ -380,7 +386,7 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 				Description: "RAW file devices.",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
-						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS."},
+						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 						"path":      schema.StringAttribute{Required: true, Description: "Path to raw file."},
 						"type": schema.StringAttribute{
 							Optional: true, Computed: true, Default: stringdefault.StaticString("AHCI"),
@@ -403,8 +409,8 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 							Description: "I/O type: NATIVE, THREADS, or IO_URING. Defaults to THREADS.",
 							Validators:  []validator.String{stringvalidator.OneOf("NATIVE", "THREADS", "IO_URING")},
 						},
-						"serial": schema.StringAttribute{Optional: true, Computed: true, Description: "Disk serial number. Auto-generated if not set."},
-						"order":  schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order."},
+						"serial": schema.StringAttribute{Optional: true, Computed: true, Description: "Disk serial number. Auto-generated if not set.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+						"order":  schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 					},
 				},
 			},
@@ -412,9 +418,9 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 				Description: "CD-ROM/ISO devices.",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
-						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS."},
+						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 						"path":      schema.StringAttribute{Required: true, Description: "Path to ISO file (must start with /mnt/)."},
-						"order":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order."},
+						"order":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 					},
 				},
 			},
@@ -422,16 +428,16 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 				Description: "Network interface devices.",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
-						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS."},
+						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 						"type": schema.StringAttribute{
 							Optional: true, Computed: true, Default: stringdefault.StaticString("E1000"),
 							Description: "NIC emulation type: E1000 or VIRTIO. Defaults to E1000.",
 							Validators:  []validator.String{stringvalidator.OneOf("E1000", "VIRTIO")},
 						},
 						"nic_attach":             schema.StringAttribute{Optional: true, Description: "Host interface to attach to."},
-						"mac":                    schema.StringAttribute{Optional: true, Computed: true, Description: "MAC address (auto-generated if not set)."},
+						"mac":                    schema.StringAttribute{Optional: true, Computed: true, Description: "MAC address (auto-generated if not set).", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 						"trust_guest_rx_filters": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "Trust guest RX filters. Defaults to false."},
-						"order":                  schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order."},
+						"order":                  schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 					},
 				},
 			},
@@ -439,7 +445,7 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 				Description: "SPICE display devices.",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
-						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS."},
+						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 						"type": schema.StringAttribute{
 							Optional: true, Computed: true, Default: stringdefault.StaticString("SPICE"),
 							Description: "Display protocol. Currently only SPICE.",
@@ -454,8 +460,8 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 								"800x600", "640x480",
 							)},
 						},
-						"port":     schema.Int64Attribute{Optional: true, Computed: true, Description: "SPICE port (auto-assigned if not set). Range 5900-65535.", Validators: []validator.Int64{int64validator.Between(5900, 65535)}},
-						"web_port": schema.Int64Attribute{Optional: true, Computed: true, Description: "Web client port (auto-assigned if not set)."},
+						"port":     schema.Int64Attribute{Optional: true, Computed: true, Description: "SPICE port (auto-assigned if not set). Range 5900-65535.", Validators: []validator.Int64{int64validator.Between(5900, 65535)}, PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
+						"web_port": schema.Int64Attribute{Optional: true, Computed: true, Description: "Web client port (auto-assigned if not set).", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 						"bind": schema.StringAttribute{
 							Optional: true, Computed: true, Default: stringdefault.StaticString("127.0.0.1"),
 							Description: "Bind address. Defaults to 127.0.0.1.",
@@ -463,7 +469,7 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 						"wait":     schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "Wait for client before booting. Defaults to false."},
 						"password": schema.StringAttribute{Required: true, Sensitive: true, Description: "Connection password. Required by TrueNAS for display devices."},
 						"web":      schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(true), Description: "Enable web client. Defaults to true."},
-						"order":    schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order."},
+						"order":    schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 					},
 				},
 			},
@@ -471,9 +477,9 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 				Description: "PCI passthrough devices.",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
-						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS."},
+						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 						"pptdev":    schema.StringAttribute{Required: true, Description: "PCI device address (e.g., 0000:01:00.0)."},
-						"order":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order."},
+						"order":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 					},
 				},
 			},
@@ -481,7 +487,7 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 				Description: "USB passthrough devices.",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
-						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS."},
+						"device_id": schema.Int64Attribute{Computed: true, Description: "Device ID assigned by TrueNAS.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 						"controller_type": schema.StringAttribute{
 							Optional: true, Computed: true, Default: stringdefault.StaticString("nec-xhci"),
 							Description: "USB controller type. Defaults to nec-xhci.",
@@ -491,7 +497,7 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 							)},
 						},
 						"device": schema.StringAttribute{Optional: true, Description: "USB device identifier."},
-						"order":  schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order."},
+						"order":  schema.Int64Attribute{Optional: true, Computed: true, Description: "Device boot/load order.", PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}},
 					},
 				},
 			},
