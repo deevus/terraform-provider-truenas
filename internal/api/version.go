@@ -26,11 +26,11 @@ type Version struct {
 	Raw    string
 }
 
-// versionRegex extracts version numbers from strings like "TrueNAS-SCALE-24.10.2.4"
-var versionRegex = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)\.(\d+)`)
+// versionRegex extracts version numbers from strings like "TrueNAS-SCALE-24.10.2.4" or "TrueNAS-25.10.1"
+var versionRegex = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?`)
 
 // ParseVersion parses a TrueNAS version string.
-// Examples: "TrueNAS-SCALE-24.10.2.4", "TrueNAS-25.04.2.4"
+// Examples: "TrueNAS-SCALE-24.10.2.4", "TrueNAS-25.04.2.4", "TrueNAS-25.10.1"
 func ParseVersion(raw string) (Version, error) {
 	v := Version{Raw: raw}
 
@@ -63,9 +63,11 @@ func ParseVersion(raw string) (Version, error) {
 	if err != nil {
 		return v, fmt.Errorf("invalid patch version: %w", err)
 	}
-	v.Build, err = strconv.Atoi(match[4])
-	if err != nil {
-		return v, fmt.Errorf("invalid build version: %w", err)
+	if match[4] != "" {
+		v.Build, err = strconv.Atoi(match[4])
+		if err != nil {
+			return v, fmt.Errorf("invalid build version: %w", err)
+		}
 	}
 
 	return v, nil
