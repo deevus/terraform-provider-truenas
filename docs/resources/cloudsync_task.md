@@ -119,6 +119,7 @@ terraform import truenas_cloudsync_task.example 1
 - `enabled` (Boolean) Enable the task.
 - `encryption` (Block, Optional) Encryption settings for cloud storage. (see [below for nested schema](#nestedblock--encryption))
 - `exclude` (List of String) Patterns to exclude from sync.
+- `fast_list` (Boolean) Use fewer transactions in exchange for more memory. See rclone --fast-list.
 - `follow_symlinks` (Boolean) Follow symbolic links.
 - `gcs` (Block, Optional) Google Cloud Storage settings. (see [below for nested schema](#nestedblock--gcs))
 - `include` (List of String) Patterns to include in sync. Supports glob patterns like '/folder/**' or '*.jpg'.

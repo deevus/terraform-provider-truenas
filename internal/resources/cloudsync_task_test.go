@@ -191,6 +191,7 @@ type cloudSyncTaskModelParams struct {
 	Include            []string
 	FollowSymlinks     bool
 	CreateEmptySrcDirs bool
+	FastList           bool
 	Enabled            bool
 	SyncOnChange       bool
 	Schedule           *scheduleBlockParams
@@ -280,6 +281,7 @@ func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 		"bwlimit":               tftypes.NewValue(tftypes.String, p.BWLimit),
 		"follow_symlinks":       tftypes.NewValue(tftypes.Bool, p.FollowSymlinks),
 		"create_empty_src_dirs": tftypes.NewValue(tftypes.Bool, p.CreateEmptySrcDirs),
+		"fast_list":             tftypes.NewValue(tftypes.Bool, p.FastList),
 		"enabled":               tftypes.NewValue(tftypes.Bool, p.Enabled),
 		"sync_on_change":        tftypes.NewValue(tftypes.Bool, p.SyncOnChange),
 	}
@@ -385,6 +387,7 @@ func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 			"include":               tftypes.List{ElementType: tftypes.String},
 			"follow_symlinks":       tftypes.Bool,
 			"create_empty_src_dirs": tftypes.Bool,
+			"fast_list":             tftypes.Bool,
 			"enabled":               tftypes.Bool,
 			"sync_on_change":        tftypes.Bool,
 			"schedule":              scheduleType,
