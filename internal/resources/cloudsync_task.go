@@ -39,6 +39,7 @@ type CloudSyncTaskResourceModel struct {
 	Include            types.List       `tfsdk:"include"`
 	FollowSymlinks     types.Bool       `tfsdk:"follow_symlinks"`
 	CreateEmptySrcDirs types.Bool       `tfsdk:"create_empty_src_dirs"`
+	FastList           types.Bool       `tfsdk:"fast_list"`
 	Enabled            types.Bool       `tfsdk:"enabled"`
 	SyncOnChange       types.Bool       `tfsdk:"sync_on_change"`
 	Schedule           *ScheduleBlock   `tfsdk:"schedule"`
@@ -169,6 +170,12 @@ func (r *CloudSyncTaskResource) Schema(ctx context.Context, req resource.SchemaR
 			},
 			"create_empty_src_dirs": schema.BoolAttribute{
 				Description: "Create empty source directories on destination.",
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(false),
+			},
+			"fast_list": schema.BoolAttribute{
+				Description: "Use fewer transactions in exchange for more memory. See rclone --fast-list.",
 				Optional:    true,
 				Computed:    true,
 				Default:     booldefault.StaticBool(false),
@@ -508,43 +515,43 @@ func validateTaskProviderBlock(data *CloudSyncTaskResourceModel) []string {
 
 // getTaskAttributes extracts attributes from the provider block.
 func getTaskAttributes(data *CloudSyncTaskResourceModel) map[string]any {
+	var attrs map[string]any
+
 	if data.S3 != nil {
-		attrs := map[string]any{
+		attrs = map[string]any{
 			"bucket": data.S3.Bucket.ValueString(),
 		}
 		if !data.S3.Folder.IsNull() && !data.S3.Folder.IsUnknown() {
 			attrs["folder"] = data.S3.Folder.ValueString()
 		}
-		return attrs
-	}
-	if data.B2 != nil {
-		attrs := map[string]any{
+	} else if data.B2 != nil {
+		attrs = map[string]any{
 			"bucket": data.B2.Bucket.ValueString(),
 		}
 		if !data.B2.Folder.IsNull() && !data.B2.Folder.IsUnknown() {
 			attrs["folder"] = data.B2.Folder.ValueString()
 		}
-		return attrs
-	}
-	if data.GCS != nil {
-		attrs := map[string]any{
+	} else if data.GCS != nil {
+		attrs = map[string]any{
 			"bucket": data.GCS.Bucket.ValueString(),
 		}
 		if !data.GCS.Folder.IsNull() && !data.GCS.Folder.IsUnknown() {
 			attrs["folder"] = data.GCS.Folder.ValueString()
 		}
-		return attrs
-	}
-	if data.Azure != nil {
-		attrs := map[string]any{
+	} else if data.Azure != nil {
+		attrs = map[string]any{
 			"container": data.Azure.Container.ValueString(),
 		}
 		if !data.Azure.Folder.IsNull() && !data.Azure.Folder.IsUnknown() {
 			attrs["folder"] = data.Azure.Folder.ValueString()
 		}
-		return attrs
+	} else {
+		attrs = map[string]any{}
 	}
-	return map[string]any{}
+
+	attrs["fast_list"] = data.FastList.ValueBool()
+
+	return attrs
 }
 
 // mapTaskToModel maps an API response to the resource model.
@@ -559,6 +566,7 @@ func (r *CloudSyncTaskResource) mapTaskToModel(task *api.CloudSyncTaskResponse, 
 	data.Transfers = types.Int64Value(task.Transfers)
 	data.FollowSymlinks = types.BoolValue(task.FollowSymlinks)
 	data.CreateEmptySrcDirs = types.BoolValue(task.CreateEmptySrcDirs)
+	data.FastList = types.BoolValue(task.FastList())
 	data.Enabled = types.BoolValue(task.Enabled)
 
 	// BWLimit is preserved from plan since API returns array format

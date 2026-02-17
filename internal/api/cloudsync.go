@@ -60,6 +60,18 @@ type CloudSyncTaskResponse struct {
 	Job                *JobStatus                 `json:"job,omitempty"`
 }
 
+// FastList returns the fast_list value from the task attributes.
+// Returns false if attributes is not an object or fast_list is not set.
+func (r *CloudSyncTaskResponse) FastList() bool {
+	var attrs struct {
+		FastList bool `json:"fast_list"`
+	}
+	if json.Unmarshal(r.Attributes, &attrs) != nil {
+		return false
+	}
+	return attrs.FastList
+}
+
 // BwLimit represents a bandwidth limit entry.
 type BwLimit struct {
 	Time      string `json:"time"`
