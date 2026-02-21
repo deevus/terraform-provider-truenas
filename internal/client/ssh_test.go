@@ -1364,6 +1364,7 @@ func TestSSHClient_Call_RespectsSemaphore(t *testing.T) {
 		config:        &SSHConfig{Host: "test", PrivateKey: testPrivateKey, HostKeyFingerprint: testHostKeyFingerprint},
 		clientWrapper: mockClient,
 		sessionSem:    make(chan struct{}, 2), // Limit to 2 concurrent
+		logger:        NopLogger{},
 	}
 
 	// Launch 5 concurrent calls
@@ -1414,6 +1415,7 @@ func TestSSHClient_CallAndWait_RespectsSemaphore(t *testing.T) {
 		clientWrapper: mockClient,
 		sessionSem:    make(chan struct{}, 2),
 		version:       api.Version{Major: 25, Minor: 4, Raw: "TrueNAS-25.04"},
+		logger:        NopLogger{},
 	}
 	client.connected = true // Mark version as cached
 
@@ -1480,6 +1482,88 @@ type logCall struct {
 
 func (r *recordingLogger) Debug(_ context.Context, msg string, fields map[string]any) {
 	r.calls = append(r.calls, logCall{msg: msg, fields: fields})
+}
+
+func TestSSHClient_Call_LogsRequestAndResponse(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		PrivateKey:         testPrivateKey,
+		HostKeyFingerprint: testHostKeyFingerprint,
+	}
+
+	logger := &recordingLogger{}
+	client, _ := NewSSHClient(config, WithLogger(logger))
+
+	mockSess := &mockSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			return []byte(`{"ok": true}`), nil
+		},
+	}
+	client.clientWrapper = &mockSSHClient{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSess, nil
+		},
+	}
+
+	_, err := client.Call(context.Background(), "test.method", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(logger.calls) != 2 {
+		t.Fatalf("expected 2 log calls (request + response), got %d", len(logger.calls))
+	}
+
+	if logger.calls[0].msg != "API request" {
+		t.Errorf("expected first log 'API request', got %q", logger.calls[0].msg)
+	}
+	if logger.calls[0].fields["method"] != "test.method" {
+		t.Errorf("expected method field 'test.method', got %v", logger.calls[0].fields["method"])
+	}
+
+	if logger.calls[1].msg != "API response" {
+		t.Errorf("expected second log 'API response', got %q", logger.calls[1].msg)
+	}
+}
+
+func TestSSHClient_CallAndWait_LogsRequestAndResponse(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		PrivateKey:         testPrivateKey,
+		HostKeyFingerprint: testHostKeyFingerprint,
+	}
+
+	logger := &recordingLogger{}
+	client, _ := NewSSHClient(config, WithLogger(logger))
+	client.version = api.Version{Major: 25, Minor: 4, Raw: "TrueNAS-25.04"}
+	client.connected = true
+
+	mockSess := &mockSession{
+		combinedOutputFunc: func(cmd string) ([]byte, error) {
+			return []byte(`{}`), nil
+		},
+	}
+	client.clientWrapper = &mockSSHClient{
+		newSessionFunc: func() (sshSession, error) {
+			return mockSess, nil
+		},
+	}
+
+	_, err := client.CallAndWait(context.Background(), "test.method", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(logger.calls) != 2 {
+		t.Fatalf("expected 2 log calls, got %d", len(logger.calls))
+	}
+
+	if logger.calls[0].msg != "API request (job)" {
+		t.Errorf("expected 'API request (job)', got %q", logger.calls[0].msg)
+	}
+	if logger.calls[1].msg != "API response (job)" {
+		t.Errorf("expected 'API response (job)', got %q", logger.calls[1].msg)
+	}
 }
 
 func TestSSHClient_ReadFile_RespectsSemaphore(t *testing.T) {

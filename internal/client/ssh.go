@@ -15,7 +15,6 @@ import (
 
 	"al.essio.dev/pkg/shellescape"
 	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -263,7 +262,7 @@ func (c *SSHClient) Call(ctx context.Context, method string, params any) (json.R
 	cmd += paramsStr
 
 	// Log request
-	tflog.Debug(ctx, "API request", map[string]any{
+	c.logger.Debug(ctx, "API request", map[string]any{
 		"method": method,
 		"params": paramsStr,
 	})
@@ -279,7 +278,7 @@ func (c *SSHClient) Call(ctx context.Context, method string, params any) (json.R
 	output, err := session.CombinedOutput(cmd)
 
 	// Log response
-	tflog.Debug(ctx, "API response", map[string]any{
+	c.logger.Debug(ctx, "API response", map[string]any{
 		"method": method,
 		"output": string(output),
 		"error":  err,
@@ -335,7 +334,7 @@ func (c *SSHClient) callAndWaitWithFlag(ctx context.Context, method string, para
 	cmd += paramsStr
 
 	// Log request
-	tflog.Debug(ctx, "API request (job)", map[string]any{
+	c.logger.Debug(ctx, "API request (job)", map[string]any{
 		"method": method,
 		"params": paramsStr,
 	})
@@ -351,7 +350,7 @@ func (c *SSHClient) callAndWaitWithFlag(ctx context.Context, method string, para
 	output, err := session.CombinedOutput(cmd)
 
 	// Log response
-	tflog.Debug(ctx, "API response (job)", map[string]any{
+	c.logger.Debug(ctx, "API response (job)", map[string]any{
 		"method": method,
 		"output": string(output),
 		"error":  err,
