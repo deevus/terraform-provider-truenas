@@ -12,7 +12,7 @@ type ClientFactory interface {
 type DefaultClientFactory struct{}
 
 func (f *DefaultClientFactory) NewSSHClient(cfg *client.SSHConfig) (client.Client, error) {
-	return client.NewSSHClient(cfg)
+	return client.NewSSHClient(cfg, client.WithLogger(TFLogAdapter{}))
 }
 
 func (f *DefaultClientFactory) NewWebSocketClient(cfg client.WebSocketConfig) (client.Client, error) {
