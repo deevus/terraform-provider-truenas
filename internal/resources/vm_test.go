@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/truenas-go/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -532,7 +532,7 @@ func TestVMResource_Create_Success(t *testing.T) {
 
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -594,7 +594,7 @@ func TestVMResource_Create_WithStateRunning(t *testing.T) {
 
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				switch method {
@@ -645,7 +645,7 @@ func TestVMResource_Create_WithStateRunning(t *testing.T) {
 func TestVMResource_Create_APIError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("vm already exists")
 			},
@@ -672,7 +672,7 @@ func TestVMResource_Create_WithDevices(t *testing.T) {
 
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -731,7 +731,7 @@ func TestVMResource_Create_WithDevices(t *testing.T) {
 func TestVMResource_Read_Success(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.get_instance":
@@ -774,7 +774,7 @@ func TestVMResource_Read_Success(t *testing.T) {
 func TestVMResource_Read_NotFound(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("does not exist")
 			},
@@ -807,7 +807,7 @@ func TestVMResource_Read_NotFound(t *testing.T) {
 func TestVMResource_Read_WithDevices(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.get_instance":
@@ -872,7 +872,7 @@ func TestVMResource_Update_TopLevel(t *testing.T) {
 
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.update":
@@ -940,7 +940,7 @@ func TestVMResource_Delete_Stopped(t *testing.T) {
 
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				switch method {
@@ -982,7 +982,7 @@ func TestVMResource_Delete_Running(t *testing.T) {
 
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				switch method {
@@ -1627,7 +1627,7 @@ func createVMModelValueFull(p vmModelParams, raws []vmRawParams, pcis []vmPCIPar
 func TestVMResource_Create_DeviceCreateError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -1664,7 +1664,7 @@ func TestVMResource_Create_DeviceCreateError(t *testing.T) {
 func TestVMResource_Create_StartError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -1697,7 +1697,7 @@ func TestVMResource_Create_StartError(t *testing.T) {
 func TestVMResource_Create_ReadBackError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -1728,7 +1728,7 @@ func TestVMResource_Create_ReadBackError(t *testing.T) {
 func TestVMResource_Create_DeviceQueryError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -1762,7 +1762,7 @@ func TestVMResource_Create_WithCDROMDevice(t *testing.T) {
 	var deviceMethods []string
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				deviceMethods = append(deviceMethods, method)
 				switch method {
@@ -1816,7 +1816,7 @@ func TestVMResource_Create_WithDisplayDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -1865,7 +1865,7 @@ func TestVMResource_Create_WithRawDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -1916,7 +1916,7 @@ func TestVMResource_Create_WithPCIDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -1963,7 +1963,7 @@ func TestVMResource_Create_WithUSBDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -2008,7 +2008,7 @@ func TestVMResource_Create_WithUSBDevice(t *testing.T) {
 func TestVMResource_Create_RawDeviceCreateError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -2047,7 +2047,7 @@ func TestVMResource_Create_RawDeviceCreateError(t *testing.T) {
 func TestVMResource_Create_CDROMDeviceCreateError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -2080,7 +2080,7 @@ func TestVMResource_Create_CDROMDeviceCreateError(t *testing.T) {
 func TestVMResource_Create_NICDeviceCreateError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -2113,7 +2113,7 @@ func TestVMResource_Create_NICDeviceCreateError(t *testing.T) {
 func TestVMResource_Create_DisplayDeviceCreateError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -2149,7 +2149,7 @@ func TestVMResource_Create_DisplayDeviceCreateError(t *testing.T) {
 func TestVMResource_Create_PCIDeviceCreateError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -2184,7 +2184,7 @@ func TestVMResource_Create_PCIDeviceCreateError(t *testing.T) {
 func TestVMResource_Create_USBDeviceCreateError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.create":
@@ -2220,7 +2220,7 @@ func TestVMResource_Create_USBDeviceCreateError(t *testing.T) {
 func TestVMResource_Read_NonNotFoundError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("internal server error")
 			},
@@ -2247,7 +2247,7 @@ func TestVMResource_Read_NonNotFoundError(t *testing.T) {
 func TestVMResource_Read_DeviceQueryError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.get_instance":
@@ -2283,7 +2283,7 @@ func TestVMResource_Update_WithDeviceReconciliation(t *testing.T) {
 	var methods []string
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				switch method {
@@ -2362,7 +2362,7 @@ func TestVMResource_Update_StateTransition(t *testing.T) {
 	var methods []string
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				switch method {
@@ -2419,7 +2419,7 @@ func TestVMResource_Update_StateTransition(t *testing.T) {
 func TestVMResource_Update_UpdateError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "vm.update" {
 					return nil, errors.New("update failed")
@@ -2458,7 +2458,7 @@ func TestVMResource_Update_UpdateError(t *testing.T) {
 func TestVMResource_Update_DeviceReconcileError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.device.delete":
@@ -2503,7 +2503,7 @@ func TestVMResource_Update_StateTransitionQueryError(t *testing.T) {
 	callCount := 0
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.get_instance":
@@ -2550,7 +2550,7 @@ func TestVMResource_Update_StateTransitionQueryError(t *testing.T) {
 func TestVMResource_Update_StateReconcileError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.get_instance":
@@ -2595,7 +2595,7 @@ func TestVMResource_Update_ReadBackError(t *testing.T) {
 	getInstanceCallCount := 0
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.get_instance":
@@ -2644,7 +2644,7 @@ func TestVMResource_Update_ReadBackError(t *testing.T) {
 func TestVMResource_Update_DeviceQueryError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.get_instance":
@@ -2686,7 +2686,7 @@ func TestVMResource_Update_DeviceQueryError(t *testing.T) {
 func TestVMResource_Delete_StatusError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "vm.get_instance" {
 					return nil, errors.New("internal server error")
@@ -2714,7 +2714,7 @@ func TestVMResource_Delete_StatusError(t *testing.T) {
 func TestVMResource_Delete_StopError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "vm.get_instance" {
 					return mockVMResponse(1, "test-vm", 2048, "RUNNING"), nil
@@ -2746,7 +2746,7 @@ func TestVMResource_Delete_StopError(t *testing.T) {
 func TestVMResource_Delete_DeleteError(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "vm.get_instance":
@@ -2777,7 +2777,7 @@ func TestVMResource_Delete_DeleteError(t *testing.T) {
 func TestVMResource_Delete_AlreadyDeleted(t *testing.T) {
 	r := &VMResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "vm.get_instance" {
 					return nil, errors.New("does not exist")

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
@@ -109,13 +109,13 @@ func (v SizeStringValue) StringSemanticEquals(ctx context.Context, newValuable b
 	}
 
 	// Parse both values to bytes and compare
-	oldBytes, err := api.ParseSize(v.ValueString())
+	oldBytes, err := truenas.ParseSize(v.ValueString())
 	if err != nil {
 		diags.AddError("Invalid Size", fmt.Sprintf("Unable to parse size %q: %s", v.ValueString(), err))
 		return false, diags
 	}
 
-	newBytes, err := api.ParseSize(newValue.ValueString())
+	newBytes, err := truenas.ParseSize(newValue.ValueString())
 	if err != nil {
 		diags.AddError("Invalid Size", fmt.Sprintf("Unable to parse size %q: %s", newValue.ValueString(), err))
 		return false, diags

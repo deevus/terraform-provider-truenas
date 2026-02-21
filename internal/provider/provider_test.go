@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/truenas-go/client"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -40,7 +40,7 @@ func (f *mockClientFactory) NewWebSocketClient(cfg client.WebSocketConfig) (clie
 }
 
 // newTestMockClient creates a MockClient configured for testing
-func newTestMockClient(version api.Version) *client.MockClient {
+func newTestMockClient(version truenas.Version) *client.MockClient {
 	return &client.MockClient{
 		VersionVal:  version,
 		ConnectFunc: func(ctx context.Context) error { return nil },
@@ -490,7 +490,7 @@ func TestProvider_Configure_MissingSSHBlock(t *testing.T) {
 }
 
 func TestProvider_Configure_Success(t *testing.T) {
-	mock := newTestMockClient(api.Version{Major: 24, Minor: 10})
+	mock := newTestMockClient(truenas.Version{Major: 24, Minor: 10})
 
 	p := &TrueNASProvider{
 		version: "1.0.0",
@@ -524,7 +524,7 @@ func TestProvider_Configure_Success(t *testing.T) {
 }
 
 func TestProvider_Configure_WithCustomPortAndUser(t *testing.T) {
-	mock := newTestMockClient(api.Version{Major: 24, Minor: 10})
+	mock := newTestMockClient(truenas.Version{Major: 24, Minor: 10})
 
 	p := &TrueNASProvider{
 		version: "1.0.0",
@@ -1019,8 +1019,8 @@ func TestProvider_Configure_WebSocketAuthMethod_MissingSSHBlock(t *testing.T) {
 }
 
 func TestProvider_Configure_WebSocketAuthMethod_Success(t *testing.T) {
-	sshMock := newTestMockClient(api.Version{Major: 25, Minor: 0})
-	wsMock := newTestMockClient(api.Version{Major: 25, Minor: 0})
+	sshMock := newTestMockClient(truenas.Version{Major: 25, Minor: 0})
+	wsMock := newTestMockClient(truenas.Version{Major: 25, Minor: 0})
 
 	p := &TrueNASProvider{
 		version: "1.0.0",
@@ -1067,8 +1067,8 @@ func TestProvider_Configure_WebSocketAuthMethod_Success(t *testing.T) {
 }
 
 func TestProvider_Configure_WebSocketAuthMethod_WithAllOptions(t *testing.T) {
-	sshMock := newTestMockClient(api.Version{Major: 25, Minor: 0})
-	wsMock := newTestMockClient(api.Version{Major: 25, Minor: 0})
+	sshMock := newTestMockClient(truenas.Version{Major: 25, Minor: 0})
+	wsMock := newTestMockClient(truenas.Version{Major: 25, Minor: 0})
 
 	p := &TrueNASProvider{
 		version: "1.0.0",
@@ -1151,7 +1151,7 @@ func TestProvider_Configure_InvalidAuthMethod_MentionsWebSocket(t *testing.T) {
 }
 
 func TestProvider_Configure_EmptyAuthMethod_DefaultsToSSH(t *testing.T) {
-	mock := newTestMockClient(api.Version{Major: 24, Minor: 10})
+	mock := newTestMockClient(truenas.Version{Major: 24, Minor: 10})
 
 	p := &TrueNASProvider{
 		version: "1.0.0",
@@ -1230,7 +1230,7 @@ func TestProvider_Configure_WebSocketAuthMethod_EmptySSHKey(t *testing.T) {
 
 func TestProvider_Configure_WebSocketAuthMethod_OldVersionRejected(t *testing.T) {
 	// TrueNAS 24.x should be rejected for WebSocket mode
-	sshMock := newTestMockClient(api.Version{Major: 24, Minor: 10, Raw: "24.10"})
+	sshMock := newTestMockClient(truenas.Version{Major: 24, Minor: 10, Raw: "24.10"})
 
 	p := &TrueNASProvider{
 		version: "1.0.0",
@@ -1320,7 +1320,7 @@ func TestProvider_Configure_SSHConnectError(t *testing.T) {
 }
 
 func TestProvider_Configure_WebSocketConnectError(t *testing.T) {
-	sshMock := newTestMockClient(api.Version{Major: 25, Minor: 0})
+	sshMock := newTestMockClient(truenas.Version{Major: 25, Minor: 0})
 	wsMock := &client.MockClient{
 		ConnectFunc: func(ctx context.Context) error {
 			return errors.New("websocket handshake failed")

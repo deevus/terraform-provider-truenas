@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/truenas-go/client"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -97,7 +97,7 @@ func (d *CloudSyncCredentialsDataSource) Read(ctx context.Context, req datasourc
 	}
 
 	// Parse the response using version-aware parser
-	credentials, err := api.ParseCredentials(result, version)
+	credentials, err := truenas.ParseCredentials(result, version)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Parse Credentials Response",
@@ -107,7 +107,7 @@ func (d *CloudSyncCredentialsDataSource) Read(ctx context.Context, req datasourc
 	}
 
 	// Find the credential with matching name
-	var found *api.CloudSyncCredentialResponse
+	var found *truenas.CloudSyncCredentialResponse
 	searchName := data.Name.ValueString()
 	for i := range credentials {
 		if credentials[i].Name == searchName {

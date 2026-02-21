@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/deevus/terraform-provider-truenas/internal/client"
+	"github.com/deevus/truenas-go/client"
 )
 
 func TestTFLogAdapter_ImplementsLogger(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/truenas-go/client"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -164,7 +164,7 @@ func createCloudSyncCredentialsTestReadRequest(t *testing.T, name string) dataso
 func TestCloudSyncCredentialsDataSource_Read_Success_S3(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "cloudsync.credentials.query" {
 					t.Errorf("expected method 'cloudsync.credentials.query', got %q", method)
@@ -223,7 +223,7 @@ func TestCloudSyncCredentialsDataSource_Read_Success_S3(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_Success_B2(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// 25.x format
 				return json.RawMessage(`[{
@@ -272,7 +272,7 @@ func TestCloudSyncCredentialsDataSource_Read_Success_B2(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_Success_GCS(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// 25.x format
 				return json.RawMessage(`[{
@@ -321,7 +321,7 @@ func TestCloudSyncCredentialsDataSource_Read_Success_GCS(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_Success_Azure(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// 25.x format
 				return json.RawMessage(`[{
@@ -370,7 +370,7 @@ func TestCloudSyncCredentialsDataSource_Read_Success_Azure(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_NotFound(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// Return empty array - no credentials found
 				return json.RawMessage(`[]`), nil
@@ -400,7 +400,7 @@ func TestCloudSyncCredentialsDataSource_Read_NotFound(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_MultipleCredentials_FindsMatch(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// Return multiple credentials (25.x format)
 				return json.RawMessage(`[
@@ -450,7 +450,7 @@ func TestCloudSyncCredentialsDataSource_Read_MultipleCredentials_FindsMatch(t *t
 func TestCloudSyncCredentialsDataSource_Read_APIError(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection failed")
 			},
@@ -479,7 +479,7 @@ func TestCloudSyncCredentialsDataSource_Read_APIError(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_InvalidJSON(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
@@ -508,7 +508,7 @@ func TestCloudSyncCredentialsDataSource_Read_InvalidJSON(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_UnknownProvider(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// 25.x format
 				return json.RawMessage(`[{
@@ -563,7 +563,7 @@ func TestCloudSyncCredentialsDataSource_ImplementsInterfaces(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Read_Legacy(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
 		client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// 24.x format: provider is a string, attributes is a separate object
 				return json.RawMessage(`[{

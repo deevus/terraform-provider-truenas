@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
@@ -115,17 +115,17 @@ func (r *SnapshotResource) Schema(ctx context.Context, req resource.SchemaReques
 
 // querySnapshot queries a snapshot by ID and returns the response.
 // Returns nil if the snapshot is not found.
-func (r *SnapshotResource) querySnapshot(ctx context.Context, snapshotID string) (*api.SnapshotResponse, error) {
+func (r *SnapshotResource) querySnapshot(ctx context.Context, snapshotID string) (*truenas.SnapshotResponse, error) {
 	version := r.client.Version()
 
-	method := api.ResolveSnapshotMethod(version, api.MethodSnapshotQuery)
+	method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotQuery)
 	filter := [][]any{{"id", "=", snapshotID}}
 	result, err := r.client.Call(ctx, method, filter)
 	if err != nil {
 		return nil, err
 	}
 
-	var snapshots []api.SnapshotResponse
+	var snapshots []truenas.SnapshotResponse
 	if err := json.Unmarshal(result, &snapshots); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
@@ -138,7 +138,7 @@ func (r *SnapshotResource) querySnapshot(ctx context.Context, snapshotID string)
 }
 
 // mapSnapshotToModel maps API response fields to the Terraform model.
-func mapSnapshotToModel(snap *api.SnapshotResponse, data *SnapshotResourceModel) {
+func mapSnapshotToModel(snap *truenas.SnapshotResponse, data *SnapshotResourceModel) {
 	data.ID = types.StringValue(snap.ID)
 	data.DatasetID = types.StringValue(snap.Dataset)
 	data.Name = types.StringValue(snap.SnapshotName) // Use SnapshotName, not Name (which is full ID)
@@ -170,7 +170,7 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 	}
 
 	// Create the snapshot
-	method := api.ResolveSnapshotMethod(version, api.MethodSnapshotCreate)
+	method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotCreate)
 	_, err := r.client.Call(ctx, method, params)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -185,7 +185,7 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 
 	// If hold is requested, apply it
 	if !data.Hold.IsNull() && data.Hold.ValueBool() {
-		holdMethod := api.ResolveSnapshotMethod(version, api.MethodSnapshotHold)
+		holdMethod := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotHold)
 		_, err := r.client.Call(ctx, holdMethod, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -268,7 +268,7 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 
 	if stateHold && !planHold {
 		// Release hold
-		method := api.ResolveSnapshotMethod(version, api.MethodSnapshotRelease)
+		method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotRelease)
 		_, err := r.client.Call(ctx, method, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -279,7 +279,7 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 		}
 	} else if !stateHold && planHold {
 		// Apply hold
-		method := api.ResolveSnapshotMethod(version, api.MethodSnapshotHold)
+		method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotHold)
 		_, err := r.client.Call(ctx, method, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -329,7 +329,7 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 
 	// If held, release first
 	if data.Hold.ValueBool() {
-		method := api.ResolveSnapshotMethod(version, api.MethodSnapshotRelease)
+		method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotRelease)
 		_, err := r.client.Call(ctx, method, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -341,7 +341,7 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 
 	// Delete the snapshot
-	method := api.ResolveSnapshotMethod(version, api.MethodSnapshotDelete)
+	method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotDelete)
 	_, err := r.client.Call(ctx, method, snapshotID)
 	if err != nil {
 		resp.Diagnostics.AddError(

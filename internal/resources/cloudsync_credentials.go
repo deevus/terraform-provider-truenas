@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -152,14 +152,14 @@ func (r *CloudSyncCredentialsResource) Schema(ctx context.Context, req resource.
 }
 
 // queryCredential queries a credential by ID and returns the response.
-func (r *CloudSyncCredentialsResource) queryCredential(ctx context.Context, id int64, version api.Version) (*api.CloudSyncCredentialResponse, error) {
+func (r *CloudSyncCredentialsResource) queryCredential(ctx context.Context, id int64, version truenas.Version) (*truenas.CloudSyncCredentialResponse, error) {
 	filter := [][]any{{"id", "=", id}}
 	result, err := r.client.Call(ctx, "cloudsync.credentials.query", filter)
 	if err != nil {
 		return nil, err
 	}
 
-	credentials, err := api.ParseCredentials(result, version)
+	credentials, err := truenas.ParseCredentials(result, version)
 	if err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
@@ -271,7 +271,7 @@ func (r *CloudSyncCredentialsResource) Create(ctx context.Context, req resource.
 	// Get version for API compatibility
 	version := r.client.Version()
 
-	params := api.BuildCredentialsParams(version, data.Name.ValueString(), providerType, attributes)
+	params := truenas.BuildCredentialsParams(version, data.Name.ValueString(), providerType, attributes)
 
 	result, err := r.client.Call(ctx, "cloudsync.credentials.create", params)
 	if err != nil {
@@ -397,7 +397,7 @@ func (r *CloudSyncCredentialsResource) Update(ctx context.Context, req resource.
 	// Get version for API compatibility
 	version := r.client.Version()
 
-	updateData := api.BuildCredentialsParams(version, plan.Name.ValueString(), providerType, attributes)
+	updateData := truenas.BuildCredentialsParams(version, plan.Name.ValueString(), providerType, attributes)
 
 	_, err = r.client.Call(ctx, "cloudsync.credentials.update", []any{id, updateData})
 	if err != nil {

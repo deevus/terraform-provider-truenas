@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/deevus/terraform-provider-truenas/internal/client"
+	"github.com/deevus/truenas-go/client"
 	"github.com/deevus/terraform-provider-truenas/internal/datasources"
 	"github.com/deevus/terraform-provider-truenas/internal/resources"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"

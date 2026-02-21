@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
@@ -390,14 +390,14 @@ func (r *CloudSyncTaskResource) Create(ctx context.Context, req resource.CreateR
 }
 
 // queryTask queries a cloud sync task by ID and returns the response.
-func (r *CloudSyncTaskResource) queryTask(ctx context.Context, id int64) (*api.CloudSyncTaskResponse, error) {
+func (r *CloudSyncTaskResource) queryTask(ctx context.Context, id int64) (*truenas.CloudSyncTaskResponse, error) {
 	filter := [][]any{{"id", "=", id}}
 	result, err := r.client.Call(ctx, "cloudsync.query", filter)
 	if err != nil {
 		return nil, err
 	}
 
-	var tasks []api.CloudSyncTaskResponse
+	var tasks []truenas.CloudSyncTaskResponse
 	if err := json.Unmarshal(result, &tasks); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
@@ -548,7 +548,7 @@ func getTaskAttributes(data *CloudSyncTaskResourceModel) map[string]any {
 }
 
 // mapTaskToModel maps an API response to the resource model.
-func (r *CloudSyncTaskResource) mapTaskToModel(task *api.CloudSyncTaskResponse, data *CloudSyncTaskResourceModel) {
+func (r *CloudSyncTaskResource) mapTaskToModel(task *truenas.CloudSyncTaskResponse, data *CloudSyncTaskResourceModel) {
 	data.ID = types.StringValue(strconv.FormatInt(task.ID, 10))
 	data.Description = types.StringValue(task.Description)
 	data.Path = types.StringValue(task.Path)

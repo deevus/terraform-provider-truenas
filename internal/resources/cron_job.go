@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
@@ -309,14 +309,14 @@ func (r *CronJobResource) Delete(ctx context.Context, req resource.DeleteRequest
 
 
 // queryCronJob queries a cron job by ID and returns the response.
-func (r *CronJobResource) queryCronJob(ctx context.Context, id int64) (*api.CronJobResponse, error) {
+func (r *CronJobResource) queryCronJob(ctx context.Context, id int64) (*truenas.CronJobResponse, error) {
 	filter := [][]any{{"id", "=", id}}
 	result, err := r.client.Call(ctx, "cronjob.query", filter)
 	if err != nil {
 		return nil, err
 	}
 
-	var jobs []api.CronJobResponse
+	var jobs []truenas.CronJobResponse
 	if err := json.Unmarshal(result, &jobs); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
@@ -353,7 +353,7 @@ func buildCronJobParams(data *CronJobResourceModel) map[string]any {
 }
 
 // mapCronJobToModel maps an API response to the resource model.
-func mapCronJobToModel(job *api.CronJobResponse, data *CronJobResourceModel) {
+func mapCronJobToModel(job *truenas.CronJobResponse, data *CronJobResourceModel) {
 	data.ID = types.StringValue(strconv.FormatInt(job.ID, 10))
 	data.User = types.StringValue(job.User)
 	data.Command = types.StringValue(job.Command)
