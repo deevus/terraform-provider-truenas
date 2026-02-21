@@ -33,7 +33,8 @@ When finishing a development branch:
 
 ## Worktrees
 
-Feature development uses git worktrees in `.worktrees/` (already in .gitignore).
+- Feature development uses git worktrees in `.worktrees/` (already in .gitignore).
+- Copy local Claude settings to new worktrees
 
 ### Using `tea` from a worktree
 
