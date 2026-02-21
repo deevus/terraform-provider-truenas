@@ -1432,6 +1432,56 @@ func TestSSHClient_CallAndWait_RespectsSemaphore(t *testing.T) {
 	}
 }
 
+func TestNewSSHClient_WithLogger(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		PrivateKey:         testPrivateKey,
+		HostKeyFingerprint: testHostKeyFingerprint,
+	}
+
+	logger := &recordingLogger{}
+	client, err := NewSSHClient(config, WithLogger(logger))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if client.logger != logger {
+		t.Error("expected logger to be set")
+	}
+}
+
+func TestNewSSHClient_DefaultNopLogger(t *testing.T) {
+	config := &SSHConfig{
+		Host:               "truenas.local",
+		PrivateKey:         testPrivateKey,
+		HostKeyFingerprint: testHostKeyFingerprint,
+	}
+
+	client, err := NewSSHClient(config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should default to NopLogger
+	if _, ok := client.logger.(NopLogger); !ok {
+		t.Errorf("expected NopLogger, got %T", client.logger)
+	}
+}
+
+// recordingLogger captures log calls for test assertions.
+type recordingLogger struct {
+	calls []logCall
+}
+
+type logCall struct {
+	msg    string
+	fields map[string]any
+}
+
+func (r *recordingLogger) Debug(_ context.Context, msg string, fields map[string]any) {
+	r.calls = append(r.calls, logCall{msg: msg, fields: fields})
+}
+
 func TestSSHClient_ReadFile_RespectsSemaphore(t *testing.T) {
 	var activeCount int32
 	var maxActive int32

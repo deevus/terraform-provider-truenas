@@ -122,6 +122,7 @@ type SSHClient struct {
 	dialer        sshDialer
 	mu            sync.Mutex
 	sessionSem    chan struct{} // limits concurrent SSH sessions
+	logger        Logger
 
 	// Version (set during Connect)
 	version   api.Version
@@ -131,8 +132,19 @@ type SSHClient struct {
 // Compile-time check that SSHClient implements Client.
 var _ Client = (*SSHClient)(nil)
 
+// SSHOption configures an SSHClient.
+type SSHOption func(*SSHClient)
+
+// WithLogger sets the logger for the SSH client.
+// If not provided, a NopLogger is used.
+func WithLogger(l Logger) SSHOption {
+	return func(c *SSHClient) {
+		c.logger = l
+	}
+}
+
 // NewSSHClient creates a new SSH client for TrueNAS.
-func NewSSHClient(config *SSHConfig) (*SSHClient, error) {
+func NewSSHClient(config *SSHConfig, opts ...SSHOption) (*SSHClient, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -142,11 +154,18 @@ func NewSSHClient(config *SSHConfig) (*SSHClient, error) {
 		maxSessions = 5 // default
 	}
 
-	return &SSHClient{
+	c := &SSHClient{
 		config:     config,
 		dialer:     &defaultDialer{},
 		sessionSem: make(chan struct{}, maxSessions),
-	}, nil
+		logger:     NopLogger{},
+	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c, nil
 }
 
 // acquireSession blocks until a session slot is available and returns a release function.
