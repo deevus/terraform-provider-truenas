@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
+	truenas "github.com/deevus/truenas-go"
 	customtypes "github.com/deevus/terraform-provider-truenas/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -127,7 +127,7 @@ func (r *ZvolResource) Create(ctx context.Context, req resource.CreateRequest, r
 	}
 
 	// Parse volsize
-	volsizeBytes, err := api.ParseSize(data.Volsize.ValueString())
+	volsizeBytes, err := truenas.ParseSize(data.Volsize.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid Volsize", fmt.Sprintf("Unable to parse volsize %q: %s", data.Volsize.ValueString(), err.Error()))
 		return
@@ -232,7 +232,7 @@ func (r *ZvolResource) Update(ctx context.Context, req resource.UpdateRequest, r
 
 	// Check volsize change
 	if !plan.Volsize.Equal(state.Volsize) {
-		volsizeBytes, err := api.ParseSize(plan.Volsize.ValueString())
+		volsizeBytes, err := truenas.ParseSize(plan.Volsize.ValueString())
 		if err != nil {
 			resp.Diagnostics.AddError("Invalid Volsize", fmt.Sprintf("Unable to parse volsize %q: %s", plan.Volsize.ValueString(), err.Error()))
 			return

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/truenas-go/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -242,7 +242,7 @@ func TestCloudSyncCredentialsResource_Create_S3_Success(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
 					capturedMethod = method
@@ -342,7 +342,7 @@ func TestCloudSyncCredentialsResource_Create_S3_Success(t *testing.T) {
 func TestCloudSyncCredentialsResource_Read_Success(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[{
 					"id": 5,
@@ -404,7 +404,7 @@ func TestCloudSyncCredentialsResource_Read_Success(t *testing.T) {
 func TestCloudSyncCredentialsResource_Read_NotFound(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`[]`), nil
 			},
@@ -453,7 +453,7 @@ func TestCloudSyncCredentialsResource_Update_Success(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.update" {
 					capturedMethod = method
@@ -624,7 +624,7 @@ func TestCloudSyncCredentialsResource_Delete_Success(t *testing.T) {
 func TestCloudSyncCredentialsResource_Create_APIError(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
@@ -735,7 +735,7 @@ func TestCloudSyncCredentialsResource_Create_S3_MissingRequiredFields(t *testing
 func TestCloudSyncCredentialsResource_Read_APIError(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection refused")
 			},
@@ -812,7 +812,7 @@ func TestCloudSyncCredentialsResource_Create_B2_Success(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
 					capturedParams = params
@@ -899,7 +899,7 @@ func TestCloudSyncCredentialsResource_Create_GCS_Success(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
 					capturedParams = params
@@ -981,7 +981,7 @@ func TestCloudSyncCredentialsResource_Create_Azure_Success(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
 					capturedParams = params
@@ -1103,7 +1103,7 @@ func TestCloudSyncCredentialsResource_Create_S3_Legacy(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.create" {
 					capturedParams = params
@@ -1183,7 +1183,7 @@ func TestCloudSyncCredentialsResource_Update_S3_Legacy(t *testing.T) {
 
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10},
+			VersionVal: truenas.Version{Major: 24, Minor: 10},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "cloudsync.credentials.update" {
 					capturedMethod = method

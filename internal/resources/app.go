@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/deevus/terraform-provider-truenas/internal/client"
+	"github.com/deevus/truenas-go/client"
 	customtypes "github.com/deevus/terraform-provider-truenas/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"

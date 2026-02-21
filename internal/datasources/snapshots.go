@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/truenas-go/client"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -143,7 +143,7 @@ func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadReque
 		}
 	}
 
-	method := api.ResolveSnapshotMethod(version, api.MethodSnapshotQuery)
+	method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotQuery)
 	result, err := d.client.Call(ctx, method, filter)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -153,7 +153,7 @@ func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	var snapshots []api.SnapshotResponse
+	var snapshots []truenas.SnapshotResponse
 	if err := json.Unmarshal(result, &snapshots); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Parse Snapshots Response",

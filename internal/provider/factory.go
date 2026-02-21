@@ -1,6 +1,6 @@
 package provider
 
-import "github.com/deevus/terraform-provider-truenas/internal/client"
+import "github.com/deevus/truenas-go/client"
 
 // ClientFactory abstracts client creation for testability.
 type ClientFactory interface {

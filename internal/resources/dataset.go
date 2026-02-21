@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
+	truenas "github.com/deevus/truenas-go"
 	customtypes "github.com/deevus/terraform-provider-truenas/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -336,7 +336,7 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 
 	if !data.Quota.IsNull() && !data.Quota.IsUnknown() {
-		quotaBytes, err := api.ParseSize(data.Quota.ValueString())
+		quotaBytes, err := truenas.ParseSize(data.Quota.ValueString())
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Invalid Quota Value",
@@ -348,7 +348,7 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 
 	if !data.RefQuota.IsNull() && !data.RefQuota.IsUnknown() {
-		refquotaBytes, err := api.ParseSize(data.RefQuota.ValueString())
+		refquotaBytes, err := truenas.ParseSize(data.RefQuota.ValueString())
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Invalid RefQuota Value",
@@ -496,7 +496,7 @@ func (r *DatasetResource) Update(ctx context.Context, req resource.UpdateRequest
 	}
 
 	if !data.Quota.Equal(state.Quota) && !data.Quota.IsNull() {
-		quotaBytes, err := api.ParseSize(data.Quota.ValueString())
+		quotaBytes, err := truenas.ParseSize(data.Quota.ValueString())
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Invalid Quota Value",
@@ -508,7 +508,7 @@ func (r *DatasetResource) Update(ctx context.Context, req resource.UpdateRequest
 	}
 
 	if !data.RefQuota.Equal(state.RefQuota) && !data.RefQuota.IsNull() {
-		refquotaBytes, err := api.ParseSize(data.RefQuota.ValueString())
+		refquotaBytes, err := truenas.ParseSize(data.RefQuota.ValueString())
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Invalid RefQuota Value",

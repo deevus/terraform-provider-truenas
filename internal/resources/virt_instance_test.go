@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/truenas-go/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -351,7 +351,7 @@ func createVirtInstanceModelValue(p virtInstanceModelParams) tftypes.Value {
 func TestVirtInstanceResource_Create_VersionCheck(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
+			VersionVal: truenas.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
 		}},
 
 	}
@@ -401,7 +401,7 @@ func TestVirtInstanceResource_Create_VersionCheck(t *testing.T) {
 func TestVirtInstanceResource_Read_VersionCheck(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
+			VersionVal: truenas.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
 		}},
 
 	}
@@ -442,7 +442,7 @@ func TestVirtInstanceResource_Read_VersionCheck(t *testing.T) {
 func TestVirtInstanceResource_Update_VersionCheck(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
+			VersionVal: truenas.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
 		}},
 
 	}
@@ -500,7 +500,7 @@ func TestVirtInstanceResource_Create_Success(t *testing.T) {
 
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				capturedCreateMethod = method
 				capturedCreateParams = params
@@ -588,7 +588,7 @@ func TestVirtInstanceResource_Create_WithDesiredStateStopped(t *testing.T) {
 	queryCount := 0
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				return json.RawMessage(`1`), nil
@@ -659,7 +659,7 @@ func TestVirtInstanceResource_Create_WithDesiredStateStopped(t *testing.T) {
 func TestVirtInstanceResource_Create_APIError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("container already exists")
 			},
@@ -700,7 +700,7 @@ func TestVirtInstanceResource_Create_APIError(t *testing.T) {
 func TestVirtInstanceResource_Create_QueryErrorAfterCreate(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`1`), nil
 			},
@@ -744,7 +744,7 @@ func TestVirtInstanceResource_Create_QueryErrorAfterCreate(t *testing.T) {
 func TestVirtInstanceResource_Create_NotFoundAfterCreate(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`1`), nil
 			},
@@ -791,7 +791,7 @@ func TestVirtInstanceResource_Create_NotFoundAfterCreate(t *testing.T) {
 func TestVirtInstanceResource_Read_Success(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "virt.instance.get_instance" {
 					t.Errorf("expected method 'virt.instance.get_instance', got %q", method)
@@ -854,7 +854,7 @@ func TestVirtInstanceResource_Read_Success(t *testing.T) {
 func TestVirtInstanceResource_Read_NotFound(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// virt.instance.get_instance returns an error when not found
 				return nil, errors.New("No such instance: test-container")
@@ -903,7 +903,7 @@ func TestVirtInstanceResource_Read_NotFound(t *testing.T) {
 func TestVirtInstanceResource_Read_APIError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("connection failed")
 			},
@@ -945,7 +945,7 @@ func TestVirtInstanceResource_Read_APIError(t *testing.T) {
 func TestVirtInstanceResource_Read_InvalidJSON(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`not valid json`), nil
 			},
@@ -987,7 +987,7 @@ func TestVirtInstanceResource_Read_InvalidJSON(t *testing.T) {
 func TestVirtInstanceResource_Read_PreservesDesiredState(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// API reports RUNNING state, but user wants it STOPPED
 				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
@@ -1055,7 +1055,7 @@ func TestVirtInstanceResource_Update_ChangeConfig(t *testing.T) {
 
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.update" {
 					capturedUpdateParams = params
@@ -1140,7 +1140,7 @@ func TestVirtInstanceResource_Update_ChangeDesiredState(t *testing.T) {
 	queryCount := 0
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				return json.RawMessage(`null`), nil
@@ -1227,7 +1227,7 @@ func TestVirtInstanceResource_Update_ChangeDesiredState(t *testing.T) {
 func TestVirtInstanceResource_Update_APIError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("update failed")
 			},
@@ -1299,7 +1299,7 @@ func TestVirtInstanceResource_Delete_RunningContainer(t *testing.T) {
 	var methods []string
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				return json.RawMessage(`null`), nil
@@ -1354,7 +1354,7 @@ func TestVirtInstanceResource_Delete_StoppedContainer(t *testing.T) {
 	var methods []string
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				methods = append(methods, method)
 				return json.RawMessage(`null`), nil
@@ -1405,7 +1405,7 @@ func TestVirtInstanceResource_Delete_StoppedContainer(t *testing.T) {
 func TestVirtInstanceResource_Delete_APIError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("delete failed")
 			},
@@ -1492,7 +1492,7 @@ func TestVirtInstanceResource_Create_WithDevices(t *testing.T) {
 
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.create" {
 					capturedParams = params
@@ -1577,7 +1577,7 @@ func TestVirtInstanceResource_Create_WithDevices(t *testing.T) {
 func TestVirtInstanceResource_getVirtInstanceState(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method != "virt.instance.get_instance" {
 					t.Errorf("expected method 'virt.instance.get_instance', got %q", method)
@@ -1600,7 +1600,7 @@ func TestVirtInstanceResource_getVirtInstanceState(t *testing.T) {
 func TestVirtInstanceResource_getVirtInstanceState_NotFound(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				// virt.instance.get_instance returns error when not found
 				return nil, errors.New("No such instance: test-container")
@@ -1619,7 +1619,7 @@ func TestVirtInstanceResource_reconcileDesiredState_StartContainer(t *testing.T)
 	var calledMethod string
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				calledMethod = method
 				return nil, nil
@@ -1651,7 +1651,7 @@ func TestVirtInstanceResource_reconcileDesiredState_StopContainer(t *testing.T) 
 	var calledMethod string
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				calledMethod = method
 				return nil, nil
@@ -1683,7 +1683,7 @@ func TestVirtInstanceResource_reconcileDesiredState_NoChangeNeeded(t *testing.T)
 	callCount := 0
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				callCount++
 				return nil, nil
@@ -2268,7 +2268,7 @@ func TestVirtInstanceResource_reconcileDevices_NoChanges(t *testing.T) {
 	callCount := 0
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				callCount++
 				return nil, nil
@@ -2295,7 +2295,7 @@ func TestVirtInstanceResource_reconcileDevices_DeleteDevice(t *testing.T) {
 	var deletedDevices []string
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_delete" {
 					p := params.([]any)
@@ -2328,7 +2328,7 @@ func TestVirtInstanceResource_reconcileDevices_AddDisk(t *testing.T) {
 	var addedDevices []map[string]any
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
 					p := params.([]any)
@@ -2367,7 +2367,7 @@ func TestVirtInstanceResource_reconcileDevices_AddNIC(t *testing.T) {
 	var addedDevices []map[string]any
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
 					p := params.([]any)
@@ -2403,7 +2403,7 @@ func TestVirtInstanceResource_reconcileDevices_AddNIC_WithParent(t *testing.T) {
 	var addedDevices []map[string]any
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
 					p := params.([]any)
@@ -2436,7 +2436,7 @@ func TestVirtInstanceResource_reconcileDevices_AddProxy(t *testing.T) {
 	var addedDevices []map[string]any
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
 					p := params.([]any)
@@ -2471,7 +2471,7 @@ func TestVirtInstanceResource_reconcileDevices_AddProxy(t *testing.T) {
 func TestVirtInstanceResource_reconcileDevices_DeleteError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_delete" {
 					return nil, errors.New("delete failed")
@@ -2497,7 +2497,7 @@ func TestVirtInstanceResource_reconcileDevices_DeleteError(t *testing.T) {
 func TestVirtInstanceResource_reconcileDevices_AddDiskError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
 					return nil, errors.New("add disk failed")
@@ -2523,7 +2523,7 @@ func TestVirtInstanceResource_reconcileDevices_AddDiskError(t *testing.T) {
 func TestVirtInstanceResource_reconcileDevices_AddNICError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
 					return nil, errors.New("add NIC failed")
@@ -2549,7 +2549,7 @@ func TestVirtInstanceResource_reconcileDevices_AddNICError(t *testing.T) {
 func TestVirtInstanceResource_reconcileDevices_AddProxyError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_add" {
 					return nil, errors.New("add proxy failed")
@@ -2576,7 +2576,7 @@ func TestVirtInstanceResource_reconcileDevices_SkipsEmptyNames(t *testing.T) {
 	callCount := 0
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				callCount++
 				return nil, nil
@@ -2604,7 +2604,7 @@ func TestVirtInstanceResource_reconcileDevices_SkipsEmptyNames(t *testing.T) {
 func TestVirtInstanceResource_queryDevices_Success(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_list" {
 					return json.RawMessage(`[
@@ -2629,7 +2629,7 @@ func TestVirtInstanceResource_queryDevices_Success(t *testing.T) {
 func TestVirtInstanceResource_queryDevices_APIError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("API error")
 			},
@@ -2645,7 +2645,7 @@ func TestVirtInstanceResource_queryDevices_APIError(t *testing.T) {
 func TestVirtInstanceResource_queryDevices_InvalidJSON(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return json.RawMessage(`invalid json`), nil
 			},
@@ -2665,7 +2665,7 @@ func TestVirtInstanceResource_queryDevices_InvalidJSON(t *testing.T) {
 func TestVirtInstanceResource_reconcileDesiredState_StartError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.start" {
 					return nil, errors.New("start failed")
@@ -2693,7 +2693,7 @@ func TestVirtInstanceResource_reconcileDesiredState_StartError(t *testing.T) {
 func TestVirtInstanceResource_reconcileDesiredState_StopError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.stop" {
 					return nil, errors.New("stop failed")
@@ -2721,7 +2721,7 @@ func TestVirtInstanceResource_reconcileDesiredState_StopError(t *testing.T) {
 func TestVirtInstanceResource_reconcileDesiredState_WrongFinalState(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil
 			},
@@ -2751,7 +2751,7 @@ func TestVirtInstanceResource_reconcileDesiredState_WrongFinalState(t *testing.T
 func TestVirtInstanceResource_Update_QueryStateError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, nil
 			},
@@ -2812,7 +2812,7 @@ func TestVirtInstanceResource_Update_ReconcileDevicesError(t *testing.T) {
 	queryCount := 0
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.device_delete" {
 					return nil, errors.New("device delete failed")
@@ -2880,7 +2880,7 @@ func TestVirtInstanceResource_Update_ReconcileDevicesError(t *testing.T) {
 func TestVirtInstanceResource_Delete_StopError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.stop" {
 					return nil, errors.New("stop failed")
@@ -2925,7 +2925,7 @@ func TestVirtInstanceResource_Delete_StopError(t *testing.T) {
 func TestVirtInstanceResource_Delete_QueryStateError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				return nil, errors.New("query failed")
 			},
@@ -2965,7 +2965,7 @@ func TestVirtInstanceResource_Delete_QueryStateError(t *testing.T) {
 func TestVirtInstanceResource_Create_StopError(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4},
+			VersionVal: truenas.Version{Major: 25, Minor: 4},
 			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.stop" {
 					return nil, errors.New("stop failed after create")
@@ -3136,7 +3136,7 @@ func TestMapAliasesToAddresses(t *testing.T) {
 func TestVirtInstanceResource_Read_WithAddresses(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.get_instance" {
 					return mockVirtInstanceResponseWithAliases(
@@ -3209,7 +3209,7 @@ func TestVirtInstanceResource_Read_WithAddresses(t *testing.T) {
 func TestVirtInstanceResource_Read_AddressesEmptyWhenStopped(t *testing.T) {
 	r := &VirtInstanceResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: api.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
 			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
 				if method == "virt.instance.get_instance" {
 					// Stopped container has no aliases

@@ -6,16 +6,16 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/terraform-provider-truenas/internal/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/truenas-go/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 // testVersion returns a version for testing (24.10 - uses zfs.snapshot.* methods)
-func testVersion() api.Version {
-	return api.Version{Major: 24, Minor: 10, Patch: 0, Build: 0}
+func testVersion() truenas.Version {
+	return truenas.Version{Major: 24, Minor: 10, Patch: 0, Build: 0}
 }
 
 

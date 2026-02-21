@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -266,14 +266,14 @@ func (r *AppRegistryResource) Delete(ctx context.Context, req resource.DeleteReq
 
 
 // queryAppRegistry queries an app registry by ID and returns the response.
-func (r *AppRegistryResource) queryAppRegistry(ctx context.Context, id int64) (*api.AppRegistryResponse, error) {
+func (r *AppRegistryResource) queryAppRegistry(ctx context.Context, id int64) (*truenas.AppRegistryResponse, error) {
 	filter := [][]any{{"id", "=", id}}
 	result, err := r.client.Call(ctx, "app.registry.query", filter)
 	if err != nil {
 		return nil, err
 	}
 
-	var registries []api.AppRegistryResponse
+	var registries []truenas.AppRegistryResponse
 	if err := json.Unmarshal(result, &registries); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
@@ -305,7 +305,7 @@ func buildAppRegistryParams(data *AppRegistryResourceModel) map[string]any {
 }
 
 // mapAppRegistryToModel maps an API response to the resource model.
-func mapAppRegistryToModel(registry *api.AppRegistryResponse, data *AppRegistryResourceModel) {
+func mapAppRegistryToModel(registry *truenas.AppRegistryResponse, data *AppRegistryResourceModel) {
 	data.ID = types.StringValue(strconv.FormatInt(registry.ID, 10))
 	data.Name = types.StringValue(registry.Name)
 	data.Username = types.StringValue(registry.Username)
