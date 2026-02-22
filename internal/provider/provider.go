@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	truenas "github.com/deevus/truenas-go"
 	"github.com/deevus/truenas-go/client"
 	"github.com/deevus/terraform-provider-truenas/internal/datasources"
 	"github.com/deevus/terraform-provider-truenas/internal/resources"
@@ -370,9 +371,21 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
-	// Set client for data sources and resources
-	resp.DataSourceData = finalClient
-	resp.ResourceData = finalClient
+	// Build service registry
+	version := finalClient.Version()
+	services := &TrueNASServices{
+		App:        truenas.NewAppService(finalClient, version),
+		CloudSync:  truenas.NewCloudSyncService(finalClient, version),
+		Cron:       truenas.NewCronService(finalClient, version),
+		Dataset:    truenas.NewDatasetService(finalClient, version),
+		Filesystem: truenas.NewFilesystemService(finalClient, version),
+		Snapshot:   truenas.NewSnapshotService(finalClient, version),
+		Virt:       truenas.NewVirtService(finalClient, version),
+		VM:         truenas.NewVMService(finalClient, version),
+	}
+
+	resp.DataSourceData = services
+	resp.ResourceData = services
 }
 
 func (p *TrueNASProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
