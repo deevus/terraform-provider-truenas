@@ -2,7 +2,6 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -128,6 +127,29 @@ func (r *CronJobResource) Schema(ctx context.Context, req resource.SchemaRequest
 	}
 }
 
+// buildCronJobOpts builds typed options from the resource model.
+func buildCronJobOpts(data *CronJobResourceModel) truenas.CreateCronJobOpts {
+	opts := truenas.CreateCronJobOpts{
+		User:          data.User.ValueString(),
+		Command:       data.Command.ValueString(),
+		Description:   data.Description.ValueString(),
+		Enabled:       data.Enabled.ValueBool(),
+		CaptureStdout: data.CaptureStdout.ValueBool(),
+		CaptureStderr: data.CaptureStderr.ValueBool(),
+	}
+
+	if data.Schedule != nil {
+		opts.Schedule = truenas.Schedule{
+			Minute: data.Schedule.Minute.ValueString(),
+			Hour:   data.Schedule.Hour.ValueString(),
+			Dom:    data.Schedule.Dom.ValueString(),
+			Month:  data.Schedule.Month.ValueString(),
+			Dow:    data.Schedule.Dow.ValueString(),
+		}
+	}
+
+	return opts
+}
 
 func (r *CronJobResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data CronJobResourceModel
@@ -137,37 +159,13 @@ func (r *CronJobResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	// Build params
-	params := buildCronJobParams(&data)
+	opts := buildCronJobOpts(&data)
 
-	// Call API
-	result, err := r.client.Call(ctx, "cronjob.create", params)
+	job, err := r.services.Cron.Create(ctx, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Cron Job",
 			fmt.Sprintf("Unable to create cron job: %s", err.Error()),
-		)
-		return
-	}
-
-	// Parse response to get ID
-	var createResp struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.Unmarshal(result, &createResp); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Response",
-			fmt.Sprintf("Unable to parse create response: %s", err.Error()),
-		)
-		return
-	}
-
-	// Query to get full state
-	job, err := r.queryCronJob(ctx, createResp.ID)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read Cron Job",
-			fmt.Sprintf("Cron job created but unable to read: %s", err.Error()),
 		)
 		return
 	}
@@ -180,7 +178,6 @@ func (r *CronJobResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	// Set state from response
 	mapCronJobToModel(job, &data)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -203,7 +200,7 @@ func (r *CronJobResource) Read(ctx context.Context, req resource.ReadRequest, re
 		return
 	}
 
-	job, err := r.queryCronJob(ctx, id)
+	job, err := r.services.Cron.Get(ctx, id)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Cron Job",
@@ -243,25 +240,13 @@ func (r *CronJobResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
-	// Build update params
-	params := buildCronJobParams(&plan)
+	opts := buildCronJobOpts(&plan)
 
-	// Call API with []any{id, params}
-	_, err = r.client.Call(ctx, "cronjob.update", []any{id, params})
+	job, err := r.services.Cron.Update(ctx, id, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Update Cron Job",
 			fmt.Sprintf("Unable to update cron job: %s", err.Error()),
-		)
-		return
-	}
-
-	// Query to get full state
-	job, err := r.queryCronJob(ctx, id)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read Cron Job",
-			fmt.Sprintf("Cron job updated but unable to read: %s", err.Error()),
 		)
 		return
 	}
@@ -297,7 +282,7 @@ func (r *CronJobResource) Delete(ctx context.Context, req resource.DeleteRequest
 		return
 	}
 
-	_, err = r.client.Call(ctx, "cronjob.delete", id)
+	err = r.services.Cron.Delete(ctx, id)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete Cron Job",
@@ -307,60 +292,17 @@ func (r *CronJobResource) Delete(ctx context.Context, req resource.DeleteRequest
 	}
 }
 
-
-// queryCronJob queries a cron job by ID and returns the response.
-func (r *CronJobResource) queryCronJob(ctx context.Context, id int64) (*truenas.CronJobResponse, error) {
-	filter := [][]any{{"id", "=", id}}
-	result, err := r.client.Call(ctx, "cronjob.query", filter)
-	if err != nil {
-		return nil, err
-	}
-
-	var jobs []truenas.CronJobResponse
-	if err := json.Unmarshal(result, &jobs); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-
-	if len(jobs) == 0 {
-		return nil, nil
-	}
-
-	return &jobs[0], nil
-}
-
-// buildCronJobParams builds the API params from the resource model.
-func buildCronJobParams(data *CronJobResourceModel) map[string]any {
-	params := map[string]any{
-		"user":        data.User.ValueString(),
-		"command":     data.Command.ValueString(),
-		"description": data.Description.ValueString(),
-		"enabled":     data.Enabled.ValueBool(),
-		"stdout":      !data.CaptureStdout.ValueBool(),
-		"stderr":      !data.CaptureStderr.ValueBool(),
-	}
-
-	if data.Schedule != nil {
-		params["schedule"] = map[string]any{
-			"minute": data.Schedule.Minute.ValueString(),
-			"hour":   data.Schedule.Hour.ValueString(),
-			"dom":    data.Schedule.Dom.ValueString(),
-			"month":  data.Schedule.Month.ValueString(),
-			"dow":    data.Schedule.Dow.ValueString(),
-		}
-	}
-
-	return params
-}
-
-// mapCronJobToModel maps an API response to the resource model.
-func mapCronJobToModel(job *truenas.CronJobResponse, data *CronJobResourceModel) {
+// mapCronJobToModel maps a typed CronJob to the resource model.
+// The truenas-go CronJob type already handles stdout/stderr inversion,
+// so CaptureStdout/CaptureStderr can be used directly.
+func mapCronJobToModel(job *truenas.CronJob, data *CronJobResourceModel) {
 	data.ID = types.StringValue(strconv.FormatInt(job.ID, 10))
 	data.User = types.StringValue(job.User)
 	data.Command = types.StringValue(job.Command)
 	data.Description = types.StringValue(job.Description)
 	data.Enabled = types.BoolValue(job.Enabled)
-	data.CaptureStdout = types.BoolValue(!job.Stdout)
-	data.CaptureStderr = types.BoolValue(!job.Stderr)
+	data.CaptureStdout = types.BoolValue(job.CaptureStdout)
+	data.CaptureStderr = types.BoolValue(job.CaptureStderr)
 
 	if data.Schedule != nil {
 		data.Schedule.Minute = types.StringValue(job.Schedule.Minute)
