@@ -2,12 +2,11 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"path/filepath"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -34,13 +33,6 @@ type HostPathResourceModel struct {
 	UID          types.Int64  `tfsdk:"uid"`
 	GID          types.Int64  `tfsdk:"gid"`
 	ForceDestroy types.Bool   `tfsdk:"force_destroy"`
-}
-
-// statResponse represents the JSON response from filesystem.stat.
-type statResponse struct {
-	Mode int64 `json:"mode"`
-	UID  int64 `json:"uid"`
-	GID  int64 `json:"gid"`
 }
 
 // NewHostPathResource creates a new HostPathResource.
@@ -121,8 +113,8 @@ func (r *HostPathResource) Create(ctx context.Context, req resource.CreateReques
 		mode = parseMode(data.Mode.ValueString())
 	}
 
-	// Create the directory using SFTP
-	if err := r.client.MkdirAll(ctx, pathStr, mode); err != nil {
+	// Create the directory
+	if err := r.services.Filesystem.Client().MkdirAll(ctx, pathStr, mode); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Host Path",
 			fmt.Sprintf("Cannot create directory %q: %s", pathStr, err.Error()),
@@ -132,14 +124,11 @@ func (r *HostPathResource) Create(ctx context.Context, req resource.CreateReques
 
 	// Set permissions if uid/gid are specified (uses TrueNAS API)
 	if r.hasUIDGID(&data) {
-		permParams := r.buildPermParams(&data)
-
-		_, err := r.client.Call(ctx, "filesystem.setperm", permParams)
-		if err != nil {
-			parsedErr := client.ParseTrueNASError(err.Error())
+		permOpts := r.buildPermOpts(&data)
+		if err := r.services.Filesystem.SetPermissions(ctx, permOpts); err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Set Permissions",
-				fmt.Sprintf("Cannot set permissions on %q: %s", pathStr, parsedErr.Error()),
+				fmt.Sprintf("Cannot set permissions on %q: %s", pathStr, err.Error()),
 			)
 			return
 		}
@@ -164,20 +153,10 @@ func (r *HostPathResource) Read(ctx context.Context, req resource.ReadRequest, r
 	path := data.Path.ValueString()
 
 	// Call filesystem.stat to verify the path exists
-	result, err := r.client.Call(ctx, "filesystem.stat", path)
+	stat, err := r.services.Filesystem.Stat(ctx, path)
 	if err != nil {
 		// Path doesn't exist or API error - remove from state
 		resp.State.RemoveResource(ctx)
-		return
-	}
-
-	// Parse the response
-	var statResp statResponse
-	if err := json.Unmarshal(result, &statResp); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Stat Response",
-			fmt.Sprintf("Unable to parse filesystem stat response: %s", err.Error()),
-		)
 		return
 	}
 
@@ -187,13 +166,13 @@ func (r *HostPathResource) Read(ctx context.Context, req resource.ReadRequest, r
 	// Only update optional+computed attributes if they were previously set
 	// This prevents drift when user didn't specify these values
 	if !data.Mode.IsNull() {
-		data.Mode = types.StringValue(fmt.Sprintf("%o", statResp.Mode&0777))
+		data.Mode = types.StringValue(fmt.Sprintf("%o", stat.Mode))
 	}
 	if !data.UID.IsNull() {
-		data.UID = types.Int64Value(statResp.UID)
+		data.UID = types.Int64Value(stat.UID)
 	}
 	if !data.GID.IsNull() {
-		data.GID = types.Int64Value(statResp.GID)
+		data.GID = types.Int64Value(stat.GID)
 	}
 
 	// Save updated data into Terraform state
@@ -222,14 +201,11 @@ func (r *HostPathResource) Update(ctx context.Context, req resource.UpdateReques
 		!data.GID.Equal(state.GID)
 
 	if permChanged {
-		permParams := r.buildPermParams(&data)
-
-		_, err := r.client.Call(ctx, "filesystem.setperm", permParams)
-		if err != nil {
-			parsedErr := client.ParseTrueNASError(err.Error())
+		permOpts := r.buildPermOpts(&data)
+		if err := r.services.Filesystem.SetPermissions(ctx, permOpts); err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Update Permissions",
-				fmt.Sprintf("Cannot update permissions on %q: %s", data.Path.ValueString(), parsedErr.Error()),
+				fmt.Sprintf("Cannot update permissions on %q: %s", data.Path.ValueString(), err.Error()),
 			)
 			return
 		}
@@ -256,7 +232,7 @@ func (r *HostPathResource) Delete(ctx context.Context, req resource.DeleteReques
 		err = r.forceDestroyHostPath(ctx, p, resp)
 	} else {
 		// Only remove empty directory when force_destroy is false
-		err = r.client.RemoveDir(ctx, p)
+		err = r.services.Filesystem.Client().RemoveDir(ctx, p)
 	}
 
 	if err != nil {
@@ -278,32 +254,27 @@ func (r *HostPathResource) forceDestroyHostPath(ctx context.Context, p string, r
 	var originalParentUID, originalParentGID int64
 	var parentModified bool
 
-	parentResult, parentStatErr := r.client.Call(ctx, "filesystem.stat", parentPath)
-	if parentStatErr == nil {
-		var parentStat statResponse
-		if jsonErr := json.Unmarshal(parentResult, &parentStat); jsonErr == nil {
-			originalParentMode = fmt.Sprintf("%o", parentStat.Mode&0777)
-			originalParentUID = parentStat.UID
-			originalParentGID = parentStat.GID
-		}
+	parentStat, parentStatErr := r.services.Filesystem.Stat(ctx, parentPath)
+	if parentStatErr == nil && parentStat != nil {
+		originalParentMode = fmt.Sprintf("%o", parentStat.Mode)
+		originalParentUID = parentStat.UID
+		originalParentGID = parentStat.GID
 	}
 
 	// Best effort - fix permissions on target directory using TrueNAS API
 	// This handles permission issues from apps that may have restricted access
 	// Uses filesystem.setperm with stripacl to remove ACLs, set ownership to root,
 	// and set permissive mode recursively - all in one API call
-	permParams := map[string]any{
-		"path": p,
-		"uid":  0,
-		"gid":  0,
-		"mode": "777",
-		"options": map[string]any{
-			"stripacl":  true,
-			"recursive": true,
-			"traverse":  true,
-		},
+	targetOpts := truenas.SetPermOpts{
+		Path:      p,
+		UID:       truenas.Int64Ptr(0),
+		GID:       truenas.Int64Ptr(0),
+		Mode:      "777",
+		StripACL:  true,
+		Recursive: true,
+		Traverse:  true,
 	}
-	_, permErr := r.client.CallAndWait(ctx, "filesystem.setperm", permParams)
+	permErr := r.services.Filesystem.SetPermissions(ctx, targetOpts)
 	if permErr != nil {
 		resp.Diagnostics.AddWarning(
 			"Failed to Set Permissions Before Delete",
@@ -313,13 +284,13 @@ func (r *HostPathResource) forceDestroyHostPath(ctx context.Context, p string, r
 
 	// Set permissive permissions on parent directory to allow deletion
 	// Need write permission on parent to remove an entry from it
-	parentPermParams := map[string]any{
-		"path": parentPath,
-		"uid":  0,
-		"gid":  0,
-		"mode": "777",
+	parentOpts := truenas.SetPermOpts{
+		Path: parentPath,
+		UID:  truenas.Int64Ptr(0),
+		GID:  truenas.Int64Ptr(0),
+		Mode: "777",
 	}
-	_, parentPermErr := r.client.CallAndWait(ctx, "filesystem.setperm", parentPermParams)
+	parentPermErr := r.services.Filesystem.SetPermissions(ctx, parentOpts)
 	if parentPermErr != nil {
 		resp.Diagnostics.AddWarning(
 			"Failed to Set Parent Permissions Before Delete",
@@ -334,13 +305,13 @@ func (r *HostPathResource) forceDestroyHostPath(ctx context.Context, p string, r
 		if !parentModified || parentStatErr != nil {
 			return
 		}
-		restoreParams := map[string]any{
-			"path": parentPath,
-			"uid":  originalParentUID,
-			"gid":  originalParentGID,
-			"mode": originalParentMode,
+		restoreOpts := truenas.SetPermOpts{
+			Path: parentPath,
+			UID:  &originalParentUID,
+			GID:  &originalParentGID,
+			Mode: originalParentMode,
 		}
-		_, restoreErr := r.client.CallAndWait(ctx, "filesystem.setperm", restoreParams)
+		restoreErr := r.services.Filesystem.SetPermissions(ctx, restoreOpts)
 		if restoreErr != nil {
 			resp.Diagnostics.AddWarning(
 				"Failed to Restore Parent Permissions",
@@ -350,7 +321,7 @@ func (r *HostPathResource) forceDestroyHostPath(ctx context.Context, p string, r
 	}()
 
 	// Recursive delete when force_destroy is true
-	return r.client.RemoveAll(ctx, p)
+	return r.services.Filesystem.Client().RemoveAll(ctx, p)
 }
 
 func (r *HostPathResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
@@ -365,30 +336,25 @@ func (r *HostPathResource) hasUIDGID(data *HostPathResourceModel) bool {
 		(!data.GID.IsNull() && !data.GID.IsUnknown())
 }
 
-// buildPermParams builds the parameters for filesystem.setperm.
-func (r *HostPathResource) buildPermParams(data *HostPathResourceModel) map[string]any {
-	params := map[string]any{
-		"path": data.Path.ValueString(),
+// buildPermOpts builds the options for filesystem.setperm.
+func (r *HostPathResource) buildPermOpts(data *HostPathResourceModel) truenas.SetPermOpts {
+	opts := truenas.SetPermOpts{
+		Path: data.Path.ValueString(),
 	}
 
 	if !data.Mode.IsNull() && !data.Mode.IsUnknown() {
-		params["mode"] = data.Mode.ValueString()
-	} else {
-		// TrueNAS API requires either 'mode' or 'options.stripacl' to be set.
-		// When only changing ownership (uid/gid), we set stripacl=false to
-		// preserve existing permissions and ACLs.
-		params["options"] = map[string]any{
-			"stripacl": false,
-		}
+		opts.Mode = data.Mode.ValueString()
 	}
 
 	if !data.UID.IsNull() && !data.UID.IsUnknown() {
-		params["uid"] = data.UID.ValueInt64()
+		uid := data.UID.ValueInt64()
+		opts.UID = &uid
 	}
 
 	if !data.GID.IsNull() && !data.GID.IsUnknown() {
-		params["gid"] = data.GID.ValueInt64()
+		gid := data.GID.ValueInt64()
+		opts.GID = &gid
 	}
 
-	return params
+	return opts
 }

@@ -2,12 +2,13 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"testing"
 
+	truenas "github.com/deevus/truenas-go"
 	"github.com/deevus/truenas-go/client"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -163,14 +164,19 @@ func TestHostPathResource_Create_Success(t *testing.T) {
 	var createdPath string
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
-				mkdirCalled = true
-				createdPath = path
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+							mkdirCalled = true
+							createdPath = path
+							return nil
+						},
+					}
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -226,25 +232,28 @@ func TestHostPathResource_Create_WithPermissions(t *testing.T) {
 	var createdPath string
 	var createdMode fs.FileMode
 	var setpermCalled bool
-	var setpermParams any
+	var capturedOpts truenas.SetPermOpts
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
-				mkdirCalled = true
-				createdPath = path
-				createdMode = mode
-				return nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "filesystem.setperm" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+							mkdirCalled = true
+							createdPath = path
+							createdMode = mode
+							return nil
+						},
+					}
+				},
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
 					setpermCalled = true
-					setpermParams = params
-				}
-				return json.RawMessage(`null`), nil
+					capturedOpts = opts
+					return nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -289,24 +298,24 @@ func TestHostPathResource_Create_WithPermissions(t *testing.T) {
 		t.Fatal("expected setperm to be called for uid/gid")
 	}
 
-	params, ok := setpermParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected setperm params to be map[string]any, got %T", setpermParams)
-	}
-
-	if params["path"] != "/mnt/tank/apps/myapp" {
-		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", params["path"])
+	if capturedOpts.Path != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", capturedOpts.Path)
 	}
 }
 
 func TestHostPathResource_Create_APIError(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
-				return errors.New("permission denied")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+							return errors.New("permission denied")
+						},
+					}
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -335,16 +344,20 @@ func TestHostPathResource_Create_APIError(t *testing.T) {
 
 func TestHostPathResource_Create_SetPermError(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
-				return nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// setperm fails
-				return nil, errors.New("permission denied on setperm")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+							return nil
+						},
+					}
+				},
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
+					return errors.New("permission denied on setperm")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -374,19 +387,13 @@ func TestHostPathResource_Create_SetPermError(t *testing.T) {
 
 func TestHostPathResource_Read_Success(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "filesystem.stat" {
-					t.Errorf("expected method 'filesystem.stat', got %q", method)
-				}
-				return json.RawMessage(`{
-					"mode": 16877,
-					"uid": 1000,
-					"gid": 1000
-				}`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				StatFunc: func(ctx context.Context, path string) (*truenas.StatResult, error) {
+					return &truenas.StatResult{Mode: 0o755, UID: 1000, GID: 1000}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -426,12 +433,13 @@ func TestHostPathResource_Read_Success(t *testing.T) {
 
 func TestHostPathResource_Read_NotFound(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("path not found")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				StatFunc: func(ctx context.Context, path string) (*truenas.StatResult, error) {
+					return nil, errors.New("path not found")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -466,12 +474,13 @@ func TestHostPathResource_Read_NotFound(t *testing.T) {
 
 func TestHostPathResource_Read_APIError(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				StatFunc: func(ctx context.Context, path string) (*truenas.StatResult, error) {
+					return nil, errors.New("connection failed")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -507,18 +516,17 @@ func TestHostPathResource_Read_APIError(t *testing.T) {
 }
 
 func TestHostPathResource_Update_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.SetPermOpts
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedParams = params
-				return json.RawMessage(`null`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
+					capturedOpts = opts
+					return nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -552,30 +560,21 @@ func TestHostPathResource_Update_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify setperm was called
-	if capturedMethod != "filesystem.setperm" {
-		t.Errorf("expected method 'filesystem.setperm', got %q", capturedMethod)
-	}
-
-	// Verify params include the new mode
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
-	}
-
-	if params["mode"] != "700" {
-		t.Errorf("expected mode '700', got %v", params["mode"])
+	// Verify setperm was called with the new mode
+	if capturedOpts.Mode != "700" {
+		t.Errorf("expected mode '700', got %v", capturedOpts.Mode)
 	}
 }
 
 func TestHostPathResource_Update_APIError(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("update failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
+					return errors.New("update failed")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -611,13 +610,18 @@ func TestHostPathResource_Delete_Success(t *testing.T) {
 	var removedPath string
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			RemoveDirFunc: func(ctx context.Context, path string) error {
-				removedPath = path
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						RemoveDirFunc: func(ctx context.Context, path string) error {
+							removedPath = path
+							return nil
+						},
+					}
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -651,12 +655,17 @@ func TestHostPathResource_Delete_Success(t *testing.T) {
 
 func TestHostPathResource_Delete_APIError(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			RemoveDirFunc: func(ctx context.Context, path string) error {
-				return errors.New("directory not empty")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						RemoveDirFunc: func(ctx context.Context, path string) error {
+							return errors.New("directory not empty")
+						},
+					}
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -694,7 +703,9 @@ func TestHostPathResource_ImplementsInterfaces(t *testing.T) {
 // Test Create with plan parsing error
 func TestHostPathResource_Create_PlanParseError(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{},
+		}},
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -739,7 +750,9 @@ func TestHostPathResource_Create_PlanParseError(t *testing.T) {
 // Test Read with state parsing error
 func TestHostPathResource_Read_StateParseError(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{},
+		}},
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -784,7 +797,9 @@ func TestHostPathResource_Read_StateParseError(t *testing.T) {
 // Test Update with plan parsing error
 func TestHostPathResource_Update_PlanParseError(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{},
+		}},
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -836,7 +851,9 @@ func TestHostPathResource_Update_PlanParseError(t *testing.T) {
 // Test Update with state parsing error
 func TestHostPathResource_Update_StateParseError(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{},
+		}},
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -888,7 +905,9 @@ func TestHostPathResource_Update_StateParseError(t *testing.T) {
 // Test Delete with state parsing error
 func TestHostPathResource_Delete_StateParseError(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{},
+		}},
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -932,16 +951,17 @@ func TestHostPathResource_Delete_StateParseError(t *testing.T) {
 
 // Test Update with UID change
 func TestHostPathResource_Update_UIDChange(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.SetPermOpts
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedParams = params
-				return json.RawMessage(`null`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
+					capturedOpts = opts
+					return nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -972,33 +992,28 @@ func TestHostPathResource_Update_UIDChange(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.UID == nil {
+		t.Fatal("expected UID to be set")
 	}
 
-	uid, ok := params["uid"].(int64)
-	if !ok {
-		t.Fatalf("expected uid to be int64, got %T", params["uid"])
-	}
-
-	if uid != 2000 {
-		t.Errorf("expected uid 2000, got %d", uid)
+	if *capturedOpts.UID != 2000 {
+		t.Errorf("expected uid 2000, got %d", *capturedOpts.UID)
 	}
 }
 
 // Test Update with GID change
 func TestHostPathResource_Update_GIDChange(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.SetPermOpts
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedParams = params
-				return json.RawMessage(`null`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
+					capturedOpts = opts
+					return nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1029,53 +1044,12 @@ func TestHostPathResource_Update_GIDChange(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.GID == nil {
+		t.Fatal("expected GID to be set")
 	}
 
-	gid, ok := params["gid"].(int64)
-	if !ok {
-		t.Fatalf("expected gid to be int64, got %T", params["gid"])
-	}
-
-	if gid != 2000 {
-		t.Errorf("expected gid 2000, got %d", gid)
-	}
-}
-
-// Test Read with invalid JSON response
-func TestHostPathResource_Read_InvalidJSONResponse(t *testing.T) {
-	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-
-	}
-
-	schemaResp := getHostPathResourceSchema(t)
-
-	stateValue := createHostPathResourceModel("/mnt/tank/apps/myapp", "/mnt/tank/apps/myapp", "755", 1000, 1000)
-
-	req := resource.ReadRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
-	}
-
-	resp := &resource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response")
+	if *capturedOpts.GID != 2000 {
+		t.Errorf("expected gid 2000, got %d", *capturedOpts.GID)
 	}
 }
 
@@ -1084,13 +1058,14 @@ func TestHostPathResource_Update_NoChanges(t *testing.T) {
 	apiCalled := false
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				apiCalled = true
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
+					apiCalled = true
+					return nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1131,21 +1106,14 @@ func TestHostPathResource_Update_NoChanges(t *testing.T) {
 // Test Read syncs mode/uid/gid from API response
 func TestHostPathResource_Read_SyncsStateFromAPI(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "filesystem.stat" {
-					t.Errorf("expected method 'filesystem.stat', got %q", method)
-				}
-				// Return a response with mode 16877 (0o40755 - directory with 755 permissions)
-				// and different uid/gid than what's in state
-				return json.RawMessage(`{
-					"mode": 16877,
-					"uid": 2000,
-					"gid": 3000
-				}`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				StatFunc: func(ctx context.Context, path string) (*truenas.StatResult, error) {
+					// Return 0o755 (already masked) with different uid/gid than state
+					return &truenas.StatResult{Mode: 0o755, UID: 2000, GID: 3000}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1179,7 +1147,7 @@ func TestHostPathResource_Read_SyncsStateFromAPI(t *testing.T) {
 		t.Fatalf("failed to get state: %v", diags)
 	}
 
-	// Mode should be extracted from the stat response (16877 & 0777 = 493 = 0o755)
+	// Mode should be extracted from the stat response (already masked 0o755)
 	if model.Mode.ValueString() != "755" {
 		t.Errorf("expected mode '755', got %q", model.Mode.ValueString())
 	}
@@ -1263,55 +1231,52 @@ func TestHostPathResource_Schema_ForceDestroy(t *testing.T) {
 	}
 }
 
-// Test Delete with force_destroy=true calls filesystem.setperm on target and parent, then RemoveAll, then restores parent
+// Test Delete with force_destroy=true calls SetPermissions on target and parent, then RemoveAll, then restores parent
 func TestHostPathResource_Delete_ForceDestroy(t *testing.T) {
-	var setpermCalls []map[string]any
+	var setpermCalls []truenas.SetPermOpts
 	var removeAllCalled bool
 	var removedPath string
 	var removeDirCalled bool
 	var callOrder []string
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "filesystem.stat" {
-					// Return mock parent stat response with mode 755 (16877 = 040755)
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				StatFunc: func(ctx context.Context, path string) (*truenas.StatResult, error) {
 					callOrder = append(callOrder, "stat-parent")
-					return json.RawMessage(`{"mode": 16877, "uid": 1000, "gid": 1000}`), nil
-				}
-				return json.RawMessage(`null`), nil
-			},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "filesystem.setperm" {
-					p, _ := params.(map[string]any)
-					setpermCalls = append(setpermCalls, p)
-					path := p["path"].(string)
-					switch path {
+					return &truenas.StatResult{Mode: 0o755, UID: 1000, GID: 1000}, nil
+				},
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
+					setpermCalls = append(setpermCalls, opts)
+					switch opts.Path {
 					case "/mnt/tank/apps/myapp":
 						callOrder = append(callOrder, "setperm-target")
 					case "/mnt/tank/apps":
 						// Check if this is restore (has original values) or initial set (has 777)
-						if p["mode"] == "755" {
+						if opts.Mode == "755" {
 							callOrder = append(callOrder, "setperm-parent-restore")
 						} else {
 							callOrder = append(callOrder, "setperm-parent")
 						}
 					}
-				}
-				return json.RawMessage(`null`), nil
-			},
-			RemoveAllFunc: func(ctx context.Context, path string) error {
-				removeAllCalled = true
-				removedPath = path
-				callOrder = append(callOrder, "RemoveAll")
-				return nil
-			},
-			RemoveDirFunc: func(ctx context.Context, path string) error {
-				removeDirCalled = true
-				return nil
+					return nil
+				},
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						RemoveAllFunc: func(ctx context.Context, path string) error {
+							removeAllCalled = true
+							removedPath = path
+							callOrder = append(callOrder, "RemoveAll")
+							return nil
+						},
+						RemoveDirFunc: func(ctx context.Context, path string) error {
+							removeDirCalled = true
+							return nil
+						},
+					}
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1344,46 +1309,45 @@ func TestHostPathResource_Delete_ForceDestroy(t *testing.T) {
 	}
 
 	// First setperm: target path with recursive options
-	targetParams := setpermCalls[0]
-	if targetParams["path"] != "/mnt/tank/apps/myapp" {
-		t.Errorf("expected first setperm path '/mnt/tank/apps/myapp', got %v", targetParams["path"])
+	targetOpts := setpermCalls[0]
+	if targetOpts.Path != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected first setperm path '/mnt/tank/apps/myapp', got %v", targetOpts.Path)
 	}
-	if targetParams["mode"] != "777" {
-		t.Errorf("expected mode '777', got %v", targetParams["mode"])
+	if targetOpts.Mode != "777" {
+		t.Errorf("expected mode '777', got %v", targetOpts.Mode)
 	}
-	options, ok := targetParams["options"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected options to be map[string]any, got %T", targetParams["options"])
+	if !targetOpts.StripACL {
+		t.Error("expected StripACL=true")
 	}
-	if options["stripacl"] != true {
-		t.Errorf("expected stripacl=true, got %v", options["stripacl"])
+	if !targetOpts.Recursive {
+		t.Error("expected Recursive=true")
 	}
-	if options["recursive"] != true {
-		t.Errorf("expected recursive=true, got %v", options["recursive"])
+	if !targetOpts.Traverse {
+		t.Error("expected Traverse=true")
 	}
 
 	// Second setperm: parent path made writable
-	parentParams := setpermCalls[1]
-	if parentParams["path"] != "/mnt/tank/apps" {
-		t.Errorf("expected second setperm path '/mnt/tank/apps', got %v", parentParams["path"])
+	parentOpts := setpermCalls[1]
+	if parentOpts.Path != "/mnt/tank/apps" {
+		t.Errorf("expected second setperm path '/mnt/tank/apps', got %v", parentOpts.Path)
 	}
-	if parentParams["mode"] != "777" {
-		t.Errorf("expected parent mode '777', got %v", parentParams["mode"])
+	if parentOpts.Mode != "777" {
+		t.Errorf("expected parent mode '777', got %v", parentOpts.Mode)
 	}
 
 	// Third setperm: parent path restored to original
-	restoreParams := setpermCalls[2]
-	if restoreParams["path"] != "/mnt/tank/apps" {
-		t.Errorf("expected restore setperm path '/mnt/tank/apps', got %v", restoreParams["path"])
+	restoreOpts := setpermCalls[2]
+	if restoreOpts.Path != "/mnt/tank/apps" {
+		t.Errorf("expected restore setperm path '/mnt/tank/apps', got %v", restoreOpts.Path)
 	}
-	if restoreParams["mode"] != "755" {
-		t.Errorf("expected restored mode '755', got %v", restoreParams["mode"])
+	if restoreOpts.Mode != "755" {
+		t.Errorf("expected restored mode '755', got %v", restoreOpts.Mode)
 	}
-	if restoreParams["uid"] != int64(1000) {
-		t.Errorf("expected restored uid 1000, got %v", restoreParams["uid"])
+	if restoreOpts.UID == nil || *restoreOpts.UID != 1000 {
+		t.Errorf("expected restored uid 1000, got %v", restoreOpts.UID)
 	}
-	if restoreParams["gid"] != int64(1000) {
-		t.Errorf("expected restored gid 1000, got %v", restoreParams["gid"])
+	if restoreOpts.GID == nil || *restoreOpts.GID != 1000 {
+		t.Errorf("expected restored gid 1000, got %v", restoreOpts.GID)
 	}
 
 	// RemoveAll should be called when force_destroy is true
@@ -1420,18 +1384,23 @@ func TestHostPathResource_Delete_NoForceDestroy(t *testing.T) {
 	var removedPath string
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			RemoveAllFunc: func(ctx context.Context, path string) error {
-				removeAllCalled = true
-				return nil
-			},
-			RemoveDirFunc: func(ctx context.Context, path string) error {
-				removeDirCalled = true
-				removedPath = path
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						RemoveAllFunc: func(ctx context.Context, path string) error {
+							removeAllCalled = true
+							return nil
+						},
+						RemoveDirFunc: func(ctx context.Context, path string) error {
+							removeDirCalled = true
+							removedPath = path
+							return nil
+						},
+					}
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1480,18 +1449,23 @@ func TestHostPathResource_Delete_ForceDestroyNil(t *testing.T) {
 	var removedPath string
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			RemoveAllFunc: func(ctx context.Context, path string) error {
-				removeAllCalled = true
-				return nil
-			},
-			RemoveDirFunc: func(ctx context.Context, path string) error {
-				removeDirCalled = true
-				removedPath = path
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						RemoveAllFunc: func(ctx context.Context, path string) error {
+							removeAllCalled = true
+							return nil
+						},
+						RemoveDirFunc: func(ctx context.Context, path string) error {
+							removeDirCalled = true
+							removedPath = path
+							return nil
+						},
+					}
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1536,17 +1510,14 @@ func TestHostPathResource_Delete_ForceDestroyNil(t *testing.T) {
 // Test that Read preserves null mode when not set in config
 func TestHostPathResource_Read_PreservesNullMode(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// API returns mode from filesystem even when user didn't specify it
-				return json.RawMessage(`{
-					"mode": 16877,
-					"uid": 0,
-					"gid": 0
-				}`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				StatFunc: func(ctx context.Context, path string) (*truenas.StatResult, error) {
+					// API returns mode from filesystem even when user didn't specify it
+					return &truenas.StatResult{Mode: 0o755, UID: 0, GID: 0}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1589,21 +1560,23 @@ func TestHostPathResource_Read_PreservesNullMode(t *testing.T) {
 // Test Delete with force_destroy error
 func TestHostPathResource_Delete_ForceDestroy_Error(t *testing.T) {
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "filesystem.stat" {
-					return json.RawMessage(`{"mode": 16877, "uid": 1000, "gid": 1000}`), nil
-				}
-				return json.RawMessage(`null`), nil
-			},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`null`), nil
-			},
-			RemoveAllFunc: func(ctx context.Context, path string) error {
-				return errors.New("permission denied")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				StatFunc: func(ctx context.Context, path string) (*truenas.StatResult, error) {
+					return &truenas.StatResult{Mode: 0o755, UID: 1000, GID: 1000}, nil
+				},
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
+					return nil
+				},
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						RemoveAllFunc: func(ctx context.Context, path string) error {
+							return errors.New("permission denied")
+						},
+					}
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1636,27 +1609,25 @@ func TestHostPathResource_Delete_ForceDestroy_SetpermFails(t *testing.T) {
 	var removeAllCalled bool
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "filesystem.stat" {
-					// Return mock parent stat response
-					return json.RawMessage(`{"mode": 16877, "uid": 1000, "gid": 1000}`), nil
-				}
-				return json.RawMessage(`null`), nil
-			},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "filesystem.setperm" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				StatFunc: func(ctx context.Context, path string) (*truenas.StatResult, error) {
+					return &truenas.StatResult{Mode: 0o755, UID: 1000, GID: 1000}, nil
+				},
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
 					setpermCallCount++
-					return nil, errors.New("setperm failed")
-				}
-				return json.RawMessage(`null`), nil
-			},
-			RemoveAllFunc: func(ctx context.Context, path string) error {
-				removeAllCalled = true
-				return nil // RemoveAll succeeds
+					return errors.New("setperm failed")
+				},
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						RemoveAllFunc: func(ctx context.Context, path string) error {
+							removeAllCalled = true
+							return nil // RemoveAll succeeds
+						},
+					}
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
@@ -1698,8 +1669,8 @@ func TestHostPathResource_Delete_ForceDestroy_SetpermFails(t *testing.T) {
 	}
 }
 
-// Test buildPermParams with only mode set (no UID/GID)
-func TestHostPathResource_buildPermParams_OnlyMode(t *testing.T) {
+// Test buildPermOpts with only mode set (no UID/GID)
+func TestHostPathResource_buildPermOpts_OnlyMode(t *testing.T) {
 	r := &HostPathResource{}
 
 	data := &HostPathResourceModel{
@@ -1709,32 +1680,27 @@ func TestHostPathResource_buildPermParams_OnlyMode(t *testing.T) {
 		GID:  types.Int64Null(),
 	}
 
-	params := r.buildPermParams(data)
+	opts := r.buildPermOpts(data)
 
-	if params["path"] != "/mnt/tank/apps/myapp" {
-		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", params["path"])
+	if opts.Path != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", opts.Path)
 	}
 
-	if params["mode"] != "755" {
-		t.Errorf("expected mode '755', got %v", params["mode"])
-	}
-
-	// Should NOT have options.stripacl when mode is set
-	if _, ok := params["options"]; ok {
-		t.Error("expected no 'options' when mode is set")
+	if opts.Mode != "755" {
+		t.Errorf("expected mode '755', got %v", opts.Mode)
 	}
 
 	// Should NOT have uid or gid
-	if _, ok := params["uid"]; ok {
-		t.Error("expected no 'uid' when uid is null")
+	if opts.UID != nil {
+		t.Error("expected UID to be nil when uid is null")
 	}
-	if _, ok := params["gid"]; ok {
-		t.Error("expected no 'gid' when gid is null")
+	if opts.GID != nil {
+		t.Error("expected GID to be nil when gid is null")
 	}
 }
 
-// Test buildPermParams with only UID set (no mode, no GID) - exercises the stripacl fallback
-func TestHostPathResource_buildPermParams_OnlyUID(t *testing.T) {
+// Test buildPermOpts with only UID set (no mode, no GID)
+func TestHostPathResource_buildPermOpts_OnlyUID(t *testing.T) {
 	r := &HostPathResource{}
 
 	data := &HostPathResourceModel{
@@ -1744,39 +1710,33 @@ func TestHostPathResource_buildPermParams_OnlyUID(t *testing.T) {
 		GID:  types.Int64Null(),
 	}
 
-	params := r.buildPermParams(data)
+	opts := r.buildPermOpts(data)
 
-	if params["path"] != "/mnt/tank/apps/myapp" {
-		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", params["path"])
+	if opts.Path != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", opts.Path)
 	}
 
-	// Should NOT have mode
-	if _, ok := params["mode"]; ok {
-		t.Error("expected no 'mode' when mode is null")
-	}
-
-	// Should have options.stripacl=false when mode is null
-	options, ok := params["options"].(map[string]any)
-	if !ok {
-		t.Fatal("expected 'options' map when mode is null")
-	}
-	if options["stripacl"] != false {
-		t.Errorf("expected stripacl=false, got %v", options["stripacl"])
+	// Should NOT have mode when mode is null
+	if opts.Mode != "" {
+		t.Errorf("expected empty mode when mode is null, got %v", opts.Mode)
 	}
 
 	// Should have uid
-	if params["uid"] != int64(1000) {
-		t.Errorf("expected uid 1000, got %v", params["uid"])
+	if opts.UID == nil {
+		t.Fatal("expected UID to be set")
+	}
+	if *opts.UID != 1000 {
+		t.Errorf("expected uid 1000, got %v", *opts.UID)
 	}
 
 	// Should NOT have gid
-	if _, ok := params["gid"]; ok {
-		t.Error("expected no 'gid' when gid is null")
+	if opts.GID != nil {
+		t.Error("expected GID to be nil when gid is null")
 	}
 }
 
-// Test buildPermParams with only GID set (no mode, no UID) - exercises the stripacl fallback
-func TestHostPathResource_buildPermParams_OnlyGID(t *testing.T) {
+// Test buildPermOpts with only GID set (no mode, no UID)
+func TestHostPathResource_buildPermOpts_OnlyGID(t *testing.T) {
 	r := &HostPathResource{}
 
 	data := &HostPathResourceModel{
@@ -1786,39 +1746,33 @@ func TestHostPathResource_buildPermParams_OnlyGID(t *testing.T) {
 		GID:  types.Int64Value(2000),
 	}
 
-	params := r.buildPermParams(data)
+	opts := r.buildPermOpts(data)
 
-	if params["path"] != "/mnt/tank/apps/myapp" {
-		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", params["path"])
+	if opts.Path != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", opts.Path)
 	}
 
-	// Should NOT have mode
-	if _, ok := params["mode"]; ok {
-		t.Error("expected no 'mode' when mode is null")
-	}
-
-	// Should have options.stripacl=false when mode is null
-	options, ok := params["options"].(map[string]any)
-	if !ok {
-		t.Fatal("expected 'options' map when mode is null")
-	}
-	if options["stripacl"] != false {
-		t.Errorf("expected stripacl=false, got %v", options["stripacl"])
+	// Should NOT have mode when mode is null
+	if opts.Mode != "" {
+		t.Errorf("expected empty mode when mode is null, got %v", opts.Mode)
 	}
 
 	// Should NOT have uid
-	if _, ok := params["uid"]; ok {
-		t.Error("expected no 'uid' when uid is null")
+	if opts.UID != nil {
+		t.Error("expected UID to be nil when uid is null")
 	}
 
 	// Should have gid
-	if params["gid"] != int64(2000) {
-		t.Errorf("expected gid 2000, got %v", params["gid"])
+	if opts.GID == nil {
+		t.Fatal("expected GID to be set")
+	}
+	if *opts.GID != 2000 {
+		t.Errorf("expected gid 2000, got %v", *opts.GID)
 	}
 }
 
-// Test buildPermParams with UID and GID set but no mode - exercises the stripacl fallback
-func TestHostPathResource_buildPermParams_UIDAndGID_NoMode(t *testing.T) {
+// Test buildPermOpts with UID and GID set but no mode
+func TestHostPathResource_buildPermOpts_UIDAndGID_NoMode(t *testing.T) {
 	r := &HostPathResource{}
 
 	data := &HostPathResourceModel{
@@ -1828,34 +1782,31 @@ func TestHostPathResource_buildPermParams_UIDAndGID_NoMode(t *testing.T) {
 		GID:  types.Int64Value(2000),
 	}
 
-	params := r.buildPermParams(data)
+	opts := r.buildPermOpts(data)
 
-	if params["path"] != "/mnt/tank/apps/myapp" {
-		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", params["path"])
+	if opts.Path != "/mnt/tank/apps/myapp" {
+		t.Errorf("expected path '/mnt/tank/apps/myapp', got %v", opts.Path)
 	}
 
-	// Should NOT have mode
-	if _, ok := params["mode"]; ok {
-		t.Error("expected no 'mode' when mode is null")
-	}
-
-	// Should have options.stripacl=false when mode is null
-	options, ok := params["options"].(map[string]any)
-	if !ok {
-		t.Fatal("expected 'options' map when mode is null")
-	}
-	if options["stripacl"] != false {
-		t.Errorf("expected stripacl=false, got %v", options["stripacl"])
+	// Should NOT have mode when mode is null
+	if opts.Mode != "" {
+		t.Errorf("expected empty mode when mode is null, got %v", opts.Mode)
 	}
 
 	// Should have uid
-	if params["uid"] != int64(1000) {
-		t.Errorf("expected uid 1000, got %v", params["uid"])
+	if opts.UID == nil {
+		t.Fatal("expected UID to be set")
+	}
+	if *opts.UID != 1000 {
+		t.Errorf("expected uid 1000, got %v", *opts.UID)
 	}
 
 	// Should have gid
-	if params["gid"] != int64(2000) {
-		t.Errorf("expected gid 2000, got %v", params["gid"])
+	if opts.GID == nil {
+		t.Fatal("expected GID to be set")
+	}
+	if *opts.GID != 2000 {
+		t.Errorf("expected gid 2000, got %v", *opts.GID)
 	}
 }
 
@@ -1865,30 +1816,29 @@ func TestHostPathResource_Delete_ForceDestroy_RestoreFails(t *testing.T) {
 	var removeAllCalled bool
 
 	r := &HostPathResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "filesystem.stat" {
-					// Return mock parent stat response
-					return json.RawMessage(`{"mode": 16877, "uid": 1000, "gid": 1000}`), nil
-				}
-				return json.RawMessage(`null`), nil
-			},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "filesystem.setperm" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				StatFunc: func(ctx context.Context, path string) (*truenas.StatResult, error) {
+					return &truenas.StatResult{Mode: 0o755, UID: 1000, GID: 1000}, nil
+				},
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
 					setpermCallCount++
 					// First two calls (target and parent) succeed, third (restore) fails
 					if setpermCallCount == 3 {
-						return nil, errors.New("restore failed")
+						return errors.New("restore failed")
 					}
-				}
-				return json.RawMessage(`null`), nil
-			},
-			RemoveAllFunc: func(ctx context.Context, path string) error {
-				removeAllCalled = true
-				return nil
+					return nil
+				},
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						RemoveAllFunc: func(ctx context.Context, path string) error {
+							removeAllCalled = true
+							return nil
+						},
+					}
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getHostPathResourceSchema(t)
