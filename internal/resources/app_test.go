@@ -2,13 +2,13 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	customtypes "github.com/deevus/terraform-provider-truenas/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -217,26 +217,20 @@ func createAppResourceModelValueWithTriggers(
 }
 
 func TestAppResource_Create_Success(t *testing.T) {
-	var capturedCreateMethod string
-	var capturedCreateParams any
+	var capturedOpts truenas.CreateAppOpts
 
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedCreateMethod = method
-				capturedCreateParams = params
-				// app.create response is ignored
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return app.query response
-				return json.RawMessage(`[{
-					"name": "myapp",
-					"state": "RUNNING"
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				CreateAppFunc: func(ctx context.Context, opts truenas.CreateAppOpts) (*truenas.App, error) {
+					capturedOpts = opts
+					return &truenas.App{
+						Name:  "myapp",
+						State: "RUNNING",
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -262,23 +256,13 @@ func TestAppResource_Create_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify app.create was called
-	if capturedCreateMethod != "app.create" {
-		t.Errorf("expected method 'app.create', got %q", capturedCreateMethod)
+	// Verify create opts
+	if capturedOpts.Name != "myapp" {
+		t.Errorf("expected Name 'myapp', got %q", capturedOpts.Name)
 	}
 
-	// Verify params include app_name
-	params, ok := capturedCreateParams.(client.AppCreateParams)
-	if !ok {
-		t.Fatalf("expected params to be AppCreateParams, got %T", capturedCreateParams)
-	}
-
-	if params.AppName != "myapp" {
-		t.Errorf("expected app_name 'myapp', got %q", params.AppName)
-	}
-
-	if !params.CustomApp {
-		t.Error("expected custom_app to be true")
+	if !capturedOpts.CustomApp {
+		t.Error("expected CustomApp to be true")
 	}
 
 	// Verify state was set
@@ -298,24 +282,20 @@ func TestAppResource_Create_Success(t *testing.T) {
 }
 
 func TestAppResource_Create_WithComposeConfig(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateAppOpts
 
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedParams = params
-				// app.create response is ignored
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return app.query response
-				return json.RawMessage(`[{
-					"name": "myapp",
-					"state": "RUNNING"
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				CreateAppFunc: func(ctx context.Context, opts truenas.CreateAppOpts) (*truenas.App, error) {
+					capturedOpts = opts
+					return &truenas.App{
+						Name:  "myapp",
+						State: "RUNNING",
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -342,25 +322,21 @@ func TestAppResource_Create_WithComposeConfig(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify params include compose config
-	params, ok := capturedParams.(client.AppCreateParams)
-	if !ok {
-		t.Fatalf("expected params to be AppCreateParams, got %T", capturedParams)
-	}
-
-	if params.CustomComposeConfigString != composeYAML {
-		t.Errorf("expected compose config %q, got %q", composeYAML, params.CustomComposeConfigString)
+	// Verify opts include compose config
+	if capturedOpts.CustomComposeConfig != composeYAML {
+		t.Errorf("expected compose config %q, got %q", composeYAML, capturedOpts.CustomComposeConfig)
 	}
 }
 
 func TestAppResource_Create_APIError(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("app already exists")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				CreateAppFunc: func(ctx context.Context, opts truenas.CreateAppOpts) (*truenas.App, error) {
+					return nil, errors.New("app already exists")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -389,27 +365,24 @@ func TestAppResource_Create_APIError(t *testing.T) {
 
 func TestAppResource_Read_Success(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "app.query" {
-					t.Errorf("expected method 'app.query', got %q", method)
-				}
-				// API returns parsed compose config when retrieve_config: true
-				return json.RawMessage(`[{
-					"name": "myapp",
-					"state": "RUNNING",
-					"custom_app": true,
-					"config": {
-						"services": {
-							"web": {
-								"image": "nginx"
-							}
-						}
-					}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppWithConfigFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{
+						Name:      "myapp",
+						State:     "RUNNING",
+						CustomApp: true,
+						Config: map[string]any{
+							"services": map[string]any{
+								"web": map[string]any{
+									"image": "nginx",
+								},
+							},
+						},
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -466,13 +439,13 @@ func TestAppResource_Read_Success(t *testing.T) {
 
 func TestAppResource_Read_NotFound(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return empty array - app not found
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppWithConfigFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return nil, nil // not found
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -507,12 +480,13 @@ func TestAppResource_Read_NotFound(t *testing.T) {
 
 func TestAppResource_Read_APIError(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppWithConfigFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return nil, errors.New("connection failed")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -540,28 +514,30 @@ func TestAppResource_Read_APIError(t *testing.T) {
 }
 
 func TestAppResource_Update_Success(t *testing.T) {
-	var capturedUpdateMethod string
-	var capturedUpdateParams any
-	var capturedQueryMethod string
+	var capturedUpdateName string
+	var capturedUpdateOpts truenas.UpdateAppOpts
+	var getAppCalled bool
 
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedUpdateMethod = method
-				capturedUpdateParams = params
-				// app.update response is ignored, just return empty
-				return json.RawMessage(`{}`), nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedQueryMethod = method
-				// Return app.query response (array of apps)
-				return json.RawMessage(`[{
-					"name": "myapp",
-					"state": "RUNNING"
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				UpdateAppFunc: func(ctx context.Context, name string, opts truenas.UpdateAppOpts) (*truenas.App, error) {
+					capturedUpdateName = name
+					capturedUpdateOpts = opts
+					return &truenas.App{
+						Name:  "myapp",
+						State: "RUNNING",
+					}, nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					getAppCalled = true
+					return &truenas.App{
+						Name:  "myapp",
+						State: "RUNNING",
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -596,39 +572,31 @@ func TestAppResource_Update_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify app.update was called
-	if capturedUpdateMethod != "app.update" {
-		t.Errorf("expected method 'app.update', got %q", capturedUpdateMethod)
+	// Verify UpdateApp was called
+	if capturedUpdateName != "myapp" {
+		t.Errorf("expected update name 'myapp', got %q", capturedUpdateName)
 	}
 
-	// Verify app.query was called to get state after update
-	if capturedQueryMethod != "app.query" {
-		t.Errorf("expected query method 'app.query', got %q", capturedQueryMethod)
+	// Verify update opts contain compose config
+	if capturedUpdateOpts.CustomComposeConfig != composeYAML {
+		t.Errorf("expected compose config %q, got %q", composeYAML, capturedUpdateOpts.CustomComposeConfig)
 	}
 
-	// Verify params is an array [name, updateParams]
-	paramsSlice, ok := capturedUpdateParams.([]any)
-	if !ok {
-		t.Fatalf("expected params to be []any, got %T", capturedUpdateParams)
-	}
-
-	if len(paramsSlice) < 2 {
-		t.Fatalf("expected params to have at least 2 elements, got %d", len(paramsSlice))
-	}
-
-	if paramsSlice[0] != "myapp" {
-		t.Errorf("expected first param 'myapp', got %v", paramsSlice[0])
+	// Verify GetApp was called to get state after update
+	if !getAppCalled {
+		t.Error("expected GetApp to be called to query state after update")
 	}
 }
 
 func TestAppResource_Update_APIError(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("update failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				UpdateAppFunc: func(ctx context.Context, name string, opts truenas.UpdateAppOpts) (*truenas.App, error) {
+					return nil, errors.New("update failed")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -661,18 +629,17 @@ func TestAppResource_Update_APIError(t *testing.T) {
 }
 
 func TestAppResource_Delete_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedName string
 
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedParams = params
-				return json.RawMessage(`null`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				DeleteAppFunc: func(ctx context.Context, name string) error {
+					capturedName = name
+					return nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -699,24 +666,20 @@ func TestAppResource_Delete_Success(t *testing.T) {
 	}
 
 	// Verify app.delete was called
-	if capturedMethod != "app.delete" {
-		t.Errorf("expected method 'app.delete', got %q", capturedMethod)
-	}
-
-	// Verify the app name was passed
-	if capturedParams != "myapp" {
-		t.Errorf("expected params 'myapp', got %v", capturedParams)
+	if capturedName != "myapp" {
+		t.Errorf("expected name 'myapp', got %q", capturedName)
 	}
 }
 
 func TestAppResource_Delete_APIError(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("app is running")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				DeleteAppFunc: func(ctx context.Context, name string) error {
+					return errors.New("app is running")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -793,131 +756,21 @@ func TestAppResource_ImplementsInterfaces(t *testing.T) {
 	_ = resource.ResourceWithImportState(r.(*AppResource))
 }
 
-// Test Read with invalid JSON response
-func TestAppResource_Read_InvalidJSONResponse(t *testing.T) {
-	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-
-	}
-
-	schemaResp := getAppResourceSchema(t)
-
-	stateValue := createAppResourceModelValue("myapp", "myapp", true, nil, "RUNNING", float64(120), "RUNNING")
-
-	req := resource.ReadRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
-	}
-
-	resp := &resource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response")
-	}
-}
-
-// Test Create with invalid JSON response
-func TestAppResource_Create_InvalidJSONResponse(t *testing.T) {
-	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-
-	}
-
-	schemaResp := getAppResourceSchema(t)
-
-	planValue := createAppResourceModelValue(nil, "myapp", true, nil, "RUNNING", float64(120), nil)
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response")
-	}
-}
-
-// Test Update with invalid JSON response
-func TestAppResource_Update_InvalidJSONResponse(t *testing.T) {
-	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-
-	}
-
-	schemaResp := getAppResourceSchema(t)
-
-	stateValue := createAppResourceModelValue("myapp", "myapp", true, nil, "RUNNING", float64(120), "STOPPED")
-	planValue := createAppResourceModelValue("myapp", "myapp", true, "new: config", "RUNNING", float64(120), nil)
-
-	req := resource.UpdateRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.UpdateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Update(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response")
-	}
-}
-
 // Test Read with empty compose_config sets null
 func TestAppResource_Read_EmptyComposeConfigSetsNull(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Empty config object means no compose config
-				return json.RawMessage(`[{
-					"name": "myapp",
-					"state": "RUNNING",
-					"custom_app": false,
-					"config": {}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppWithConfigFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{
+						Name:      "myapp",
+						State:     "RUNNING",
+						CustomApp: false,
+						Config:    map[string]any{},
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -949,7 +802,7 @@ func TestAppResource_Read_EmptyComposeConfigSetsNull(t *testing.T) {
 		t.Fatalf("failed to get state: %v", diags)
 	}
 
-	// compose_config should be null when API returns empty string
+	// compose_config should be null when API returns empty config
 	if !model.ComposeConfig.IsNull() {
 		t.Errorf("expected compose_config to be null, got %q", model.ComposeConfig.ValueString())
 	}
@@ -960,94 +813,19 @@ func TestAppResource_Read_EmptyComposeConfigSetsNull(t *testing.T) {
 	}
 }
 
-// Test Create with query error after create
-func TestAppResource_Create_QueryErrorAfterCreate(t *testing.T) {
-	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, nil // create succeeds
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("query failed")
-			},
-		}},
-
-	}
-
-	schemaResp := getAppResourceSchema(t)
-
-	planValue := createAppResourceModelValue(nil, "myapp", true, nil, "RUNNING", float64(120), nil)
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when query fails after create")
-	}
-}
-
-// Test Create when app is not found after create
-func TestAppResource_Create_AppNotFoundAfterCreate(t *testing.T) {
-	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, nil // create succeeds
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[]`), nil // empty array
-			},
-		}},
-
-	}
-
-	schemaResp := getAppResourceSchema(t)
-
-	planValue := createAppResourceModelValue(nil, "myapp", true, nil, "RUNNING", float64(120), nil)
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when app not found after create")
-	}
-}
-
-// Test Update with query error after update
+// Test Update with query error after update (GetApp error)
 func TestAppResource_Update_QueryErrorAfterUpdate(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, nil // update succeeds
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("query failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				UpdateAppFunc: func(ctx context.Context, name string, opts truenas.UpdateAppOpts) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return nil, errors.New("query failed")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1079,18 +857,19 @@ func TestAppResource_Update_QueryErrorAfterUpdate(t *testing.T) {
 	}
 }
 
-// Test Update when app is not found after update
+// Test Update when app is not found after update (GetApp returns nil)
 func TestAppResource_Update_AppNotFoundAfterUpdate(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, nil // update succeeds
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[]`), nil // empty array
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				UpdateAppFunc: func(ctx context.Context, name string, opts truenas.UpdateAppOpts) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return nil, nil // not found
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1119,87 +898,6 @@ func TestAppResource_Update_AppNotFoundAfterUpdate(t *testing.T) {
 
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("expected error when app not found after update")
-	}
-}
-
-// Test Update with invalid JSON response from query
-func TestAppResource_Update_QueryInvalidJSONResponse(t *testing.T) {
-	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, nil // update succeeds
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-
-	}
-
-	schemaResp := getAppResourceSchema(t)
-
-	stateValue := createAppResourceModelValue("myapp", "myapp", true, nil, "RUNNING", float64(120), "STOPPED")
-	planValue := createAppResourceModelValue("myapp", "myapp", true, "new: config", "RUNNING", float64(120), nil)
-
-	req := resource.UpdateRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.UpdateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Update(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response from query")
-	}
-}
-
-// Test Create with invalid JSON response from query
-func TestAppResource_Create_QueryInvalidJSONResponse(t *testing.T) {
-	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, nil // create succeeds
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-
-	}
-
-	schemaResp := getAppResourceSchema(t)
-
-	planValue := createAppResourceModelValue(nil, "myapp", true, nil, "RUNNING", float64(120), nil)
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response from query")
 	}
 }
 
@@ -1233,15 +931,13 @@ func TestAppResource_Schema_DesiredStateAttribute(t *testing.T) {
 // Test ImportState followed by Read verifies the flow works
 func TestAppResource_queryAppState_Success(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "app.query" {
-					t.Errorf("expected method 'app.query', got %q", method)
-				}
-				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
 			},
 		}},
-
 	}
 
 	state, err := r.queryAppState(context.Background(), "myapp")
@@ -1255,12 +951,13 @@ func TestAppResource_queryAppState_Success(t *testing.T) {
 
 func TestAppResource_queryAppState_NotFound(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return nil, nil // not found
+				},
 			},
 		}},
-
 	}
 
 	_, err := r.queryAppState(context.Background(), "myapp")
@@ -1271,12 +968,13 @@ func TestAppResource_queryAppState_NotFound(t *testing.T) {
 
 func TestAppResource_queryAppState_APIError(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return nil, errors.New("connection failed")
+				},
 			},
 		}},
-
 	}
 
 	_, err := r.queryAppState(context.Background(), "myapp")
@@ -1285,41 +983,22 @@ func TestAppResource_queryAppState_APIError(t *testing.T) {
 	}
 }
 
-func TestAppResource_queryAppState_InvalidJSON(t *testing.T) {
-	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-
-	}
-
-	_, err := r.queryAppState(context.Background(), "myapp")
-	if err == nil {
-		t.Fatal("expected error for invalid JSON")
-	}
-}
-
 func TestAppResource_ImportState_FollowedByRead(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "app.query" {
-					t.Errorf("expected method 'app.query', got %q", method)
-				}
-				// API returns parsed compose config when retrieve_config: true
-				return json.RawMessage(`[{
-					"name": "imported-app",
-					"state": "RUNNING",
-					"custom_app": true,
-					"config": {
-						"version": "3"
-					}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppWithConfigFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{
+						Name:      "imported-app",
+						State:     "RUNNING",
+						CustomApp: true,
+						Config: map[string]any{
+							"version": "3",
+						},
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1392,18 +1071,19 @@ func TestAppResource_ImportState_FollowedByRead(t *testing.T) {
 }
 
 func TestAppResource_reconcileDesiredState_StartApp(t *testing.T) {
-	var calledMethod string
+	var calledStart bool
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				calledMethod = method
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StartAppFunc: func(ctx context.Context, name string) error {
+					calledStart = true
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1417,24 +1097,25 @@ func TestAppResource_reconcileDesiredState_StartApp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if calledMethod != "app.start" {
-		t.Errorf("expected app.start to be called, got %q", calledMethod)
+	if !calledStart {
+		t.Error("expected StartApp to be called")
 	}
 }
 
 func TestAppResource_reconcileDesiredState_StopApp(t *testing.T) {
-	var calledMethod string
+	var calledStop bool
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				calledMethod = method
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{"name": "myapp", "state": "STOPPED"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StopAppFunc: func(ctx context.Context, name string) error {
+					calledStop = true
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "STOPPED"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1448,21 +1129,27 @@ func TestAppResource_reconcileDesiredState_StopApp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if calledMethod != "app.stop" {
-		t.Errorf("expected app.stop to be called, got %q", calledMethod)
+	if !calledStop {
+		t.Error("expected StopApp to be called")
 	}
 }
 
 func TestAppResource_reconcileDesiredState_NoChangeNeeded(t *testing.T) {
-	callCount := 0
+	startCalled := false
+	stopCalled := false
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				callCount++
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StartAppFunc: func(ctx context.Context, name string) error {
+					startCalled = true
+					return nil
+				},
+				StopAppFunc: func(ctx context.Context, name string) error {
+					stopCalled = true
+					return nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1476,31 +1163,32 @@ func TestAppResource_reconcileDesiredState_NoChangeNeeded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if callCount != 0 {
-		t.Errorf("expected no API calls when state matches, got %d calls", callCount)
+	if startCalled || stopCalled {
+		t.Error("expected no API calls when state matches")
 	}
 }
 
 func TestAppResource_Update_ReconcileStateFromStoppedToRunning(t *testing.T) {
-	var methods []string
+	var startCalled bool
 	queryCount := 0
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				queryCount++
-				// First query: return STOPPED (simulating external change)
-				// Second query (after start): return RUNNING
-				if queryCount == 1 {
-					return json.RawMessage(`[{"name": "myapp", "state": "STOPPED"}]`), nil
-				}
-				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StartAppFunc: func(ctx context.Context, name string) error {
+					startCalled = true
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					queryCount++
+					// First query: return STOPPED (simulating external change)
+					// Second query (after start): return RUNNING
+					if queryCount == 1 {
+						return &truenas.App{Name: "myapp", State: "STOPPED"}, nil
+					}
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1532,16 +1220,9 @@ func TestAppResource_Update_ReconcileStateFromStoppedToRunning(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify app.start was called
-	foundStart := false
-	for _, m := range methods {
-		if m == "app.start" {
-			foundStart = true
-			break
-		}
-	}
-	if !foundStart {
-		t.Errorf("expected app.start to be called, got methods: %v", methods)
+	// Verify StartApp was called
+	if !startCalled {
+		t.Error("expected StartApp to be called")
 	}
 
 	// Verify warning was added about drift
@@ -1559,18 +1240,18 @@ func TestAppResource_Update_ReconcileStateFromStoppedToRunning(t *testing.T) {
 
 func TestAppResource_Read_PreservesDesiredState(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// API reports RUNNING state, but user wants it STOPPED
-				return json.RawMessage(`[{
-					"name": "myapp",
-					"state": "RUNNING",
-					"custom_app": true,
-					"config": {}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppWithConfigFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{
+						Name:      "myapp",
+						State:     "RUNNING",
+						CustomApp: true,
+						Config:    map[string]any{},
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1625,17 +1306,18 @@ func TestAppResource_Read_PreservesDesiredState(t *testing.T) {
 // not match config value" errors).
 func TestAppResource_Read_PreservesDesiredStateCase(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"name": "myapp",
-					"state": "STOPPED",
-					"custom_app": true,
-					"config": {}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppWithConfigFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{
+						Name:      "myapp",
+						State:     "STOPPED",
+						CustomApp: true,
+						Config:    map[string]any{},
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1683,17 +1365,18 @@ func TestAppResource_Read_PreservesDesiredStateCase(t *testing.T) {
 
 func TestAppResource_Read_DefaultsDesiredStateWhenNull(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"name": "myapp",
-					"state": "RUNNING",
-					"custom_app": true,
-					"config": {}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppWithConfigFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{
+						Name:      "myapp",
+						State:     "RUNNING",
+						CustomApp: true,
+						Config:    map[string]any{},
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1738,22 +1421,30 @@ func TestAppResource_Read_DefaultsDesiredStateWhenNull(t *testing.T) {
 }
 
 func TestAppResource_Create_WithDesiredStateStopped(t *testing.T) {
-	var methods []string
+	var createCalled bool
+	var stopCalled bool
+	queryCount := 0
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return RUNNING initially, then STOPPED after stop is called
-				if len(methods) == 1 {
-					return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
-				}
-				return json.RawMessage(`[{"name": "myapp", "state": "STOPPED"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				CreateAppFunc: func(ctx context.Context, opts truenas.CreateAppOpts) (*truenas.App, error) {
+					createCalled = true
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
+				StopAppFunc: func(ctx context.Context, name string) error {
+					stopCalled = true
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					queryCount++
+					// After stop is called, return STOPPED
+					if stopCalled {
+						return &truenas.App{Name: "myapp", State: "STOPPED"}, nil
+					}
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1780,15 +1471,12 @@ func TestAppResource_Create_WithDesiredStateStopped(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify app.create was called, then app.stop
-	if len(methods) < 2 {
-		t.Fatalf("expected at least 2 API calls, got %d: %v", len(methods), methods)
+	// Verify CreateApp was called, then StopApp
+	if !createCalled {
+		t.Error("expected CreateApp to be called")
 	}
-	if methods[0] != "app.create" {
-		t.Errorf("expected first call to be app.create, got %q", methods[0])
-	}
-	if methods[1] != "app.stop" {
-		t.Errorf("expected second call to be app.stop, got %q", methods[1])
+	if !stopCalled {
+		t.Error("expected StopApp to be called")
 	}
 
 	// Verify final state
@@ -1840,19 +1528,23 @@ func TestAppResource_Create_DesiredStateCasePreservation(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var methods []string
 			r := &AppResource{
-				BaseResource: BaseResource{client: &client.MockClient{
-					CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-						methods = append(methods, method)
-						return nil, nil
-					},
-					CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-						// Simulate API returning state based on what was requested
-						return json.RawMessage(`[{"name": "myapp", "state": "` + tc.expectedState + `"}]`), nil
+				BaseResource: BaseResource{services: &services.TrueNASServices{
+					App: &truenas.MockAppService{
+						CreateAppFunc: func(ctx context.Context, opts truenas.CreateAppOpts) (*truenas.App, error) {
+							return &truenas.App{Name: "myapp", State: tc.expectedState}, nil
+						},
+						StartAppFunc: func(ctx context.Context, name string) error {
+							return nil
+						},
+						StopAppFunc: func(ctx context.Context, name string) error {
+							return nil
+						},
+						GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+							return &truenas.App{Name: "myapp", State: tc.expectedState}, nil
+						},
 					},
 				}},
-
 			}
 
 			schemaResp := getAppResourceSchema(t)
@@ -1903,25 +1595,26 @@ func TestAppResource_Create_DesiredStateCasePreservation(t *testing.T) {
 }
 
 func TestAppResource_Update_CrashedAppStartAttempt(t *testing.T) {
-	var calledMethod string
+	var startCalled bool
 	queryCount := 0
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				calledMethod = method
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				queryCount++
-				// First query: return CRASHED (the current state)
-				// Subsequent queries: return RUNNING (after start attempt)
-				if queryCount == 1 {
-					return json.RawMessage(`[{"name": "myapp", "state": "CRASHED"}]`), nil
-				}
-				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StartAppFunc: func(ctx context.Context, name string) error {
+					startCalled = true
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					queryCount++
+					// First query: return CRASHED (the current state)
+					// Subsequent queries: return RUNNING (after start attempt)
+					if queryCount == 1 {
+						return &truenas.App{Name: "myapp", State: "CRASHED"}, nil
+					}
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -1953,25 +1646,31 @@ func TestAppResource_Update_CrashedAppStartAttempt(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify app.start was called to recover from CRASHED
-	if calledMethod != "app.start" {
-		t.Errorf("expected app.start to be called for CRASHED app, got %q", calledMethod)
+	// Verify StartApp was called to recover from CRASHED
+	if !startCalled {
+		t.Error("expected StartApp to be called for CRASHED app")
 	}
 }
 
 func TestAppResource_Update_CrashedAppDesiredStopped(t *testing.T) {
-	callCount := 0
+	startCalled := false
+	stopCalled := false
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				callCount++
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{"name": "myapp", "state": "CRASHED"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StartAppFunc: func(ctx context.Context, name string) error {
+					startCalled = true
+					return nil
+				},
+				StopAppFunc: func(ctx context.Context, name string) error {
+					stopCalled = true
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "CRASHED"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2005,8 +1704,8 @@ func TestAppResource_Update_CrashedAppDesiredStopped(t *testing.T) {
 	}
 
 	// No start/stop should be called
-	if callCount > 0 {
-		t.Errorf("expected no API calls for CRASHED->STOPPED, got %d", callCount)
+	if startCalled || stopCalled {
+		t.Error("expected no API calls for CRASHED->STOPPED")
 	}
 }
 
@@ -2029,21 +1728,24 @@ func TestAppResource_Schema_RestartTriggersAttribute(t *testing.T) {
 }
 
 func TestAppResource_Update_RestartTriggersChange(t *testing.T) {
-	var methods []string
-	queryCount := 0
+	var stopCalled, startCalled bool
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				queryCount++
-				// Return RUNNING state throughout - app should be restarted
-				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StopAppFunc: func(ctx context.Context, name string) error {
+					stopCalled = true
+					return nil
+				},
+				StartAppFunc: func(ctx context.Context, name string) error {
+					startCalled = true
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					// Return RUNNING state throughout - app should be restarted
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2084,42 +1786,33 @@ func TestAppResource_Update_RestartTriggersChange(t *testing.T) {
 	}
 
 	// Verify app.stop then app.start were called (restart)
-	if len(methods) < 2 {
-		t.Fatalf("expected at least 2 API calls for restart, got %d: %v", len(methods), methods)
+	if !stopCalled {
+		t.Error("expected StopApp to be called for restart")
 	}
-
-	foundStop := false
-	foundStart := false
-	for _, m := range methods {
-		if m == "app.stop" {
-			foundStop = true
-		}
-		if m == "app.start" {
-			foundStart = true
-		}
-	}
-
-	if !foundStop {
-		t.Errorf("expected app.stop to be called for restart, got methods: %v", methods)
-	}
-	if !foundStart {
-		t.Errorf("expected app.start to be called for restart, got methods: %v", methods)
+	if !startCalled {
+		t.Error("expected StartApp to be called for restart")
 	}
 }
 
 func TestAppResource_Update_RestartTriggersNoChangeNoRestart(t *testing.T) {
-	callCount := 0
+	startCalled := false
+	stopCalled := false
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				callCount++
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StartAppFunc: func(ctx context.Context, name string) error {
+					startCalled = true
+					return nil
+				},
+				StopAppFunc: func(ctx context.Context, name string) error {
+					stopCalled = true
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2159,24 +1852,30 @@ func TestAppResource_Update_RestartTriggersNoChangeNoRestart(t *testing.T) {
 	}
 
 	// No restart should be triggered when triggers don't change
-	if callCount > 0 {
-		t.Errorf("expected no API calls when restart_triggers unchanged, got %d", callCount)
+	if startCalled || stopCalled {
+		t.Error("expected no API calls when restart_triggers unchanged")
 	}
 }
 
 func TestAppResource_Update_RestartTriggersStoppedAppNoRestart(t *testing.T) {
-	callCount := 0
+	startCalled := false
+	stopCalled := false
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				callCount++
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{"name": "myapp", "state": "STOPPED"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StartAppFunc: func(ctx context.Context, name string) error {
+					startCalled = true
+					return nil
+				},
+				StopAppFunc: func(ctx context.Context, name string) error {
+					stopCalled = true
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "STOPPED"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2215,24 +1914,25 @@ func TestAppResource_Update_RestartTriggersStoppedAppNoRestart(t *testing.T) {
 	}
 
 	// No restart should be triggered when app is stopped
-	if callCount > 0 {
-		t.Errorf("expected no API calls for stopped app, got %d", callCount)
+	if startCalled || stopCalled {
+		t.Error("expected no API calls for stopped app")
 	}
 }
 
 func TestAppResource_Read_PreservesRestartTriggers(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"name": "myapp",
-					"state": "RUNNING",
-					"custom_app": true,
-					"config": {}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetAppWithConfigFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{
+						Name:      "myapp",
+						State:     "RUNNING",
+						CustomApp: true,
+						Config:    map[string]any{},
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2285,18 +1985,24 @@ func TestAppResource_Read_PreservesRestartTriggers(t *testing.T) {
 }
 
 func TestAppResource_Update_RestartTriggersAddedFirstTime(t *testing.T) {
-	var methods []string
+	startCalled := false
+	stopCalled := false
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StartAppFunc: func(ctx context.Context, name string) error {
+					startCalled = true
+					return nil
+				},
+				StopAppFunc: func(ctx context.Context, name string) error {
+					stopCalled = true
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2337,26 +2043,30 @@ func TestAppResource_Update_RestartTriggersAddedFirstTime(t *testing.T) {
 	}
 
 	// No app.stop or app.start should be called when triggers go from null to value
-	for _, m := range methods {
-		if m == "app.stop" || m == "app.start" {
-			t.Errorf("expected no restart when adding triggers first time, but got %q", m)
-		}
+	if startCalled || stopCalled {
+		t.Error("expected no restart when adding triggers first time")
 	}
 }
 
 func TestAppResource_Update_RestartTriggersRemoved(t *testing.T) {
-	var methods []string
+	startCalled := false
+	stopCalled := false
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StartAppFunc: func(ctx context.Context, name string) error {
+					startCalled = true
+					return nil
+				},
+				StopAppFunc: func(ctx context.Context, name string) error {
+					stopCalled = true
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2397,27 +2107,23 @@ func TestAppResource_Update_RestartTriggersRemoved(t *testing.T) {
 	}
 
 	// No app.stop or app.start should be called when triggers are removed
-	for _, m := range methods {
-		if m == "app.stop" || m == "app.start" {
-			t.Errorf("expected no restart when removing triggers, but got %q", m)
-		}
+	if startCalled || stopCalled {
+		t.Error("expected no restart when removing triggers")
 	}
 }
 
 func TestAppResource_Update_RestartTriggersStopError(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "app.stop" {
-					return nil, errors.New("stop failed: container busy")
-				}
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StopAppFunc: func(ctx context.Context, name string) error {
+					return errors.New("stop failed: container busy")
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2472,21 +2178,19 @@ func TestAppResource_Update_RestartTriggersStopError(t *testing.T) {
 
 func TestAppResource_Update_RestartTriggersStartError(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "app.stop" {
-					return nil, nil // stop succeeds
-				}
-				if method == "app.start" {
-					return nil, errors.New("start failed: port already in use")
-				}
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{"name": "myapp", "state": "RUNNING"}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StopAppFunc: func(ctx context.Context, name string) error {
+					return nil // stop succeeds
+				},
+				StartAppFunc: func(ctx context.Context, name string) error {
+					return errors.New("start failed: port already in use")
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{Name: "myapp", State: "RUNNING"}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
@@ -2544,20 +2248,21 @@ func TestAppResource_Update_RestartTriggersStartError(t *testing.T) {
 // match config value" errors).
 func TestAppResource_Update_DesiredStateCasePreservation(t *testing.T) {
 	r := &AppResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"name": "myapp",
-					"state": "STOPPED",
-					"custom_app": true,
-					"config": {}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				StopAppFunc: func(ctx context.Context, name string) error {
+					return nil
+				},
+				GetAppFunc: func(ctx context.Context, name string) (*truenas.App, error) {
+					return &truenas.App{
+						Name:      "myapp",
+						State:     "STOPPED",
+						CustomApp: true,
+						Config:    map[string]any{},
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getAppResourceSchema(t)
