@@ -2,11 +2,11 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -484,32 +484,29 @@ func createDatasetResourceModelValue(p datasetModelParams) tftypes.Value {
 	)
 }
 
+// defaultDataset returns a standard test Dataset for use in mocks.
+func defaultDataset() *truenas.Dataset {
+	return &truenas.Dataset{
+		ID:          "storage/apps",
+		Name:        "storage/apps",
+		Mountpoint:  "/mnt/storage/apps",
+		Compression: "lz4",
+		Quota:       0,
+		RefQuota:    0,
+		Atime:       "on",
+	}
+}
+
 func TestDatasetResource_Create_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.CreateDatasetOpts
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`{
-						"id": "storage/apps",
-						"name": "storage/apps",
-						"mountpoint": "/mnt/storage/apps"
-					}`), nil
-				}
-				// pool.dataset.query - returns array with full dataset info
-				return json.RawMessage(`[{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "lz4"},
-					"quota": {"value": "0", "parsed": 0},
-					"refquota": {"value": "0", "parsed": 0},
-					"atime": {"value": "on"}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateDatasetFunc: func(ctx context.Context, opts truenas.CreateDatasetOpts) (*truenas.Dataset, error) {
+					capturedOpts = opts
+					return defaultDataset(), nil
+				},
 			},
 		}},
 	}
@@ -537,19 +534,13 @@ func TestDatasetResource_Create_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify the API was called correctly
-	if capturedMethod != "pool.dataset.create" {
-		t.Errorf("expected method 'pool.dataset.create', got %q", capturedMethod)
+	// Verify the opts were set correctly
+	if capturedOpts.Name != "storage/apps" {
+		t.Errorf("expected name 'storage/apps', got %q", capturedOpts.Name)
 	}
 
-	// Verify params include the full dataset name
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
-	}
-
-	if params["name"] != "storage/apps" {
-		t.Errorf("expected name 'storage/apps', got %v", params["name"])
+	if capturedOpts.Compression != "lz4" {
+		t.Errorf("expected compression 'lz4', got %q", capturedOpts.Compression)
 	}
 
 	// Verify state was set
@@ -569,7 +560,7 @@ func TestDatasetResource_Create_Success(t *testing.T) {
 
 func TestDatasetResource_Create_InvalidConfig(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -598,29 +589,21 @@ func TestDatasetResource_Create_InvalidConfig(t *testing.T) {
 }
 
 func TestDatasetResource_Create_WithParentName(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateDatasetOpts
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					capturedParams = params
-					return json.RawMessage(`{
-						"id": "tank/data/apps",
-						"name": "tank/data/apps",
-						"mountpoint": "/mnt/tank/data/apps"
-					}`), nil
-				}
-				// pool.dataset.query - returns array with full dataset info
-				return json.RawMessage(`[{
-					"id": "tank/data/apps",
-					"name": "tank/data/apps",
-					"mountpoint": "/mnt/tank/data/apps",
-					"compression": {"value": "lz4"},
-					"quota": {"value": "0", "parsed": 0},
-					"refquota": {"value": "0", "parsed": 0},
-					"atime": {"value": "on"}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateDatasetFunc: func(ctx context.Context, opts truenas.CreateDatasetOpts) (*truenas.Dataset, error) {
+					capturedOpts = opts
+					return &truenas.Dataset{
+						ID:          "tank/data/apps",
+						Name:        "tank/data/apps",
+						Mountpoint:  "/mnt/tank/data/apps",
+						Compression: "lz4",
+						Atime:       "on",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -649,14 +632,9 @@ func TestDatasetResource_Create_WithParentName(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify params include the full dataset name
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
-	}
-
-	if params["name"] != "tank/data/apps" {
-		t.Errorf("expected name 'tank/data/apps', got %v", params["name"])
+	// Verify opts include the full dataset name
+	if capturedOpts.Name != "tank/data/apps" {
+		t.Errorf("expected name 'tank/data/apps', got %q", capturedOpts.Name)
 	}
 
 	// Verify state was set
@@ -673,9 +651,11 @@ func TestDatasetResource_Create_WithParentName(t *testing.T) {
 
 func TestDatasetResource_Create_APIError(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("dataset already exists")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateDatasetFunc: func(ctx context.Context, opts truenas.CreateDatasetOpts) (*truenas.Dataset, error) {
+					return nil, errors.New("dataset already exists")
+				},
 			},
 		}},
 	}
@@ -704,99 +684,13 @@ func TestDatasetResource_Create_APIError(t *testing.T) {
 	}
 }
 
-func TestDatasetResource_Create_QueryAPIError(t *testing.T) {
-	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					return json.RawMessage(`{
-						"id": "storage/apps",
-						"name": "storage/apps",
-						"mountpoint": "/mnt/storage/apps"
-					}`), nil
-				}
-				// pool.dataset.query fails
-				return nil, errors.New("connection refused")
-			},
-		}},
-	}
-
-	schemaResp := getDatasetResourceSchema(t)
-	planValue := createDatasetResourceModel(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil)
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when query fails after create")
-	}
-}
-
-func TestDatasetResource_Create_QueryInvalidJSON(t *testing.T) {
-	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					return json.RawMessage(`{
-						"id": "storage/apps",
-						"name": "storage/apps",
-						"mountpoint": "/mnt/storage/apps"
-					}`), nil
-				}
-				// pool.dataset.query returns invalid JSON
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-	}
-
-	schemaResp := getDatasetResourceSchema(t)
-	planValue := createDatasetResourceModel(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil)
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when query returns invalid JSON")
-	}
-}
-
 func TestDatasetResource_Create_DatasetNotFoundAfterCreate(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					return json.RawMessage(`{
-						"id": "storage/apps",
-						"name": "storage/apps",
-						"mountpoint": "/mnt/storage/apps"
-					}`), nil
-				}
-				// pool.dataset.query returns empty array
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateDatasetFunc: func(ctx context.Context, opts truenas.CreateDatasetOpts) (*truenas.Dataset, error) {
+					return nil, nil
+				},
 			},
 		}},
 	}
@@ -826,20 +720,19 @@ func TestDatasetResource_Create_DatasetNotFoundAfterCreate(t *testing.T) {
 
 func TestDatasetResource_Read_Success(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "pool.dataset.query" {
-					t.Errorf("expected method 'pool.dataset.query', got %q", method)
-				}
-				return json.RawMessage(`[{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "lz4"},
-					"quota": {"value": "10G", "parsed": 10000000000},
-					"refquota": {"value": "5G", "parsed": 5000000000},
-					"atime": {"value": "on"}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "lz4",
+						Quota:       10000000000,
+						RefQuota:    5000000000,
+						Atime:       "on",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -885,7 +778,7 @@ func TestDatasetResource_Read_Success(t *testing.T) {
 	if model.Compression.ValueString() != "lz4" {
 		t.Errorf("expected Compression 'lz4', got %q", model.Compression.ValueString())
 	}
-	// quota/refquota stored as bytes from API parsed field
+	// quota/refquota stored as bytes from API
 	if model.Quota.ValueString() != "10000000000" {
 		t.Errorf("expected Quota '10000000000', got %q", model.Quota.ValueString())
 	}
@@ -900,10 +793,11 @@ func TestDatasetResource_Read_Success(t *testing.T) {
 
 func TestDatasetResource_Read_DatasetNotFound(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return empty array - dataset not found
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return nil, nil
+				},
 			},
 		}},
 	}
@@ -940,9 +834,11 @@ func TestDatasetResource_Read_DatasetNotFound(t *testing.T) {
 
 func TestDatasetResource_Read_APIError(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return nil, errors.New("connection failed")
+				},
 			},
 		}},
 	}
@@ -972,23 +868,25 @@ func TestDatasetResource_Read_APIError(t *testing.T) {
 }
 
 func TestDatasetResource_Update_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedID string
+	var capturedOpts truenas.UpdateDatasetOpts
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedParams = params
-				return json.RawMessage(`{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "zstd"},
-					"quota": {"value": "10G", "parsed": 10000000000},
-					"refquota": {"value": "5G", "parsed": 5000000000},
-					"atime": {"value": "off"}
-				}`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateDatasetFunc: func(ctx context.Context, id string, opts truenas.UpdateDatasetOpts) (*truenas.Dataset, error) {
+					capturedID = id
+					capturedOpts = opts
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "zstd",
+						Quota:       10000000000,
+						RefQuota:    5000000000,
+						Atime:       "off",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1024,32 +922,13 @@ func TestDatasetResource_Update_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify the API was called correctly
-	if capturedMethod != "pool.dataset.update" {
-		t.Errorf("expected method 'pool.dataset.update', got %q", capturedMethod)
+	// Verify the service was called correctly
+	if capturedID != "storage/apps" {
+		t.Errorf("expected ID 'storage/apps', got %q", capturedID)
 	}
 
-	// Verify params include the ID and update object
-	params, ok := capturedParams.([]any)
-	if !ok {
-		t.Fatalf("expected params to be []any, got %T", capturedParams)
-	}
-
-	if len(params) != 2 {
-		t.Fatalf("expected 2 params, got %d", len(params))
-	}
-
-	if params[0] != "storage/apps" {
-		t.Errorf("expected ID 'storage/apps', got %v", params[0])
-	}
-
-	updateParams, ok := params[1].(map[string]any)
-	if !ok {
-		t.Fatalf("expected update params to be map[string]any, got %T", params[1])
-	}
-
-	if updateParams["compression"] != "zstd" {
-		t.Errorf("expected compression 'zstd', got %v", updateParams["compression"])
+	if capturedOpts.Compression != "zstd" {
+		t.Errorf("expected compression 'zstd', got %q", capturedOpts.Compression)
 	}
 
 	// Verify state was updated from API response
@@ -1059,7 +938,7 @@ func TestDatasetResource_Update_Success(t *testing.T) {
 		t.Fatalf("failed to get state: %v", diags)
 	}
 
-	// quota/refquota stored as bytes from API parsed field
+	// quota/refquota stored as bytes from API
 	if model.Quota.ValueString() != "10000000000" {
 		t.Errorf("expected Quota '10000000000', got %q", model.Quota.ValueString())
 	}
@@ -1075,10 +954,12 @@ func TestDatasetResource_Update_NoChanges(t *testing.T) {
 	apiCalled := false
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				apiCalled = true
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateDatasetFunc: func(ctx context.Context, id string, opts truenas.UpdateDatasetOpts) (*truenas.Dataset, error) {
+					apiCalled = true
+					return nil, nil
+				},
 			},
 		}},
 	}
@@ -1120,9 +1001,11 @@ func TestDatasetResource_Update_NoChanges(t *testing.T) {
 
 func TestDatasetResource_Update_APIError(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("update failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateDatasetFunc: func(ctx context.Context, id string, opts truenas.UpdateDatasetOpts) (*truenas.Dataset, error) {
+					return nil, errors.New("update failed")
+				},
 			},
 		}},
 	}
@@ -1157,15 +1040,17 @@ func TestDatasetResource_Update_APIError(t *testing.T) {
 }
 
 func TestDatasetResource_Delete_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedID string
+	var capturedRecursive bool
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedParams = params
-				return json.RawMessage(`null`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				DeleteDatasetFunc: func(ctx context.Context, id string, recursive bool) error {
+					capturedID = id
+					capturedRecursive = recursive
+					return nil
+				},
 			},
 		}},
 	}
@@ -1193,22 +1078,23 @@ func TestDatasetResource_Delete_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify the API was called correctly
-	if capturedMethod != "pool.dataset.delete" {
-		t.Errorf("expected method 'pool.dataset.delete', got %q", capturedMethod)
+	// Verify the service was called correctly
+	if capturedID != "storage/apps" {
+		t.Errorf("expected ID 'storage/apps', got %q", capturedID)
 	}
 
-	// Verify the ID was passed
-	if capturedParams != "storage/apps" {
-		t.Errorf("expected params 'storage/apps', got %v", capturedParams)
+	if capturedRecursive {
+		t.Error("expected recursive to be false")
 	}
 }
 
 func TestDatasetResource_Delete_APIError(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("dataset is busy")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				DeleteDatasetFunc: func(ctx context.Context, id string, recursive bool) error {
+					return errors.New("dataset is busy")
+				},
 			},
 		}},
 	}
@@ -1238,15 +1124,17 @@ func TestDatasetResource_Delete_APIError(t *testing.T) {
 }
 
 func TestDatasetResource_Delete_WithForceDestroy(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedID string
+	var capturedRecursive bool
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedParams = params
-				return json.RawMessage(`null`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				DeleteDatasetFunc: func(ctx context.Context, id string, recursive bool) error {
+					capturedID = id
+					capturedRecursive = recursive
+					return nil
+				},
 			},
 		}},
 	}
@@ -1275,28 +1163,13 @@ func TestDatasetResource_Delete_WithForceDestroy(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify the API was called correctly
-	if capturedMethod != "pool.dataset.delete" {
-		t.Errorf("expected method 'pool.dataset.delete', got %q", capturedMethod)
+	// Verify the service was called correctly
+	if capturedID != "storage/apps" {
+		t.Errorf("expected ID 'storage/apps', got %q", capturedID)
 	}
 
-	// Verify the params include recursive option
-	params, ok := capturedParams.([]any)
-	if !ok {
-		t.Fatalf("expected params to be []any, got %T", capturedParams)
-	}
-	if len(params) != 2 {
-		t.Fatalf("expected 2 params, got %d", len(params))
-	}
-	if params[0] != "storage/apps" {
-		t.Errorf("expected first param 'storage/apps', got %v", params[0])
-	}
-	opts, ok := params[1].(map[string]bool)
-	if !ok {
-		t.Fatalf("expected second param to be map[string]bool, got %T", params[1])
-	}
-	if !opts["recursive"] {
-		t.Error("expected recursive option to be true")
+	if !capturedRecursive {
+		t.Error("expected recursive to be true")
 	}
 }
 
@@ -1455,29 +1328,23 @@ func TestDatasetResource_ImplementsInterfaces(t *testing.T) {
 
 // Additional test for Create with all optional parameters
 func TestDatasetResource_Create_AllOptions(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateDatasetOpts
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					capturedParams = params
-					return json.RawMessage(`{
-						"id": "storage/apps",
-						"name": "storage/apps",
-						"mountpoint": "/mnt/storage/apps"
-					}`), nil
-				}
-				// pool.dataset.query - returns array with full dataset info
-				return json.RawMessage(`[{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "zstd"},
-					"quota": {"value": "10G", "parsed": 10000000000},
-					"refquota": {"value": "5G", "parsed": 5000000000},
-					"atime": {"value": "on"}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateDatasetFunc: func(ctx context.Context, opts truenas.CreateDatasetOpts) (*truenas.Dataset, error) {
+					capturedOpts = opts
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "zstd",
+						Quota:       10000000000,
+						RefQuota:    5000000000,
+						Atime:       "on",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1505,44 +1372,39 @@ func TestDatasetResource_Create_AllOptions(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify params include all options
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	// Verify opts include all options
+	if capturedOpts.Compression != "zstd" {
+		t.Errorf("expected compression 'zstd', got %q", capturedOpts.Compression)
 	}
 
-	if params["compression"] != "zstd" {
-		t.Errorf("expected compression 'zstd', got %v", params["compression"])
+	// quota and refquota are sent as int64 bytes (SI units: 1G = 1000^3)
+	if capturedOpts.Quota != int64(10000000000) {
+		t.Errorf("expected quota 10000000000 (10G in bytes), got %v", capturedOpts.Quota)
 	}
 
-	// quota and refquota are sent as int64 bytes to the API (SI units: 1G = 1000^3)
-	if params["quota"] != int64(10000000000) {
-		t.Errorf("expected quota 10000000000 (10G in bytes), got %v", params["quota"])
+	if capturedOpts.RefQuota != int64(5000000000) {
+		t.Errorf("expected refquota 5000000000 (5G in bytes), got %v", capturedOpts.RefQuota)
 	}
 
-	if params["refquota"] != int64(5000000000) {
-		t.Errorf("expected refquota 5000000000 (5G in bytes), got %v", params["refquota"])
-	}
-
-	if params["atime"] != "on" {
-		t.Errorf("expected atime 'on', got %v", params["atime"])
+	if capturedOpts.Atime != "on" {
+		t.Errorf("expected atime 'on', got %q", capturedOpts.Atime)
 	}
 }
 
 // Test Read with parent/name mode
 func TestDatasetResource_Read_WithParentName(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": "tank/data/apps",
-					"name": "tank/data/apps",
-					"mountpoint": "/mnt/tank/data/apps",
-					"compression": {"value": "lz4"},
-					"quota": {"value": "0", "parsed": 0},
-					"refquota": {"value": "0", "parsed": 0},
-					"atime": {"value": "on"}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "tank/data/apps",
+						Name:        "tank/data/apps",
+						Mountpoint:  "/mnt/tank/data/apps",
+						Compression: "lz4",
+						Atime:       "on",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1581,130 +1443,24 @@ func TestDatasetResource_Read_WithParentName(t *testing.T) {
 	}
 }
 
-// Test Create with invalid JSON response
-func TestDatasetResource_Create_InvalidJSONResponse(t *testing.T) {
-	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-	}
-
-	schemaResp := getDatasetResourceSchema(t)
-
-	planValue := createDatasetResourceModel(nil, "storage", "apps", nil, nil, nil, nil, nil, nil, nil, nil)
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response")
-	}
-}
-
-// Test Read with invalid JSON response
-func TestDatasetResource_Read_InvalidJSONResponse(t *testing.T) {
-	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-	}
-
-	schemaResp := getDatasetResourceSchema(t)
-
-	stateValue := createDatasetResourceModel("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", nil, nil, nil, nil)
-
-	req := resource.ReadRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
-	}
-
-	resp := &resource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response")
-	}
-}
-
-// Test Update with invalid JSON response
-func TestDatasetResource_Update_InvalidJSONResponse(t *testing.T) {
-	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-	}
-
-	schemaResp := getDatasetResourceSchema(t)
-
-	stateValue := createDatasetResourceModel("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", nil, nil, nil, nil)
-	planValue := createDatasetResourceModel("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "zstd", nil, nil, nil, nil)
-
-	req := resource.UpdateRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.UpdateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Update(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response")
-	}
-}
-
 // Test Update with quota change
 func TestDatasetResource_Update_QuotaChange(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.UpdateDatasetOpts
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedParams = params
-				return json.RawMessage(`{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "lz4"},
-					"quota": {"value": "10G", "parsed": 10000000000},
-					"refquota": {"value": "0", "parsed": 0},
-					"atime": {"value": "on"}
-				}`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateDatasetFunc: func(ctx context.Context, id string, opts truenas.UpdateDatasetOpts) (*truenas.Dataset, error) {
+					capturedOpts = opts
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "lz4",
+						Quota:       10000000000,
+						Atime:       "on",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1740,40 +1496,35 @@ func TestDatasetResource_Update_QuotaChange(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify params include the quota
-	params, ok := capturedParams.([]any)
-	if !ok {
-		t.Fatalf("expected params to be []any, got %T", capturedParams)
+	// Verify opts include the quota
+	if capturedOpts.Quota == nil {
+		t.Fatal("expected Quota to be set")
 	}
 
-	updateParams, ok := params[1].(map[string]any)
-	if !ok {
-		t.Fatalf("expected update params to be map[string]any, got %T", params[1])
-	}
-
-	// quota is sent as int64 bytes to the API (SI units: 1G = 1000^3)
-	if updateParams["quota"] != int64(10000000000) {
-		t.Errorf("expected quota 10000000000 (10G in bytes), got %v", updateParams["quota"])
+	// quota is sent as int64 bytes (SI units: 1G = 1000^3)
+	if *capturedOpts.Quota != int64(10000000000) {
+		t.Errorf("expected quota 10000000000 (10G in bytes), got %v", *capturedOpts.Quota)
 	}
 }
 
 // Test Update with refquota change
 func TestDatasetResource_Update_RefQuotaChange(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.UpdateDatasetOpts
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedParams = params
-				return json.RawMessage(`{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "lz4"},
-					"quota": {"value": "0", "parsed": 0},
-					"refquota": {"value": "5G", "parsed": 5000000000},
-					"atime": {"value": "on"}
-				}`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateDatasetFunc: func(ctx context.Context, id string, opts truenas.UpdateDatasetOpts) (*truenas.Dataset, error) {
+					capturedOpts = opts
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "lz4",
+						RefQuota:    5000000000,
+						Atime:       "on",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1806,39 +1557,34 @@ func TestDatasetResource_Update_RefQuotaChange(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	params, ok := capturedParams.([]any)
-	if !ok {
-		t.Fatalf("expected params to be []any, got %T", capturedParams)
+	// Verify opts include refquota
+	if capturedOpts.RefQuota == nil {
+		t.Fatal("expected RefQuota to be set")
 	}
 
-	updateParams, ok := params[1].(map[string]any)
-	if !ok {
-		t.Fatalf("expected update params to be map[string]any, got %T", params[1])
-	}
-
-	// refquota is sent as int64 bytes to the API (SI units: 1G = 1000^3)
-	if updateParams["refquota"] != int64(5000000000) {
-		t.Errorf("expected refquota 5000000000 (5G in bytes), got %v", updateParams["refquota"])
+	// refquota is sent as int64 bytes (SI units: 1G = 1000^3)
+	if *capturedOpts.RefQuota != int64(5000000000) {
+		t.Errorf("expected refquota 5000000000 (5G in bytes), got %v", *capturedOpts.RefQuota)
 	}
 }
 
 // Test Update with atime change
 func TestDatasetResource_Update_AtimeChange(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.UpdateDatasetOpts
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedParams = params
-				return json.RawMessage(`{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "lz4"},
-					"quota": {"value": "0", "parsed": 0},
-					"refquota": {"value": "0", "parsed": 0},
-					"atime": {"value": "off"}
-				}`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateDatasetFunc: func(ctx context.Context, id string, opts truenas.UpdateDatasetOpts) (*truenas.Dataset, error) {
+					capturedOpts = opts
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "lz4",
+						Atime:       "off",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1871,25 +1617,15 @@ func TestDatasetResource_Update_AtimeChange(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	params, ok := capturedParams.([]any)
-	if !ok {
-		t.Fatalf("expected params to be []any, got %T", capturedParams)
-	}
-
-	updateParams, ok := params[1].(map[string]any)
-	if !ok {
-		t.Fatalf("expected update params to be map[string]any, got %T", params[1])
-	}
-
-	if updateParams["atime"] != "off" {
-		t.Errorf("expected atime 'off', got %v", updateParams["atime"])
+	if capturedOpts.Atime != "off" {
+		t.Errorf("expected atime 'off', got %q", capturedOpts.Atime)
 	}
 }
 
 // Test Create with plan parsing error
 func TestDatasetResource_Create_PlanParseError(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -1954,7 +1690,7 @@ func TestDatasetResource_Create_PlanParseError(t *testing.T) {
 // Test Read with state parsing error
 func TestDatasetResource_Read_StateParseError(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2019,7 +1755,7 @@ func TestDatasetResource_Read_StateParseError(t *testing.T) {
 // Test Update with plan parsing error
 func TestDatasetResource_Update_PlanParseError(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2091,7 +1827,7 @@ func TestDatasetResource_Update_PlanParseError(t *testing.T) {
 // Test Update with state parsing error
 func TestDatasetResource_Update_StateParseError(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2201,18 +1937,17 @@ func TestDatasetResource_Schema_AtimeIsComputed(t *testing.T) {
 // Test that Read preserves null compression when not set in config
 func TestDatasetResource_Read_PopulatesComputedAttributes(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// API returns actual server values
-				return json.RawMessage(`[{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "LZ4"},
-					"quota": {"value": "0", "parsed": 0},
-					"refquota": {"value": "0", "parsed": 0},
-					"atime": {"value": "OFF"}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "LZ4",
+						Atime:       "OFF",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -2265,7 +2000,7 @@ func TestDatasetResource_Read_PopulatesComputedAttributes(t *testing.T) {
 // Test Delete with state parsing error
 func TestDatasetResource_Delete_StateParseError(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
@@ -2330,25 +2065,27 @@ func TestDatasetResource_Delete_StateParseError(t *testing.T) {
 // Test Create with permissions
 func TestDatasetResource_Create_WithPermissions(t *testing.T) {
 	var setpermCalled bool
-	var setpermParams map[string]any
+	var setpermOpts truenas.SetPermOpts
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					return json.RawMessage(`{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0","parsed":0},"refquota":{"value":"0","parsed":0},"atime":{"value":"off"}}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateDatasetFunc: func(ctx context.Context, opts truenas.CreateDatasetOpts) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "lz4",
+						Atime:       "off",
+					}, nil
+				},
 			},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "filesystem.setperm" {
+			Filesystem: &truenas.MockFilesystemService{
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
 					setpermCalled = true
-					setpermParams = params.(map[string]any)
-				}
-				return nil, nil
+					setpermOpts = opts
+					return nil
+				},
 			},
 		}},
 	}
@@ -2377,23 +2114,23 @@ func TestDatasetResource_Create_WithPermissions(t *testing.T) {
 	}
 
 	if !setpermCalled {
-		t.Fatal("expected filesystem.setperm to be called")
+		t.Fatal("expected filesystem.SetPermissions to be called")
 	}
 
-	if setpermParams["path"] != "/mnt/storage/apps" {
-		t.Errorf("expected path '/mnt/storage/apps', got %v", setpermParams["path"])
+	if setpermOpts.Path != "/mnt/storage/apps" {
+		t.Errorf("expected path '/mnt/storage/apps', got %v", setpermOpts.Path)
 	}
 
-	if setpermParams["mode"] != "755" {
-		t.Errorf("expected mode '755', got %v", setpermParams["mode"])
+	if setpermOpts.Mode != "755" {
+		t.Errorf("expected mode '755', got %v", setpermOpts.Mode)
 	}
 
-	if setpermParams["uid"] != int64(1000) {
-		t.Errorf("expected uid 1000, got %v", setpermParams["uid"])
+	if setpermOpts.UID == nil || *setpermOpts.UID != int64(1000) {
+		t.Errorf("expected uid 1000, got %v", setpermOpts.UID)
 	}
 
-	if setpermParams["gid"] != int64(1000) {
-		t.Errorf("expected gid 1000, got %v", setpermParams["gid"])
+	if setpermOpts.GID == nil || *setpermOpts.GID != int64(1000) {
+		t.Errorf("expected gid 1000, got %v", setpermOpts.GID)
 	}
 }
 
@@ -2402,21 +2139,23 @@ func TestDatasetResource_Create_NoPermissions(t *testing.T) {
 	var setpermCalled bool
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					return json.RawMessage(`{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0","parsed":0},"refquota":{"value":"0","parsed":0},"atime":{"value":"off"}}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateDatasetFunc: func(ctx context.Context, opts truenas.CreateDatasetOpts) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "lz4",
+						Atime:       "off",
+					}, nil
+				},
 			},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "filesystem.setperm" {
+			Filesystem: &truenas.MockFilesystemService{
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
 					setpermCalled = true
-				}
-				return nil, nil
+					return nil
+				},
 			},
 		}},
 	}
@@ -2446,26 +2185,24 @@ func TestDatasetResource_Create_NoPermissions(t *testing.T) {
 	}
 
 	if setpermCalled {
-		t.Fatal("filesystem.setperm should not be called when no permissions specified")
+		t.Fatal("filesystem.SetPermissions should not be called when no permissions specified")
 	}
 }
 
 // Test Update with permission changes
 func TestDatasetResource_Update_PermissionChange(t *testing.T) {
 	var setpermCalled bool
-	var setpermParams map[string]any
+	var setpermOpts truenas.SetPermOpts
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, nil
-			},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "filesystem.setperm" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{},
+			Filesystem: &truenas.MockFilesystemService{
+				SetPermissionsFunc: func(ctx context.Context, opts truenas.SetPermOpts) error {
 					setpermCalled = true
-					setpermParams = params.(map[string]any)
-				}
-				return nil, nil
+					setpermOpts = opts
+					return nil
+				},
 			},
 		}},
 	}
@@ -2500,11 +2237,11 @@ func TestDatasetResource_Update_PermissionChange(t *testing.T) {
 	}
 
 	if !setpermCalled {
-		t.Fatal("expected filesystem.setperm to be called for permission change")
+		t.Fatal("expected filesystem.SetPermissions to be called for permission change")
 	}
 
-	if setpermParams["mode"] != "700" {
-		t.Errorf("expected mode '700', got %v", setpermParams["mode"])
+	if setpermOpts.Mode != "700" {
+		t.Errorf("expected mode '700', got %v", setpermOpts.Mode)
 	}
 }
 
@@ -2528,17 +2265,17 @@ func TestDatasetResource_Schema_FullPathExists(t *testing.T) {
 // Test Read populates both mount_path and full_path from API response
 func TestDatasetResource_Read_BothMountPathAndFullPath(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "lz4"},
-					"quota": {"value": "0", "parsed": 0},
-					"refquota": {"value": "0", "parsed": 0},
-					"atime": {"value": "on"}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "lz4",
+						Atime:       "on",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -2617,23 +2354,30 @@ func TestDatasetResource_Schema_NameDeprecated(t *testing.T) {
 
 func TestDatasetResource_Read_WithPermissions(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.query" {
-					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0","parsed":0},"refquota":{"value":"0","parsed":0},"atime":{"value":"off"}}]`), nil
-				}
-				if method == "filesystem.stat" {
-					// Return mode 0755 (493 in decimal), uid 1000, gid 1000
-					return json.RawMessage(`{"mode":16877,"uid":1000,"gid":1000}`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "lz4",
+						Atime:       "off",
+					}, nil
+				},
+			},
+			Filesystem: &truenas.MockFilesystemService{
+				StatFunc: func(ctx context.Context, path string) (*truenas.StatResult, error) {
+					// StatResult.Mode is already masked with 0o777 in truenas-go
+					return &truenas.StatResult{Mode: 0o755, UID: 1000, GID: 1000}, nil
+				},
 			},
 		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
 
-	// State has permissions configured, so Read should update them from filesystem.stat
+	// State has permissions configured, so Read should update them from filesystem.Stat
 	stateValue := createDatasetResourceModelWithPerms("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", nil, nil, nil, nil, "700", int64(0), int64(0))
 
 	req := resource.ReadRequest{
@@ -2659,7 +2403,7 @@ func TestDatasetResource_Read_WithPermissions(t *testing.T) {
 	var data DatasetResourceModel
 	resp.State.Get(context.Background(), &data)
 
-	// 16877 & 0777 = 493 = 0755 in octal
+	// Mode is already masked in truenas-go, so 0o755 = "755"
 	if data.Mode.ValueString() != "755" {
 		t.Errorf("expected mode '755', got %v", data.Mode.ValueString())
 	}
@@ -2676,17 +2420,17 @@ func TestDatasetResource_Read_WithPermissions(t *testing.T) {
 // Test Read after import populates pool/path from ID
 func TestDatasetResource_Read_AfterImport_PopulatesPoolAndPath(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": "tank/data/apps",
-					"name": "tank/data/apps",
-					"mountpoint": "/mnt/tank/data/apps",
-					"compression": {"value": "lz4"},
-					"quota": {"value": "0", "parsed": 0},
-					"refquota": {"value": "0", "parsed": 0},
-					"atime": {"value": "on"}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "tank/data/apps",
+						Name:        "tank/data/apps",
+						Mountpoint:  "/mnt/tank/data/apps",
+						Compression: "lz4",
+						Atime:       "on",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -2733,17 +2477,17 @@ func TestDatasetResource_Read_AfterImport_PopulatesPoolAndPath(t *testing.T) {
 // Test Read after import with simple pool-level dataset
 func TestDatasetResource_Read_AfterImport_SimpleDataset(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": "tank/apps",
-					"name": "tank/apps",
-					"mountpoint": "/mnt/tank/apps",
-					"compression": {"value": "lz4"},
-					"quota": {"value": "0", "parsed": 0},
-					"refquota": {"value": "0", "parsed": 0},
-					"atime": {"value": "on"}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "tank/apps",
+						Name:        "tank/apps",
+						Mountpoint:  "/mnt/tank/apps",
+						Compression: "lz4",
+						Atime:       "on",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -2790,17 +2534,17 @@ func TestDatasetResource_Read_AfterImport_SimpleDataset(t *testing.T) {
 // Test Read does NOT override pool/path when already set (not import scenario)
 func TestDatasetResource_Read_DoesNotOverridePoolPathWhenSet(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": "tank/data/apps",
-					"name": "tank/data/apps",
-					"mountpoint": "/mnt/tank/data/apps",
-					"compression": {"value": "lz4"},
-					"quota": {"value": "0", "parsed": 0},
-					"refquota": {"value": "0", "parsed": 0},
-					"atime": {"value": "on"}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "tank/data/apps",
+						Name:        "tank/data/apps",
+						Mountpoint:  "/mnt/tank/data/apps",
+						Compression: "lz4",
+						Atime:       "on",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -2847,22 +2591,29 @@ func TestDatasetResource_Read_DoesNotOverridePoolPathWhenSet(t *testing.T) {
 // Test Read with permissions returns warning on filesystem.stat error
 func TestDatasetResource_Read_PermissionsStatError_ReturnsWarning(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.query" {
-					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0","parsed":0},"refquota":{"value":"0","parsed":0},"atime":{"value":"off"}}]`), nil
-				}
-				if method == "filesystem.stat" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "lz4",
+						Atime:       "off",
+					}, nil
+				},
+			},
+			Filesystem: &truenas.MockFilesystemService{
+				StatFunc: func(ctx context.Context, path string) (*truenas.StatResult, error) {
 					return nil, errors.New("permission denied")
-				}
-				return nil, nil
+				},
 			},
 		}},
 	}
 
 	schemaResp := getDatasetResourceSchema(t)
 
-	// State has permissions configured, so Read will try to call filesystem.stat
+	// State has permissions configured, so Read will try to call filesystem.Stat
 	stateValue := createDatasetResourceModelWithPerms("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", nil, nil, nil, nil, "755", int64(1000), int64(1000))
 
 	req := resource.ReadRequest{
@@ -2914,85 +2665,35 @@ func TestDatasetResource_Read_PermissionsStatError_ReturnsWarning(t *testing.T) 
 	}
 }
 
-// Test Read with permissions returns warning on invalid JSON from filesystem.stat
-func TestDatasetResource_Read_PermissionsInvalidJSON_ReturnsWarning(t *testing.T) {
-	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.query" {
-					return json.RawMessage(`[{"id":"storage/apps","name":"storage/apps","mountpoint":"/mnt/storage/apps","compression":{"value":"lz4"},"quota":{"value":"0","parsed":0},"refquota":{"value":"0","parsed":0},"atime":{"value":"off"}}]`), nil
-				}
-				if method == "filesystem.stat" {
-					return json.RawMessage(`not valid json`), nil
-				}
-				return nil, nil
-			},
-		}},
-	}
-
-	schemaResp := getDatasetResourceSchema(t)
-
-	// State has permissions configured
-	stateValue := createDatasetResourceModelWithPerms("storage/apps", "storage", "apps", nil, nil, "/mnt/storage/apps", "lz4", nil, nil, nil, nil, "755", nil, nil)
-
-	req := resource.ReadRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
-	}
-
-	resp := &resource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Read(context.Background(), req, resp)
-
-	// Should NOT have errors - but should have a warning
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-
-	// Should have a warning
-	if resp.Diagnostics.WarningsCount() == 0 {
-		t.Fatal("expected warning for invalid JSON from filesystem.stat")
-	}
-}
-
 func TestDatasetResource_Create_WithSnapshotId(t *testing.T) {
 	var cloneCalled bool
-	var cloneParams map[string]any
+	var cloneSnapshot, cloneDatasetDst string
 	var createCalled bool
 
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.snapshot.clone" {
-					cloneCalled = true
-					cloneParams = params.(map[string]any)
-					return json.RawMessage(`{"id": "tank/restored"}`), nil
-				}
-				if method == "pool.dataset.create" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateDatasetFunc: func(ctx context.Context, opts truenas.CreateDatasetOpts) (*truenas.Dataset, error) {
 					createCalled = true
-					return json.RawMessage(`{"id": "tank/restored"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					return json.RawMessage(`[{
-						"id": "tank/restored",
-						"name": "restored",
-						"mountpoint": "/mnt/tank/restored",
-						"compression": {"value": "lz4"},
-						"quota": {"value": "0", "parsed": 0},
-						"refquota": {"value": "0", "parsed": 0},
-						"atime": {"value": "on"}
-					}]`), nil
-				}
-				if method == "filesystem.stat" {
-					return json.RawMessage(`{"mode": 493, "uid": 0, "gid": 0}`), nil
-				}
-				return nil, nil
+					return nil, nil
+				},
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return &truenas.Dataset{
+						ID:          "tank/restored",
+						Name:        "restored",
+						Mountpoint:  "/mnt/tank/restored",
+						Compression: "lz4",
+						Atime:       "on",
+					}, nil
+				},
+			},
+			Snapshot: &truenas.MockSnapshotService{
+				CloneFunc: func(ctx context.Context, snapshot, datasetDst string) error {
+					cloneCalled = true
+					cloneSnapshot = snapshot
+					cloneDatasetDst = datasetDst
+					return nil
+				},
 			},
 		}},
 	}
@@ -3023,33 +2724,32 @@ func TestDatasetResource_Create_WithSnapshotId(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify pool.snapshot.clone was called
+	// Verify Snapshot.Clone was called
 	if !cloneCalled {
-		t.Error("expected pool.snapshot.clone to be called")
+		t.Error("expected Snapshot.Clone to be called")
 	}
 
-	// Verify pool.dataset.create was NOT called
+	// Verify Dataset.CreateDataset was NOT called
 	if createCalled {
-		t.Error("expected pool.dataset.create to NOT be called when snapshot_id is set")
+		t.Error("expected Dataset.CreateDataset to NOT be called when snapshot_id is set")
 	}
 
-	if cloneParams["snapshot"] != "tank/data@snap1" {
-		t.Errorf("expected snapshot 'tank/data@snap1', got %v", cloneParams["snapshot"])
+	if cloneSnapshot != "tank/data@snap1" {
+		t.Errorf("expected snapshot 'tank/data@snap1', got %v", cloneSnapshot)
 	}
 
-	if cloneParams["dataset_dst"] != "tank/restored" {
-		t.Errorf("expected dataset_dst 'tank/restored', got %v", cloneParams["dataset_dst"])
+	if cloneDatasetDst != "tank/restored" {
+		t.Errorf("expected dataset_dst 'tank/restored', got %v", cloneDatasetDst)
 	}
 }
 
 func TestDatasetResource_Create_WithSnapshotId_APIError(t *testing.T) {
 	r := &DatasetResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.snapshot.clone" {
-					return nil, errors.New("snapshot not found")
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				CloneFunc: func(ctx context.Context, snapshot, datasetDst string) error {
+					return errors.New("snapshot not found")
+				},
 			},
 		}},
 	}
