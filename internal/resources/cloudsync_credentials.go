@@ -2,7 +2,6 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -151,26 +150,6 @@ func (r *CloudSyncCredentialsResource) Schema(ctx context.Context, req resource.
 	}
 }
 
-// queryCredential queries a credential by ID and returns the response.
-func (r *CloudSyncCredentialsResource) queryCredential(ctx context.Context, id int64, version truenas.Version) (*truenas.CloudSyncCredentialResponse, error) {
-	filter := [][]any{{"id", "=", id}}
-	result, err := r.client.Call(ctx, "cloudsync.credentials.query", filter)
-	if err != nil {
-		return nil, err
-	}
-
-	credentials, err := truenas.ParseCredentials(result, version)
-	if err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-
-	if len(credentials) == 0 {
-		return nil, nil
-	}
-
-	return &credentials[0], nil
-}
-
 // validateProviderBlock validates that required fields are present in the specified provider block.
 func validateProviderBlock(data *CloudSyncCredentialsResourceModel) []string {
 	var errors []string
@@ -209,9 +188,9 @@ func validateProviderBlock(data *CloudSyncCredentialsResourceModel) []string {
 }
 
 // getProviderAndAttributes extracts provider type and attributes from the model.
-func getProviderAndAttributes(data *CloudSyncCredentialsResourceModel) (string, map[string]any) {
+func getProviderAndAttributes(data *CloudSyncCredentialsResourceModel) (string, map[string]string) {
 	if data.S3 != nil {
-		attrs := map[string]any{
+		attrs := map[string]string{
 			"access_key_id":     data.S3.AccessKeyID.ValueString(),
 			"secret_access_key": data.S3.SecretAccessKey.ValueString(),
 		}
@@ -224,18 +203,18 @@ func getProviderAndAttributes(data *CloudSyncCredentialsResourceModel) (string, 
 		return "S3", attrs
 	}
 	if data.B2 != nil {
-		return "B2", map[string]any{
+		return "B2", map[string]string{
 			"account": data.B2.Account.ValueString(),
 			"key":     data.B2.Key.ValueString(),
 		}
 	}
 	if data.GCS != nil {
-		return "GOOGLE_CLOUD_STORAGE", map[string]any{
+		return "GOOGLE_CLOUD_STORAGE", map[string]string{
 			"service_account_credentials": data.GCS.ServiceAccountCredentials.ValueString(),
 		}
 	}
 	if data.Azure != nil {
-		return "AZUREBLOB", map[string]any{
+		return "AZUREBLOB", map[string]string{
 			"account": data.Azure.Account.ValueString(),
 			"key":     data.Azure.Key.ValueString(),
 		}
@@ -268,38 +247,15 @@ func (r *CloudSyncCredentialsResource) Create(ctx context.Context, req resource.
 		return
 	}
 
-	// Get version for API compatibility
-	version := r.client.Version()
-
-	params := truenas.BuildCredentialsParams(version, data.Name.ValueString(), providerType, attributes)
-
-	result, err := r.client.Call(ctx, "cloudsync.credentials.create", params)
+	cred, err := r.services.CloudSync.CreateCredential(ctx, truenas.CreateCredentialOpts{
+		Name:         data.Name.ValueString(),
+		ProviderType: providerType,
+		Attributes:   attributes,
+	})
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Cloud Sync Credentials",
 			fmt.Sprintf("Unable to create credentials: %s", err.Error()),
-		)
-		return
-	}
-
-	// Parse response to get ID
-	var createResp struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.Unmarshal(result, &createResp); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Response",
-			fmt.Sprintf("Unable to parse create response: %s", err.Error()),
-		)
-		return
-	}
-
-	// Query to get full state
-	cred, err := r.queryCredential(ctx, createResp.ID, version)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read Credentials",
-			fmt.Sprintf("Credentials created but unable to read: %s", err.Error()),
 		)
 		return
 	}
@@ -334,10 +290,7 @@ func (r *CloudSyncCredentialsResource) Read(ctx context.Context, req resource.Re
 		return
 	}
 
-	// Get version for API compatibility
-	version := r.client.Version()
-
-	cred, err := r.queryCredential(ctx, id, version)
+	cred, err := r.services.CloudSync.GetCredential(ctx, id)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Credentials",
@@ -394,26 +347,15 @@ func (r *CloudSyncCredentialsResource) Update(ctx context.Context, req resource.
 		return
 	}
 
-	// Get version for API compatibility
-	version := r.client.Version()
-
-	updateData := truenas.BuildCredentialsParams(version, plan.Name.ValueString(), providerType, attributes)
-
-	_, err = r.client.Call(ctx, "cloudsync.credentials.update", []any{id, updateData})
+	cred, err := r.services.CloudSync.UpdateCredential(ctx, id, truenas.UpdateCredentialOpts{
+		Name:         plan.Name.ValueString(),
+		ProviderType: providerType,
+		Attributes:   attributes,
+	})
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Update Credentials",
 			fmt.Sprintf("Unable to update credentials: %s", err.Error()),
-		)
-		return
-	}
-
-	// Query to refresh state
-	cred, err := r.queryCredential(ctx, id, version)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read Credentials",
-			fmt.Sprintf("Credentials updated but unable to read: %s", err.Error()),
 		)
 		return
 	}
@@ -449,7 +391,7 @@ func (r *CloudSyncCredentialsResource) Delete(ctx context.Context, req resource.
 		return
 	}
 
-	_, err = r.client.Call(ctx, "cloudsync.credentials.delete", id)
+	err = r.services.CloudSync.DeleteCredential(ctx, id)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete Credentials",
