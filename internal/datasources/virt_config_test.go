@@ -2,11 +2,11 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -91,10 +91,10 @@ func TestVirtConfigDataSource_Schema(t *testing.T) {
 func TestVirtConfigDataSource_Configure_Success(t *testing.T) {
 	ds := NewVirtConfigDataSource().(*VirtConfigDataSource)
 
-	mockClient := &client.MockClient{}
+	svc := &services.TrueNASServices{}
 
 	req := datasource.ConfigureRequest{
-		ProviderData: mockClient,
+		ProviderData: svc,
 	}
 	resp := &datasource.ConfigureResponse{}
 
@@ -125,7 +125,7 @@ func TestVirtConfigDataSource_Configure_WrongType(t *testing.T) {
 	ds := NewVirtConfigDataSource().(*VirtConfigDataSource)
 
 	req := datasource.ConfigureRequest{
-		ProviderData: "not a client",
+		ProviderData: "not a services",
 	}
 	resp := &datasource.ConfigureResponse{}
 
@@ -149,16 +149,16 @@ func createVirtConfigTestReadRequest(t *testing.T) datasource.ReadRequest {
 	// Build config value - all fields are computed, so they start as null
 	configValue := tftypes.NewValue(tftypes.Object{
 		AttributeTypes: map[string]tftypes.Type{
-			"bridge":         tftypes.String,
-			"v4_network":     tftypes.String,
-			"v6_network":     tftypes.String,
-			"pool": tftypes.String,
+			"bridge":     tftypes.String,
+			"v4_network": tftypes.String,
+			"v6_network": tftypes.String,
+			"pool":       tftypes.String,
 		},
 	}, map[string]tftypes.Value{
-		"bridge":         tftypes.NewValue(tftypes.String, nil),
-		"v4_network":     tftypes.NewValue(tftypes.String, nil),
-		"v6_network":     tftypes.NewValue(tftypes.String, nil),
-		"pool": tftypes.NewValue(tftypes.String, nil),
+		"bridge":     tftypes.NewValue(tftypes.String, nil),
+		"v4_network": tftypes.NewValue(tftypes.String, nil),
+		"v6_network": tftypes.NewValue(tftypes.String, nil),
+		"pool":       tftypes.NewValue(tftypes.String, nil),
 	})
 
 	config := tfsdk.Config{
@@ -173,22 +173,16 @@ func createVirtConfigTestReadRequest(t *testing.T) datasource.ReadRequest {
 
 func TestVirtConfigDataSource_Read_Success(t *testing.T) {
 	ds := &VirtConfigDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "virt.global.config" {
-					t.Errorf("expected method 'virt.global.config', got %q", method)
-				}
-				// Verify no params are passed
-				if params != nil {
-					t.Errorf("expected nil params, got %v", params)
-				}
-				// Return a full config response
-				return json.RawMessage(`{
-					"bridge": "br0",
-					"v4_network": "10.0.0.0/24",
-					"v6_network": "fd00::/64",
-					"pool": "tank"
-				}`), nil
+		services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				GetGlobalConfigFunc: func(ctx context.Context) (*truenas.VirtGlobalConfig, error) {
+					return &truenas.VirtGlobalConfig{
+						Bridge:    "br0",
+						V4Network: "10.0.0.0/24",
+						V6Network: "fd00::/64",
+						Pool:      "tank",
+					}, nil
+				},
 			},
 		},
 	}
@@ -235,15 +229,17 @@ func TestVirtConfigDataSource_Read_Success(t *testing.T) {
 
 func TestVirtConfigDataSource_Read_NullFields(t *testing.T) {
 	ds := &VirtConfigDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return response with null fields
-				return json.RawMessage(`{
-					"bridge": "br0",
-					"v4_network": null,
-					"v6_network": null,
-					"pool": null
-				}`), nil
+		services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				GetGlobalConfigFunc: func(ctx context.Context) (*truenas.VirtGlobalConfig, error) {
+					// Empty strings represent null/unset fields from the API
+					return &truenas.VirtGlobalConfig{
+						Bridge:    "br0",
+						V4Network: "",
+						V6Network: "",
+						Pool:      "",
+					}, nil
+				},
 			},
 		},
 	}
@@ -277,7 +273,7 @@ func TestVirtConfigDataSource_Read_NullFields(t *testing.T) {
 		t.Errorf("expected Bridge 'br0', got %q", model.Bridge.ValueString())
 	}
 
-	// Null fields should be null in the model
+	// Empty string fields should be null in the model
 	if !model.V4Network.IsNull() {
 		t.Errorf("expected V4Network to be null, got %q", model.V4Network.ValueString())
 	}
@@ -291,15 +287,17 @@ func TestVirtConfigDataSource_Read_NullFields(t *testing.T) {
 
 func TestVirtConfigDataSource_Read_AllNullFields(t *testing.T) {
 	ds := &VirtConfigDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return response with all null fields
-				return json.RawMessage(`{
-					"bridge": null,
-					"v4_network": null,
-					"v6_network": null,
-					"pool": null
-				}`), nil
+		services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				GetGlobalConfigFunc: func(ctx context.Context) (*truenas.VirtGlobalConfig, error) {
+					// All empty strings represent all null/unset fields
+					return &truenas.VirtGlobalConfig{
+						Bridge:    "",
+						V4Network: "",
+						V6Network: "",
+						Pool:      "",
+					}, nil
+				},
 			},
 		},
 	}
@@ -345,9 +343,11 @@ func TestVirtConfigDataSource_Read_AllNullFields(t *testing.T) {
 
 func TestVirtConfigDataSource_Read_APIError(t *testing.T) {
 	ds := &VirtConfigDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection failed")
+		services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				GetGlobalConfigFunc: func(ctx context.Context) (*truenas.VirtGlobalConfig, error) {
+					return nil, errors.New("connection failed")
+				},
 			},
 		},
 	}
@@ -368,34 +368,6 @@ func TestVirtConfigDataSource_Read_APIError(t *testing.T) {
 
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("expected error for API error")
-	}
-}
-
-func TestVirtConfigDataSource_Read_InvalidJSON(t *testing.T) {
-	ds := &VirtConfigDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		},
-	}
-
-	req := createVirtConfigTestReadRequest(t)
-
-	schemaReq := datasource.SchemaRequest{}
-	schemaResp := &datasource.SchemaResponse{}
-	ds.Schema(context.Background(), schemaReq, schemaResp)
-
-	resp := &datasource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	ds.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON")
 	}
 }
 

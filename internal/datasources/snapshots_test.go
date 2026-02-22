@@ -2,11 +2,11 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -71,10 +71,10 @@ func TestSnapshotsDataSource_Schema(t *testing.T) {
 func TestSnapshotsDataSource_Configure_Success(t *testing.T) {
 	ds := NewSnapshotsDataSource().(*SnapshotsDataSource)
 
-	mockClient := &client.MockClient{}
+	svc := &services.TrueNASServices{}
 
 	req := datasource.ConfigureRequest{
-		ProviderData: mockClient,
+		ProviderData: svc,
 	}
 	resp := &datasource.ConfigureResponse{}
 
@@ -96,30 +96,28 @@ func getSnapshotsDataSourceSchema(t *testing.T) datasource.SchemaResponse {
 
 func TestSnapshotsDataSource_Read_Success(t *testing.T) {
 	ds := &SnapshotsDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[
-					{
-						"id": "tank/data@snap1",
-						"name": "snap1",
-						"dataset": "tank/data",
-						"holds": {},
-						"properties": {
-							"used": {"parsed": 1024},
-							"referenced": {"parsed": 2048}
-						}
-					},
-					{
-						"id": "tank/data@snap2",
-						"name": "snap2",
-						"dataset": "tank/data",
-						"holds": {"terraform": true},
-						"properties": {
-							"used": {"parsed": 512},
-							"referenced": {"parsed": 1024}
-						}
-					}
-				]`), nil
+		services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ListFunc: func(ctx context.Context) ([]truenas.Snapshot, error) {
+					return []truenas.Snapshot{
+						{
+							ID:           "tank/data@snap1",
+							Dataset:      "tank/data",
+							SnapshotName: "snap1",
+							Used:         1024,
+							Referenced:   2048,
+							HasHold:      false,
+						},
+						{
+							ID:           "tank/data@snap2",
+							Dataset:      "tank/data",
+							SnapshotName: "snap2",
+							Used:         512,
+							Referenced:   1024,
+							HasHold:      true,
+						},
+					}, nil
+				},
 			},
 		},
 	}
@@ -169,9 +167,11 @@ func TestSnapshotsDataSource_Read_Success(t *testing.T) {
 
 func TestSnapshotsDataSource_Read_Empty(t *testing.T) {
 	ds := &SnapshotsDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[]`), nil
+		services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ListFunc: func(ctx context.Context) ([]truenas.Snapshot, error) {
+					return []truenas.Snapshot{}, nil
+				},
 			},
 		},
 	}
@@ -238,7 +238,7 @@ func TestSnapshotsDataSource_Configure_WrongType(t *testing.T) {
 	ds := NewSnapshotsDataSource().(*SnapshotsDataSource)
 
 	req := datasource.ConfigureRequest{
-		ProviderData: "not a client",
+		ProviderData: "not a services",
 	}
 	resp := &datasource.ConfigureResponse{}
 
@@ -251,9 +251,11 @@ func TestSnapshotsDataSource_Configure_WrongType(t *testing.T) {
 
 func TestSnapshotsDataSource_Read_APIError(t *testing.T) {
 	ds := &SnapshotsDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ListFunc: func(ctx context.Context) ([]truenas.Snapshot, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		},
 	}
@@ -294,80 +296,38 @@ func TestSnapshotsDataSource_Read_APIError(t *testing.T) {
 	}
 }
 
-func TestSnapshotsDataSource_Read_InvalidJSON(t *testing.T) {
-	ds := &SnapshotsDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`{invalid json`), nil
-			},
-		},
-	}
-
-	schemaResp := getSnapshotsDataSourceSchema(t)
-
-	configValue := tftypes.NewValue(tftypes.Object{
-		AttributeTypes: map[string]tftypes.Type{
-			"dataset_id":   tftypes.String,
-			"recursive":    tftypes.Bool,
-			"name_pattern": tftypes.String,
-			"snapshots":    tftypes.List{ElementType: tftypes.Object{}},
-		},
-	}, map[string]tftypes.Value{
-		"dataset_id":   tftypes.NewValue(tftypes.String, "tank/data"),
-		"recursive":    tftypes.NewValue(tftypes.Bool, nil),
-		"name_pattern": tftypes.NewValue(tftypes.String, nil),
-		"snapshots":    tftypes.NewValue(tftypes.List{ElementType: tftypes.Object{}}, nil),
-	})
-
-	req := datasource.ReadRequest{
-		Config: tfsdk.Config{
-			Schema: schemaResp.Schema,
-			Raw:    configValue,
-		},
-	}
-
-	resp := &datasource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	ds.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response")
-	}
-}
-
 func TestSnapshotsDataSource_Read_Recursive(t *testing.T) {
-	var capturedFilter any
-
 	ds := &SnapshotsDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedFilter = params
-				return json.RawMessage(`[
-					{
-						"id": "tank/data@snap1",
-						"name": "snap1",
-						"dataset": "tank/data",
-						"holds": {},
-						"properties": {
-							"used": {"parsed": 1024},
-							"referenced": {"parsed": 2048}
-						}
-					},
-					{
-						"id": "tank/data/child@snap2",
-						"name": "snap2",
-						"dataset": "tank/data/child",
-						"holds": {},
-						"properties": {
-							"used": {"parsed": 512},
-							"referenced": {"parsed": 1024}
-						}
-					}
-				]`), nil
+		services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ListFunc: func(ctx context.Context) ([]truenas.Snapshot, error) {
+					return []truenas.Snapshot{
+						{
+							ID:           "tank/data@snap1",
+							Dataset:      "tank/data",
+							SnapshotName: "snap1",
+							Used:         1024,
+							Referenced:   2048,
+							HasHold:      false,
+						},
+						{
+							ID:           "tank/data/child@snap2",
+							Dataset:      "tank/data/child",
+							SnapshotName: "snap2",
+							Used:         512,
+							Referenced:   1024,
+							HasHold:      false,
+						},
+						{
+							ID:           "tank/other@snap3",
+							Dataset:      "tank/other",
+							SnapshotName: "snap3",
+							Used:         256,
+							Referenced:   512,
+							HasHold:      false,
+						},
+					}, nil
+				},
 			},
 		},
 	}
@@ -407,18 +367,10 @@ func TestSnapshotsDataSource_Read_Recursive(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify recursive filter was used (OR clause)
-	filter, ok := capturedFilter.([][]any)
-	if !ok {
-		t.Fatalf("expected filter to be [][]any, got %T", capturedFilter)
-	}
-	if len(filter) != 1 || filter[0][0] != "OR" {
-		t.Errorf("expected OR filter for recursive, got %v", filter)
-	}
-
 	var data SnapshotsDataSourceModel
 	resp.State.Get(context.Background(), &data)
 
+	// Should include tank/data and tank/data/child, but not tank/other
 	if len(data.Snapshots) != 2 {
 		t.Errorf("expected 2 snapshots, got %d", len(data.Snapshots))
 	}
@@ -426,40 +378,36 @@ func TestSnapshotsDataSource_Read_Recursive(t *testing.T) {
 
 func TestSnapshotsDataSource_Read_NamePattern_Match(t *testing.T) {
 	ds := &SnapshotsDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[
-					{
-						"id": "tank/data@pre-upgrade-1",
-						"name": "pre-upgrade-1",
-						"dataset": "tank/data",
-						"holds": {},
-						"properties": {
-							"used": {"parsed": 1024},
-							"referenced": {"parsed": 2048}
-						}
-					},
-					{
-						"id": "tank/data@post-upgrade",
-						"name": "post-upgrade",
-						"dataset": "tank/data",
-						"holds": {},
-						"properties": {
-							"used": {"parsed": 512},
-							"referenced": {"parsed": 1024}
-						}
-					},
-					{
-						"id": "tank/data@pre-upgrade-2",
-						"name": "pre-upgrade-2",
-						"dataset": "tank/data",
-						"holds": {},
-						"properties": {
-							"used": {"parsed": 256},
-							"referenced": {"parsed": 512}
-						}
-					}
-				]`), nil
+		services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ListFunc: func(ctx context.Context) ([]truenas.Snapshot, error) {
+					return []truenas.Snapshot{
+						{
+							ID:           "tank/data@pre-upgrade-1",
+							Dataset:      "tank/data",
+							SnapshotName: "pre-upgrade-1",
+							Used:         1024,
+							Referenced:   2048,
+							HasHold:      false,
+						},
+						{
+							ID:           "tank/data@post-upgrade",
+							Dataset:      "tank/data",
+							SnapshotName: "post-upgrade",
+							Used:         512,
+							Referenced:   1024,
+							HasHold:      false,
+						},
+						{
+							ID:           "tank/data@pre-upgrade-2",
+							Dataset:      "tank/data",
+							SnapshotName: "pre-upgrade-2",
+							Used:         256,
+							Referenced:   512,
+							HasHold:      false,
+						},
+					}, nil
+				},
 			},
 		},
 	}
@@ -510,20 +458,20 @@ func TestSnapshotsDataSource_Read_NamePattern_Match(t *testing.T) {
 
 func TestSnapshotsDataSource_Read_NamePattern_NoMatch(t *testing.T) {
 	ds := &SnapshotsDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[
-					{
-						"id": "tank/data@snap1",
-						"name": "snap1",
-						"dataset": "tank/data",
-						"holds": {},
-						"properties": {
-							"used": {"parsed": 1024},
-							"referenced": {"parsed": 2048}
-						}
-					}
-				]`), nil
+		services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ListFunc: func(ctx context.Context) ([]truenas.Snapshot, error) {
+					return []truenas.Snapshot{
+						{
+							ID:           "tank/data@snap1",
+							Dataset:      "tank/data",
+							SnapshotName: "snap1",
+							Used:         1024,
+							Referenced:   2048,
+							HasHold:      false,
+						},
+					}, nil
+				},
 			},
 		},
 	}
@@ -573,20 +521,20 @@ func TestSnapshotsDataSource_Read_NamePattern_NoMatch(t *testing.T) {
 
 func TestSnapshotsDataSource_Read_NamePattern_Invalid(t *testing.T) {
 	ds := &SnapshotsDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[
-					{
-						"id": "tank/data@snap1",
-						"name": "snap1",
-						"dataset": "tank/data",
-						"holds": {},
-						"properties": {
-							"used": {"parsed": 1024},
-							"referenced": {"parsed": 2048}
-						}
-					}
-				]`), nil
+		services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ListFunc: func(ctx context.Context) ([]truenas.Snapshot, error) {
+					return []truenas.Snapshot{
+						{
+							ID:           "tank/data@snap1",
+							Dataset:      "tank/data",
+							SnapshotName: "snap1",
+							Used:         1024,
+							Referenced:   2048,
+							HasHold:      false,
+						},
+					}, nil
+				},
 			},
 		},
 	}
@@ -629,7 +577,9 @@ func TestSnapshotsDataSource_Read_NamePattern_Invalid(t *testing.T) {
 
 func TestSnapshotsDataSource_Read_GetConfigError(t *testing.T) {
 	ds := &SnapshotsDataSource{
-		client: &client.MockClient{},
+		services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{},
+		},
 	}
 
 	schemaResp := getSnapshotsDataSourceSchema(t)
@@ -665,5 +615,77 @@ func TestSnapshotsDataSource_Read_GetConfigError(t *testing.T) {
 
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("expected error for invalid config value")
+	}
+}
+
+func TestSnapshotsDataSource_Read_FiltersOtherDatasets(t *testing.T) {
+	ds := &SnapshotsDataSource{
+		services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ListFunc: func(ctx context.Context) ([]truenas.Snapshot, error) {
+					return []truenas.Snapshot{
+						{
+							ID:           "tank/data@snap1",
+							Dataset:      "tank/data",
+							SnapshotName: "snap1",
+							Used:         1024,
+							Referenced:   2048,
+							HasHold:      false,
+						},
+						{
+							ID:           "tank/other@snap2",
+							Dataset:      "tank/other",
+							SnapshotName: "snap2",
+							Used:         512,
+							Referenced:   1024,
+							HasHold:      false,
+						},
+					}, nil
+				},
+			},
+		},
+	}
+
+	schemaResp := getSnapshotsDataSourceSchema(t)
+
+	configValue := tftypes.NewValue(tftypes.Object{
+		AttributeTypes: map[string]tftypes.Type{
+			"dataset_id":   tftypes.String,
+			"recursive":    tftypes.Bool,
+			"name_pattern": tftypes.String,
+			"snapshots":    tftypes.List{ElementType: tftypes.Object{}},
+		},
+	}, map[string]tftypes.Value{
+		"dataset_id":   tftypes.NewValue(tftypes.String, "tank/data"),
+		"recursive":    tftypes.NewValue(tftypes.Bool, nil),
+		"name_pattern": tftypes.NewValue(tftypes.String, nil),
+		"snapshots":    tftypes.NewValue(tftypes.List{ElementType: tftypes.Object{}}, nil),
+	})
+
+	req := datasource.ReadRequest{
+		Config: tfsdk.Config{
+			Schema: schemaResp.Schema,
+			Raw:    configValue,
+		},
+	}
+
+	resp := &datasource.ReadResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	ds.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var data SnapshotsDataSourceModel
+	resp.State.Get(context.Background(), &data)
+
+	// Should only include tank/data snapshot, not tank/other
+	if len(data.Snapshots) != 1 {
+		t.Errorf("expected 1 snapshot, got %d", len(data.Snapshots))
 	}
 }

@@ -2,10 +2,9 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
-	"github.com/deevus/truenas-go/client"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -16,7 +15,7 @@ var _ datasource.DataSourceWithConfigure = &PoolDataSource{}
 
 // PoolDataSource defines the data source implementation.
 type PoolDataSource struct {
-	client client.Client
+	services *services.TrueNASServices
 }
 
 // PoolDataSourceModel describes the data source data model.
@@ -27,17 +26,6 @@ type PoolDataSourceModel struct {
 	Status         types.String `tfsdk:"status"`
 	AvailableBytes types.Int64  `tfsdk:"available_bytes"`
 	UsedBytes      types.Int64  `tfsdk:"used_bytes"`
-}
-
-// poolResponse represents the JSON response from pool.query.
-type poolResponse struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	Path      string `json:"path"`
-	Status    string `json:"status"`
-	Size      int64  `json:"size"`
-	Allocated int64  `json:"allocated"`
-	Free      int64  `json:"free"`
 }
 
 // NewPoolDataSource creates a new PoolDataSource.
@@ -87,16 +75,16 @@ func (d *PoolDataSource) Configure(ctx context.Context, req datasource.Configure
 		return
 	}
 
-	c, ok := req.ProviderData.(client.Client)
+	s, ok := req.ProviderData.(*services.TrueNASServices)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected *services.TrueNASServices, got: %T.", req.ProviderData),
 		)
 		return
 	}
 
-	d.client = c
+	d.services = s
 }
 
 func (d *PoolDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -108,11 +96,8 @@ func (d *PoolDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		return
 	}
 
-	// Build filter params: [["name", "=", "poolname"]]
-	filters := [][]string{{"name", "=", data.Name.ValueString()}}
-
-	// Call the TrueNAS API
-	result, err := d.client.Call(ctx, "pool.query", filters)
+	// List all pools via the service
+	pools, err := d.services.Dataset.ListPools(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Pool",
@@ -121,34 +106,29 @@ func (d *PoolDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		return
 	}
 
-	// Parse the response
-	var pools []poolResponse
-	if err := json.Unmarshal(result, &pools); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Pool Response",
-			fmt.Sprintf("Unable to parse pool response: %s", err.Error()),
-		)
-		return
+	// Find the pool with matching name
+	searchName := data.Name.ValueString()
+	found := false
+	for _, pool := range pools {
+		if pool.Name == searchName {
+			data.ID = types.StringValue(fmt.Sprintf("%d", pool.ID))
+			data.Name = types.StringValue(pool.Name)
+			data.Path = types.StringValue(pool.Path)
+			data.Status = types.StringValue(pool.Status)
+			data.AvailableBytes = types.Int64Value(pool.Free)
+			data.UsedBytes = types.Int64Value(pool.Allocated)
+			found = true
+			break
+		}
 	}
 
-	// Check if pool was found
-	if len(pools) == 0 {
+	if !found {
 		resp.Diagnostics.AddError(
 			"Pool Not Found",
-			fmt.Sprintf("Pool %q was not found.", data.Name.ValueString()),
+			fmt.Sprintf("Pool %q was not found.", searchName),
 		)
 		return
 	}
-
-	pool := pools[0]
-
-	// Map response to model
-	data.ID = types.StringValue(fmt.Sprintf("%d", pool.ID))
-	data.Name = types.StringValue(pool.Name)
-	data.Path = types.StringValue(pool.Path)
-	data.Status = types.StringValue(pool.Status)
-	data.AvailableBytes = types.Int64Value(pool.Free)
-	data.UsedBytes = types.Int64Value(pool.Allocated)
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

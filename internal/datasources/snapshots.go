@@ -2,12 +2,11 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 
-	truenas "github.com/deevus/truenas-go"
-	"github.com/deevus/truenas-go/client"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -18,7 +17,7 @@ var _ datasource.DataSourceWithConfigure = &SnapshotsDataSource{}
 
 // SnapshotsDataSource defines the data source implementation.
 type SnapshotsDataSource struct {
-	client client.Client
+	services *services.TrueNASServices
 }
 
 // SnapshotsDataSourceModel describes the data source data model.
@@ -37,16 +36,6 @@ type SnapshotModel struct {
 	UsedBytes       types.Int64  `tfsdk:"used_bytes"`
 	ReferencedBytes types.Int64  `tfsdk:"referenced_bytes"`
 	Hold            types.Bool   `tfsdk:"hold"`
-}
-
-// resolveSnapshotMethod builds the versioned API method name for snapshot operations.
-// TrueNAS 25.10+ uses "pool.snapshot.*", older versions use "zfs.snapshot.*".
-func resolveSnapshotMethod(v truenas.Version, method string) string {
-	prefix := "zfs.snapshot"
-	if v.AtLeast(25, 10) {
-		prefix = "pool.snapshot"
-	}
-	return prefix + "." + method
 }
 
 // NewSnapshotsDataSource creates a new SnapshotsDataSource.
@@ -116,16 +105,16 @@ func (d *SnapshotsDataSource) Configure(ctx context.Context, req datasource.Conf
 		return
 	}
 
-	c, ok := req.ProviderData.(client.Client)
+	s, ok := req.ProviderData.(*services.TrueNASServices)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected *services.TrueNASServices, got: %T.", req.ProviderData),
 		)
 		return
 	}
 
-	d.client = c
+	d.services = s
 }
 
 func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -136,25 +125,8 @@ func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	// Get TrueNAS version for API method resolution
-	version := d.client.Version()
-
-	// Build filter for dataset
-	datasetID := data.DatasetID.ValueString()
-	filter := [][]any{{"dataset", "=", datasetID}}
-
-	// If recursive, match exact dataset OR child datasets (dataset/)
-	if !data.Recursive.IsNull() && data.Recursive.ValueBool() {
-		filter = [][]any{
-			{"OR", [][]any{
-				{"dataset", "=", datasetID},
-				{"dataset", "^", datasetID + "/"},
-			}},
-		}
-	}
-
-	method := resolveSnapshotMethod(version, "query")
-	result, err := d.client.Call(ctx, method, filter)
+	// List all snapshots via the service
+	snapshots, err := d.services.Snapshot.List(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Snapshots",
@@ -163,23 +135,27 @@ func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	var snapshots []truenas.SnapshotResponse
-	if err := json.Unmarshal(result, &snapshots); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Snapshots Response",
-			fmt.Sprintf("Unable to parse snapshots response: %s", err.Error()),
-		)
-		return
-	}
-
-	// Filter by name pattern if specified
+	// Filter by dataset
+	datasetID := data.DatasetID.ValueString()
+	recursive := !data.Recursive.IsNull() && data.Recursive.ValueBool()
 	namePattern := data.NamePattern.ValueString()
 
 	data.Snapshots = make([]SnapshotModel, 0, len(snapshots))
 	for _, snap := range snapshots {
+		// Filter by dataset ID
+		if recursive {
+			if snap.Dataset != datasetID && !strings.HasPrefix(snap.Dataset, datasetID+"/") {
+				continue
+			}
+		} else {
+			if snap.Dataset != datasetID {
+				continue
+			}
+		}
+
 		// Apply name pattern filter
 		if namePattern != "" {
-			matched, err := filepath.Match(namePattern, snap.Name)
+			matched, err := filepath.Match(namePattern, snap.SnapshotName)
 			if err != nil {
 				resp.Diagnostics.AddError(
 					"Invalid Name Pattern",
@@ -194,11 +170,11 @@ func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadReque
 
 		data.Snapshots = append(data.Snapshots, SnapshotModel{
 			ID:              types.StringValue(snap.ID),
-			Name:            types.StringValue(snap.SnapshotName), // Use SnapshotName, not Name (which is full ID)
+			Name:            types.StringValue(snap.SnapshotName),
 			DatasetID:       types.StringValue(snap.Dataset),
-			UsedBytes:       types.Int64Value(snap.Properties.Used.Parsed),
-			ReferencedBytes: types.Int64Value(snap.Properties.Referenced.Parsed),
-			Hold:            types.BoolValue(snap.HasHold()),
+			UsedBytes:       types.Int64Value(snap.Used),
+			ReferencedBytes: types.Int64Value(snap.Referenced),
+			Hold:            types.BoolValue(snap.HasHold),
 		})
 	}
 
