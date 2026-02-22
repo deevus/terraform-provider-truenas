@@ -375,6 +375,7 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 	// Build service registry
 	version := finalClient.Version()
 	svc := &services.TrueNASServices{
+		Client:     finalClient,
 		App:        truenas.NewAppService(finalClient, version),
 		CloudSync:  truenas.NewCloudSyncService(finalClient, version),
 		Cron:       truenas.NewCronService(finalClient, version),
