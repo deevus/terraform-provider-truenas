@@ -39,6 +39,16 @@ type SnapshotModel struct {
 	Hold            types.Bool   `tfsdk:"hold"`
 }
 
+// resolveSnapshotMethod builds the versioned API method name for snapshot operations.
+// TrueNAS 25.10+ uses "pool.snapshot.*", older versions use "zfs.snapshot.*".
+func resolveSnapshotMethod(v truenas.Version, method string) string {
+	prefix := "zfs.snapshot"
+	if v.AtLeast(25, 10) {
+		prefix = "pool.snapshot"
+	}
+	return prefix + "." + method
+}
+
 // NewSnapshotsDataSource creates a new SnapshotsDataSource.
 func NewSnapshotsDataSource() datasource.DataSource {
 	return &SnapshotsDataSource{}
@@ -143,7 +153,7 @@ func (d *SnapshotsDataSource) Read(ctx context.Context, req datasource.ReadReque
 		}
 	}
 
-	method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotQuery)
+	method := resolveSnapshotMethod(version, "query")
 	result, err := d.client.Call(ctx, method, filter)
 	if err != nil {
 		resp.Diagnostics.AddError(

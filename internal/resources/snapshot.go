@@ -38,6 +38,16 @@ type SnapshotResourceModel struct {
 }
 
 
+// resolveSnapshotMethod builds the versioned API method name for snapshot operations.
+// TrueNAS 25.10+ uses "pool.snapshot.*", older versions use "zfs.snapshot.*".
+func resolveSnapshotMethod(v truenas.Version, method string) string {
+	prefix := "zfs.snapshot"
+	if v.AtLeast(25, 10) {
+		prefix = "pool.snapshot"
+	}
+	return prefix + "." + method
+}
+
 // NewSnapshotResource creates a new SnapshotResource.
 func NewSnapshotResource() resource.Resource {
 	return &SnapshotResource{}
@@ -118,7 +128,7 @@ func (r *SnapshotResource) Schema(ctx context.Context, req resource.SchemaReques
 func (r *SnapshotResource) querySnapshot(ctx context.Context, snapshotID string) (*truenas.SnapshotResponse, error) {
 	version := r.client.Version()
 
-	method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotQuery)
+	method := resolveSnapshotMethod(version, "query")
 	filter := [][]any{{"id", "=", snapshotID}}
 	result, err := r.client.Call(ctx, method, filter)
 	if err != nil {
@@ -170,7 +180,7 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 	}
 
 	// Create the snapshot
-	method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotCreate)
+	method := resolveSnapshotMethod(version, "create")
 	_, err := r.client.Call(ctx, method, params)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -185,7 +195,7 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 
 	// If hold is requested, apply it
 	if !data.Hold.IsNull() && data.Hold.ValueBool() {
-		holdMethod := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotHold)
+		holdMethod := resolveSnapshotMethod(version, "hold")
 		_, err := r.client.Call(ctx, holdMethod, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -268,7 +278,7 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 
 	if stateHold && !planHold {
 		// Release hold
-		method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotRelease)
+		method := resolveSnapshotMethod(version, "release")
 		_, err := r.client.Call(ctx, method, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -279,7 +289,7 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 		}
 	} else if !stateHold && planHold {
 		// Apply hold
-		method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotHold)
+		method := resolveSnapshotMethod(version, "hold")
 		_, err := r.client.Call(ctx, method, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -329,7 +339,7 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 
 	// If held, release first
 	if data.Hold.ValueBool() {
-		method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotRelease)
+		method := resolveSnapshotMethod(version, "release")
 		_, err := r.client.Call(ctx, method, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -341,7 +351,7 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 
 	// Delete the snapshot
-	method := truenas.ResolveSnapshotMethod(version, truenas.MethodSnapshotDelete)
+	method := resolveSnapshotMethod(version, "delete")
 	_, err := r.client.Call(ctx, method, snapshotID)
 	if err != nil {
 		resp.Diagnostics.AddError(

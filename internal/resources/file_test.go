@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"testing"
 
+	truenas "github.com/deevus/truenas-go"
 	"github.com/deevus/truenas-go/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
@@ -418,7 +419,7 @@ func TestFileResource_Create_WithHostPath(t *testing.T) {
 				mkdirPath = path
 				return nil
 			},
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
+			WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
 				writtenPath = path
 				writtenContent = params.Content
 				return nil
@@ -482,7 +483,7 @@ func TestFileResource_Create_WithStandalonePath(t *testing.T) {
 
 	r := &FileResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
+			WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
 				writtenPath = path
 				return nil
 			},
@@ -523,7 +524,7 @@ func TestFileResource_Create_WriteError(t *testing.T) {
 			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
 				return nil
 			},
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
+			WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
 				return errors.New("permission denied")
 			},
 		}},
@@ -777,7 +778,7 @@ func TestFileResource_Update_ContentChange(t *testing.T) {
 
 	r := &FileResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
+			WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
 				writtenContent = params.Content
 				return nil
 			},
@@ -841,7 +842,7 @@ func TestFileResource_Update_ContentChange(t *testing.T) {
 func TestFileResource_Update_WriteError(t *testing.T) {
 	r := &FileResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
+			WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
 				return errors.New("permission denied")
 			},
 		}},
@@ -1174,7 +1175,7 @@ func TestFileResource_Create_MkdirError(t *testing.T) {
 func TestFileResource_Update_SetsDefaultsForUnknownComputedAttributes(t *testing.T) {
 	r := &FileResource{
 		BaseResource: BaseResource{client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
+			WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
 				return nil
 			},
 		}},
