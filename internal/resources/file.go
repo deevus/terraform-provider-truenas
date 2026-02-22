@@ -246,7 +246,7 @@ func (r *FileResource) Create(ctx context.Context, req resource.CreateRequest, r
 	// If using host_path + relative_path, create parent directories
 	if !data.HostPath.IsNull() && !data.HostPath.IsUnknown() {
 		parentDir := filepath.Dir(fullPath)
-		if err := r.client.MkdirAll(ctx, parentDir, 0755); err != nil {
+		if err := r.services.Filesystem.Client().MkdirAll(ctx, parentDir, 0755); err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Create Parent Directory",
 				fmt.Sprintf("Unable to create directory %q: %s", parentDir, err.Error()),
@@ -266,7 +266,7 @@ func (r *FileResource) Create(ctx context.Context, req resource.CreateRequest, r
 	}
 
 	// Write the file with ownership
-	if err := r.client.WriteFile(ctx, fullPath, params); err != nil {
+	if err := r.services.Filesystem.Client().WriteFile(ctx, fullPath, params); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create File",
 			fmt.Sprintf("Unable to write file %q: %s", fullPath, err.Error()),
@@ -309,7 +309,7 @@ func (r *FileResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	}
 
 	// Check if file exists
-	exists, err := r.client.FileExists(ctx, fullPath)
+	exists, err := r.services.Filesystem.Client().FileExists(ctx, fullPath)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Check File",
@@ -325,7 +325,7 @@ func (r *FileResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	}
 
 	// Read file content for checksum calculation
-	content, err := r.client.ReadFile(ctx, fullPath)
+	content, err := r.services.Filesystem.Client().ReadFile(ctx, fullPath)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read File",
@@ -365,7 +365,7 @@ func (r *FileResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 
 	// Write the updated file with ownership
-	if err := r.client.WriteFile(ctx, fullPath, params); err != nil {
+	if err := r.services.Filesystem.Client().WriteFile(ctx, fullPath, params); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Update File",
 			fmt.Sprintf("Unable to write file %q: %s", fullPath, err.Error()),
@@ -406,10 +406,10 @@ func (r *FileResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 	// This handles permission issues from app containers that may have modified the file
 	if data.ForceDestroy.ValueBool() {
 		// Best effort - continue even if chown fails (file might already be deletable)
-		_ = r.client.Chown(ctx, fullPath, 0, 0)
+		_ = r.services.Filesystem.Client().Chown(ctx, fullPath, 0, 0)
 	}
 
-	if err := r.client.DeleteFile(ctx, fullPath); err != nil {
+	if err := r.services.Filesystem.Client().DeleteFile(ctx, fullPath); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete File",
 			fmt.Sprintf("Unable to delete file %q: %s", fullPath, err.Error()),
