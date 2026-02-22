@@ -9,6 +9,7 @@ import (
 	"github.com/deevus/truenas-go/client"
 	"github.com/deevus/terraform-provider-truenas/internal/datasources"
 	"github.com/deevus/terraform-provider-truenas/internal/resources"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -373,7 +374,7 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 	// Build service registry
 	version := finalClient.Version()
-	services := &TrueNASServices{
+	svc := &services.TrueNASServices{
 		App:        truenas.NewAppService(finalClient, version),
 		CloudSync:  truenas.NewCloudSyncService(finalClient, version),
 		Cron:       truenas.NewCronService(finalClient, version),
@@ -384,8 +385,8 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 		VM:         truenas.NewVMService(finalClient, version),
 	}
 
-	resp.DataSourceData = services
-	resp.ResourceData = services
+	resp.DataSourceData = svc
+	resp.ResourceData = svc
 }
 
 func (p *TrueNASProvider) DataSources(ctx context.Context) []func() datasource.DataSource {

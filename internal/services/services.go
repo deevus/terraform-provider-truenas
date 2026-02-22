@@ -1,4 +1,4 @@
-package provider
+package services
 
 import truenas "github.com/deevus/truenas-go"
 
