@@ -2,22 +2,15 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
 	truenas "github.com/deevus/truenas-go"
-	"github.com/deevus/truenas-go/client"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
-
-// testVersion returns a version for testing (24.10 - uses zfs.snapshot.* methods)
-func testVersion() truenas.Version {
-	return truenas.Version{Major: 24, Minor: 10, Patch: 0, Build: 0}
-}
-
 
 func TestNewSnapshotResource(t *testing.T) {
 	r := NewSnapshotResource()
@@ -117,10 +110,10 @@ func TestSnapshotResource_Schema(t *testing.T) {
 func TestSnapshotResource_Configure_Success(t *testing.T) {
 	r := NewSnapshotResource().(*SnapshotResource)
 
-	mockClient := &client.MockClient{}
+	svc := &services.TrueNASServices{}
 
 	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
+		ProviderData: svc,
 	}
 	resp := &resource.ConfigureResponse{}
 
@@ -209,32 +202,29 @@ func createSnapshotResourceModelValue(p snapshotModelParams) tftypes.Value {
 	})
 }
 
+// testSnapshot returns a standard test snapshot.
+func testSnapshot() *truenas.Snapshot {
+	return &truenas.Snapshot{
+		ID:           "tank/data@snap1",
+		Dataset:      "tank/data",
+		SnapshotName: "snap1",
+		CreateTXG:    "12345",
+		Used:         1024,
+		Referenced:   2048,
+		HasHold:      false,
+	}
+}
+
 func TestSnapshotResource_Create_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.CreateSnapshotOpts
 
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.create" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
-				}
-				if method == "zfs.snapshot.query" {
-					return json.RawMessage(`[{
-						"id": "tank/data@snap1",
-						"name": "snap1",
-						"dataset": "tank/data",
-						"properties": {
-							"createtxg": {"value": "12345"},
-							"used": {"parsed": 1024},
-							"referenced": {"parsed": 2048}
-						}
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateSnapshotOpts) (*truenas.Snapshot, error) {
+					capturedOpts = opts
+					return testSnapshot(), nil
+				},
 			},
 		}},
 	}
@@ -266,50 +256,49 @@ func TestSnapshotResource_Create_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "zfs.snapshot.create" {
-		t.Errorf("expected method 'zfs.snapshot.create', got %q", capturedMethod)
+	if capturedOpts.Dataset != "tank/data" {
+		t.Errorf("expected dataset 'tank/data', got %q", capturedOpts.Dataset)
+	}
+	if capturedOpts.Name != "snap1" {
+		t.Errorf("expected name 'snap1', got %q", capturedOpts.Name)
 	}
 
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
-	}
+	// Verify model mapping
+	var data SnapshotResourceModel
+	resp.State.Get(context.Background(), &data)
 
-	if params["dataset"] != "tank/data" {
-		t.Errorf("expected dataset 'tank/data', got %v", params["dataset"])
+	if data.ID.ValueString() != "tank/data@snap1" {
+		t.Errorf("expected ID 'tank/data@snap1', got %q", data.ID.ValueString())
 	}
-	if params["name"] != "snap1" {
-		t.Errorf("expected name 'snap1', got %v", params["name"])
+	if data.CreateTXG.ValueString() != "12345" {
+		t.Errorf("expected createtxg '12345', got %q", data.CreateTXG.ValueString())
+	}
+	if data.UsedBytes.ValueInt64() != 1024 {
+		t.Errorf("expected used_bytes 1024, got %d", data.UsedBytes.ValueInt64())
+	}
+	if data.ReferencedBytes.ValueInt64() != 2048 {
+		t.Errorf("expected referenced_bytes 2048, got %d", data.ReferencedBytes.ValueInt64())
 	}
 }
 
 func TestSnapshotResource_Create_WithHold(t *testing.T) {
-	var methods []string
+	var holdCalled bool
 
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				if method == "zfs.snapshot.create" {
-					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
-				}
-				if method == "zfs.snapshot.hold" {
-					return json.RawMessage(`true`), nil
-				}
-				if method == "zfs.snapshot.query" {
-					return json.RawMessage(`[{
-						"id": "tank/data@snap1",
-						"name": "snap1",
-						"dataset": "tank/data",
-						"properties": {
-							"createtxg": {"value": "12345"},
-							"used": {"parsed": 1024},
-							"referenced": {"parsed": 2048}
-						}
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateSnapshotOpts) (*truenas.Snapshot, error) {
+					return testSnapshot(), nil
+				},
+				HoldFunc: func(ctx context.Context, id string) error {
+					holdCalled = true
+					return nil
+				},
+				GetFunc: func(ctx context.Context, id string) (*truenas.Snapshot, error) {
+					snap := testSnapshot()
+					snap.HasHold = true
+					return snap, nil
+				},
 			},
 		}},
 	}
@@ -341,25 +330,18 @@ func TestSnapshotResource_Create_WithHold(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify zfs.snapshot.hold was called
-	holdCalled := false
-	for _, m := range methods {
-		if m == "zfs.snapshot.hold" {
-			holdCalled = true
-			break
-		}
-	}
 	if !holdCalled {
-		t.Error("expected zfs.snapshot.hold to be called when hold=true")
+		t.Error("expected Hold to be called when hold=true")
 	}
 }
 
 func TestSnapshotResource_Create_APIError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("snapshot already exists")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateSnapshotOpts) (*truenas.Snapshot, error) {
+					return nil, errors.New("snapshot already exists")
+				},
 			},
 		}},
 	}
@@ -394,19 +376,11 @@ func TestSnapshotResource_Create_APIError(t *testing.T) {
 
 func TestSnapshotResource_Read_Success(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": "tank/data@snap1",
-					"name": "snap1",
-					"dataset": "tank/data",
-					"properties": {
-						"createtxg": {"value": "12345"},
-						"used": {"parsed": 1024},
-						"referenced": {"parsed": 2048}
-					}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				GetFunc: func(ctx context.Context, id string) (*truenas.Snapshot, error) {
+					return testSnapshot(), nil
+				},
 			},
 		}},
 	}
@@ -455,10 +429,11 @@ func TestSnapshotResource_Read_Success(t *testing.T) {
 
 func TestSnapshotResource_Read_NotFound(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				GetFunc: func(ctx context.Context, id string) (*truenas.Snapshot, error) {
+					return nil, nil
+				},
 			},
 		}},
 	}
@@ -505,26 +480,15 @@ func TestSnapshotResource_Update_HoldToRelease(t *testing.T) {
 	var releaseCalled bool
 
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.release" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ReleaseFunc: func(ctx context.Context, id string) error {
 					releaseCalled = true
-					return json.RawMessage(`true`), nil
-				}
-				if method == "zfs.snapshot.query" {
-					return json.RawMessage(`[{
-						"id": "tank/data@snap1",
-						"name": "snap1",
-						"dataset": "tank/data",
-						"properties": {
-							"createtxg": {"value": "12345"},
-							"used": {"parsed": 1024},
-							"referenced": {"parsed": 2048}
-						}
-					}]`), nil
-				}
-				return nil, nil
+					return nil
+				},
+				GetFunc: func(ctx context.Context, id string) (*truenas.Snapshot, error) {
+					return testSnapshot(), nil
+				},
 			},
 		}},
 	}
@@ -579,7 +543,7 @@ func TestSnapshotResource_Update_HoldToRelease(t *testing.T) {
 	}
 
 	if !releaseCalled {
-		t.Error("expected zfs.snapshot.release to be called")
+		t.Error("expected Release to be called")
 	}
 }
 
@@ -587,27 +551,15 @@ func TestSnapshotResource_Update_ReleaseToHold(t *testing.T) {
 	var holdCalled bool
 
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.hold" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				HoldFunc: func(ctx context.Context, id string) error {
 					holdCalled = true
-					return json.RawMessage(`true`), nil
-				}
-				if method == "zfs.snapshot.query" {
-					return json.RawMessage(`[{
-						"id": "tank/data@snap1",
-						"name": "snap1",
-						"dataset": "tank/data",
-						"holds": {},
-						"properties": {
-							"createtxg": {"value": "12345"},
-							"used": {"parsed": 1024},
-							"referenced": {"parsed": 2048}
-						}
-					}]`), nil
-				}
-				return nil, nil
+					return nil
+				},
+				GetFunc: func(ctx context.Context, id string) (*truenas.Snapshot, error) {
+					return testSnapshot(), nil
+				},
 			},
 		}},
 	}
@@ -660,7 +612,7 @@ func TestSnapshotResource_Update_ReleaseToHold(t *testing.T) {
 	}
 
 	if !holdCalled {
-		t.Error("expected zfs.snapshot.hold to be called")
+		t.Error("expected Hold to be called")
 	}
 }
 
@@ -669,15 +621,13 @@ func TestSnapshotResource_Delete_Success(t *testing.T) {
 	var deleteID string
 
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.delete" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				DeleteFunc: func(ctx context.Context, id string) error {
 					deleteCalled = true
-					deleteID = params.(string)
-					return json.RawMessage(`true`), nil
-				}
-				return nil, nil
+					deleteID = id
+					return nil
+				},
 			},
 		}},
 	}
@@ -710,7 +660,7 @@ func TestSnapshotResource_Delete_Success(t *testing.T) {
 	}
 
 	if !deleteCalled {
-		t.Error("expected zfs.snapshot.delete to be called")
+		t.Error("expected Delete to be called")
 	}
 
 	if deleteID != "tank/data@snap1" {
@@ -719,14 +669,22 @@ func TestSnapshotResource_Delete_Success(t *testing.T) {
 }
 
 func TestSnapshotResource_Delete_WithHold(t *testing.T) {
-	var methods []string
+	var releaseCalled, deleteCalled bool
+	var callOrder []string
 
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				return json.RawMessage(`true`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ReleaseFunc: func(ctx context.Context, id string) error {
+					releaseCalled = true
+					callOrder = append(callOrder, "release")
+					return nil
+				},
+				DeleteFunc: func(ctx context.Context, id string) error {
+					deleteCalled = true
+					callOrder = append(callOrder, "delete")
+					return nil
+				},
 			},
 		}},
 	}
@@ -758,79 +716,26 @@ func TestSnapshotResource_Delete_WithHold(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
+	if !releaseCalled {
+		t.Error("expected Release to be called")
+	}
+	if !deleteCalled {
+		t.Error("expected Delete to be called")
+	}
+
 	// Verify release was called before delete
-	releaseIdx := -1
-	deleteIdx := -1
-	for i, m := range methods {
-		if m == "zfs.snapshot.release" {
-			releaseIdx = i
-		}
-		if m == "zfs.snapshot.delete" {
-			deleteIdx = i
-		}
-	}
-
-	if releaseIdx == -1 {
-		t.Error("expected zfs.snapshot.release to be called")
-	}
-	if deleteIdx == -1 {
-		t.Error("expected zfs.snapshot.delete to be called")
-	}
-	if releaseIdx > deleteIdx {
-		t.Error("expected release to be called before delete")
-	}
-}
-
-func TestSnapshotResource_Create_InvalidJSONResponse(t *testing.T) {
-	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.create" {
-					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
-				}
-				if method == "zfs.snapshot.query" {
-					return json.RawMessage(`invalid json`), nil
-				}
-				return nil, nil
-			},
-		}},
-	}
-
-	schemaResp := getSnapshotResourceSchema(t)
-	planValue := createSnapshotResourceModelValue(snapshotModelParams{
-		DatasetID: "tank/data",
-		Name:      "snap1",
-		Hold:      false,
-		Recursive: false,
-	})
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response")
+	if len(callOrder) != 2 || callOrder[0] != "release" || callOrder[1] != "delete" {
+		t.Errorf("expected [release, delete], got %v", callOrder)
 	}
 }
 
 func TestSnapshotResource_Read_APIError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				GetFunc: func(ctx context.Context, id string) (*truenas.Snapshot, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
 	}
@@ -869,10 +774,11 @@ func TestSnapshotResource_Read_APIError(t *testing.T) {
 
 func TestSnapshotResource_Delete_APIError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("snapshot is busy")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				DeleteFunc: func(ctx context.Context, id string) error {
+					return errors.New("snapshot is busy")
+				},
 			},
 		}},
 	}
@@ -951,29 +857,15 @@ func TestSnapshotResource_ImportState(t *testing.T) {
 }
 
 func TestSnapshotResource_Create_WithRecursive(t *testing.T) {
-	var capturedParams map[string]any
+	var capturedOpts truenas.CreateSnapshotOpts
 
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.create" {
-					capturedParams = params.(map[string]any)
-					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
-				}
-				if method == "zfs.snapshot.query" {
-					return json.RawMessage(`[{
-						"id": "tank/data@snap1",
-						"name": "snap1",
-						"dataset": "tank/data",
-						"properties": {
-							"createtxg": {"value": "12345"},
-							"used": {"parsed": 1024},
-							"referenced": {"parsed": 2048}
-						}
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateSnapshotOpts) (*truenas.Snapshot, error) {
+					capturedOpts = opts
+					return testSnapshot(), nil
+				},
 			},
 		}},
 	}
@@ -1005,23 +897,21 @@ func TestSnapshotResource_Create_WithRecursive(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedParams["recursive"] != true {
-		t.Errorf("expected recursive=true, got %v", capturedParams["recursive"])
+	if !capturedOpts.Recursive {
+		t.Error("expected recursive=true")
 	}
 }
 
 func TestSnapshotResource_Create_HoldError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.create" {
-					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
-				}
-				if method == "zfs.snapshot.hold" {
-					return nil, errors.New("hold failed")
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateSnapshotOpts) (*truenas.Snapshot, error) {
+					return testSnapshot(), nil
+				},
+				HoldFunc: func(ctx context.Context, id string) error {
+					return errors.New("hold failed")
+				},
 			},
 		}},
 	}
@@ -1054,18 +944,19 @@ func TestSnapshotResource_Create_HoldError(t *testing.T) {
 	}
 }
 
-func TestSnapshotResource_Create_QueryError(t *testing.T) {
+func TestSnapshotResource_Create_GetAfterHoldError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.create" {
-					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
-				}
-				if method == "zfs.snapshot.query" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateSnapshotOpts) (*truenas.Snapshot, error) {
+					return testSnapshot(), nil
+				},
+				HoldFunc: func(ctx context.Context, id string) error {
+					return nil
+				},
+				GetFunc: func(ctx context.Context, id string) (*truenas.Snapshot, error) {
 					return nil, errors.New("query failed")
-				}
-				return nil, nil
+				},
 			},
 		}},
 	}
@@ -1074,7 +965,7 @@ func TestSnapshotResource_Create_QueryError(t *testing.T) {
 	planValue := createSnapshotResourceModelValue(snapshotModelParams{
 		DatasetID: "tank/data",
 		Name:      "snap1",
-		Hold:      false,
+		Hold:      true,
 		Recursive: false,
 	})
 
@@ -1094,63 +985,17 @@ func TestSnapshotResource_Create_QueryError(t *testing.T) {
 	r.Create(context.Background(), req, resp)
 
 	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for query failure")
-	}
-}
-
-func TestSnapshotResource_Create_SnapshotNotFound(t *testing.T) {
-	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.create" {
-					return json.RawMessage(`{"id": "tank/data@snap1"}`), nil
-				}
-				if method == "zfs.snapshot.query" {
-					return json.RawMessage(`[]`), nil
-				}
-				return nil, nil
-			},
-		}},
-	}
-
-	schemaResp := getSnapshotResourceSchema(t)
-	planValue := createSnapshotResourceModelValue(snapshotModelParams{
-		DatasetID: "tank/data",
-		Name:      "snap1",
-		Hold:      false,
-		Recursive: false,
-	})
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when snapshot not found after create")
+		t.Fatal("expected error for query failure after hold")
 	}
 }
 
 func TestSnapshotResource_Update_ReleaseError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.release" {
-					return nil, errors.New("release failed")
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ReleaseFunc: func(ctx context.Context, id string) error {
+					return errors.New("release failed")
+				},
 			},
 		}},
 	}
@@ -1205,13 +1050,11 @@ func TestSnapshotResource_Update_ReleaseError(t *testing.T) {
 
 func TestSnapshotResource_Update_HoldError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.hold" {
-					return nil, errors.New("hold failed")
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				HoldFunc: func(ctx context.Context, id string) error {
+					return errors.New("hold failed")
+				},
 			},
 		}},
 	}
@@ -1266,20 +1109,18 @@ func TestSnapshotResource_Update_HoldError(t *testing.T) {
 
 func TestSnapshotResource_Update_QueryError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.query" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				GetFunc: func(ctx context.Context, id string) (*truenas.Snapshot, error) {
 					return nil, errors.New("query failed")
-				}
-				return nil, nil
+				},
 			},
 		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
 
-	// No hold change, so it goes straight to query
+	// No hold change, so it goes straight to Get
 	stateValue := createSnapshotResourceModelValue(snapshotModelParams{
 		ID:              "tank/data@snap1",
 		DatasetID:       "tank/data",
@@ -1328,13 +1169,11 @@ func TestSnapshotResource_Update_QueryError(t *testing.T) {
 
 func TestSnapshotResource_Update_SnapshotNotFound(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.query" {
-					return json.RawMessage(`[]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				GetFunc: func(ctx context.Context, id string) (*truenas.Snapshot, error) {
+					return nil, nil
+				},
 			},
 		}},
 	}
@@ -1389,13 +1228,11 @@ func TestSnapshotResource_Update_SnapshotNotFound(t *testing.T) {
 
 func TestSnapshotResource_Delete_ReleaseError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: testVersion(),
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "zfs.snapshot.release" {
-					return nil, errors.New("release failed")
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{
+				ReleaseFunc: func(ctx context.Context, id string) error {
+					return errors.New("release failed")
+				},
 			},
 		}},
 	}
@@ -1455,7 +1292,9 @@ func createInvalidSnapshotModelValue() tftypes.Value {
 
 func TestSnapshotResource_Create_GetPlanError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1483,7 +1322,9 @@ func TestSnapshotResource_Create_GetPlanError(t *testing.T) {
 
 func TestSnapshotResource_Read_GetStateError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1511,7 +1352,9 @@ func TestSnapshotResource_Read_GetStateError(t *testing.T) {
 
 func TestSnapshotResource_Update_GetStateOrPlanError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)
@@ -1543,7 +1386,9 @@ func TestSnapshotResource_Update_GetStateOrPlanError(t *testing.T) {
 
 func TestSnapshotResource_Delete_GetStateError(t *testing.T) {
 	r := &SnapshotResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Snapshot: &truenas.MockSnapshotService{},
+		}},
 	}
 
 	schemaResp := getSnapshotResourceSchema(t)

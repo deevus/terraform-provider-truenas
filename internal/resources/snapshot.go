@@ -2,7 +2,6 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	truenas "github.com/deevus/truenas-go"
@@ -35,17 +34,6 @@ type SnapshotResourceModel struct {
 	CreateTXG       types.String `tfsdk:"createtxg"`
 	UsedBytes       types.Int64  `tfsdk:"used_bytes"`
 	ReferencedBytes types.Int64  `tfsdk:"referenced_bytes"`
-}
-
-
-// resolveSnapshotMethod builds the versioned API method name for snapshot operations.
-// TrueNAS 25.10+ uses "pool.snapshot.*", older versions use "zfs.snapshot.*".
-func resolveSnapshotMethod(v truenas.Version, method string) string {
-	prefix := "zfs.snapshot"
-	if v.AtLeast(25, 10) {
-		prefix = "pool.snapshot"
-	}
-	return prefix + "." + method
 }
 
 // NewSnapshotResource creates a new SnapshotResource.
@@ -122,40 +110,15 @@ func (r *SnapshotResource) Schema(ctx context.Context, req resource.SchemaReques
 	}
 }
 
-
-// querySnapshot queries a snapshot by ID and returns the response.
-// Returns nil if the snapshot is not found.
-func (r *SnapshotResource) querySnapshot(ctx context.Context, snapshotID string) (*truenas.SnapshotResponse, error) {
-	version := r.client.Version()
-
-	method := resolveSnapshotMethod(version, "query")
-	filter := [][]any{{"id", "=", snapshotID}}
-	result, err := r.client.Call(ctx, method, filter)
-	if err != nil {
-		return nil, err
-	}
-
-	var snapshots []truenas.SnapshotResponse
-	if err := json.Unmarshal(result, &snapshots); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-
-	if len(snapshots) == 0 {
-		return nil, nil
-	}
-
-	return &snapshots[0], nil
-}
-
-// mapSnapshotToModel maps API response fields to the Terraform model.
-func mapSnapshotToModel(snap *truenas.SnapshotResponse, data *SnapshotResourceModel) {
+// mapSnapshotToModel maps a typed Snapshot to the Terraform model.
+func mapSnapshotToModel(snap *truenas.Snapshot, data *SnapshotResourceModel) {
 	data.ID = types.StringValue(snap.ID)
 	data.DatasetID = types.StringValue(snap.Dataset)
-	data.Name = types.StringValue(snap.SnapshotName) // Use SnapshotName, not Name (which is full ID)
-	data.Hold = types.BoolValue(snap.HasHold())
-	data.CreateTXG = types.StringValue(snap.Properties.CreateTXG.Value)
-	data.UsedBytes = types.Int64Value(snap.Properties.Used.Parsed)
-	data.ReferencedBytes = types.Int64Value(snap.Properties.Referenced.Parsed)
+	data.Name = types.StringValue(snap.SnapshotName)
+	data.Hold = types.BoolValue(snap.HasHold)
+	data.CreateTXG = types.StringValue(snap.CreateTXG)
+	data.UsedBytes = types.Int64Value(snap.Used)
+	data.ReferencedBytes = types.Int64Value(snap.Referenced)
 }
 
 func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -166,22 +129,12 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	// Get TrueNAS version for API method resolution
-	version := r.client.Version()
-
-	// Build create params
-	params := map[string]any{
-		"dataset": data.DatasetID.ValueString(),
-		"name":    data.Name.ValueString(),
-	}
-
-	if !data.Recursive.IsNull() && data.Recursive.ValueBool() {
-		params["recursive"] = true
-	}
-
 	// Create the snapshot
-	method := resolveSnapshotMethod(version, "create")
-	_, err := r.client.Call(ctx, method, params)
+	snap, err := r.services.Snapshot.Create(ctx, truenas.CreateSnapshotOpts{
+		Dataset:   data.DatasetID.ValueString(),
+		Name:      data.Name.ValueString(),
+		Recursive: !data.Recursive.IsNull() && data.Recursive.ValueBool(),
+	})
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Snapshot",
@@ -190,13 +143,9 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	// Build snapshot ID
-	snapshotID := fmt.Sprintf("%s@%s", data.DatasetID.ValueString(), data.Name.ValueString())
-
 	// If hold is requested, apply it
 	if !data.Hold.IsNull() && data.Hold.ValueBool() {
-		holdMethod := resolveSnapshotMethod(version, "hold")
-		_, err := r.client.Call(ctx, holdMethod, snapshotID)
+		err := r.services.Snapshot.Hold(ctx, snap.ID)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Hold Snapshot",
@@ -204,16 +153,16 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 			)
 			return
 		}
-	}
 
-	// Query the snapshot to get computed fields
-	snap, err := r.querySnapshot(ctx, snapshotID)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read Snapshot",
-			fmt.Sprintf("Snapshot created but unable to read: %s", err.Error()),
-		)
-		return
+		// Re-read snapshot to get updated hold state
+		snap, err = r.services.Snapshot.Get(ctx, snap.ID)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to Read Snapshot",
+				fmt.Sprintf("Snapshot created but unable to read: %s", err.Error()),
+			)
+			return
+		}
 	}
 
 	if snap == nil {
@@ -237,7 +186,7 @@ func (r *SnapshotResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	snap, err := r.querySnapshot(ctx, data.ID.ValueString())
+	snap, err := r.services.Snapshot.Get(ctx, data.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Snapshot",
@@ -267,9 +216,6 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	// Get TrueNAS version for API method resolution
-	version := r.client.Version()
-
 	snapshotID := state.ID.ValueString()
 
 	// Handle hold changes
@@ -278,8 +224,7 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 
 	if stateHold && !planHold {
 		// Release hold
-		method := resolveSnapshotMethod(version, "release")
-		_, err := r.client.Call(ctx, method, snapshotID)
+		err := r.services.Snapshot.Release(ctx, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Release Snapshot Hold",
@@ -289,8 +234,7 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 		}
 	} else if !stateHold && planHold {
 		// Apply hold
-		method := resolveSnapshotMethod(version, "hold")
-		_, err := r.client.Call(ctx, method, snapshotID)
+		err := r.services.Snapshot.Hold(ctx, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Hold Snapshot",
@@ -301,7 +245,7 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 	}
 
 	// Refresh state from API
-	snap, err := r.querySnapshot(ctx, snapshotID)
+	snap, err := r.services.Snapshot.Get(ctx, snapshotID)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Snapshot",
@@ -332,15 +276,11 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
-	// Get TrueNAS version for API method resolution
-	version := r.client.Version()
-
 	snapshotID := data.ID.ValueString()
 
 	// If held, release first
 	if data.Hold.ValueBool() {
-		method := resolveSnapshotMethod(version, "release")
-		_, err := r.client.Call(ctx, method, snapshotID)
+		err := r.services.Snapshot.Release(ctx, snapshotID)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Release Snapshot Hold",
@@ -351,8 +291,7 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 
 	// Delete the snapshot
-	method := resolveSnapshotMethod(version, "delete")
-	_, err := r.client.Call(ctx, method, snapshotID)
+	err := r.services.Snapshot.Delete(ctx, snapshotID)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete Snapshot",
@@ -361,4 +300,3 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 }
-
