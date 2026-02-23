@@ -2,11 +2,11 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -155,34 +155,22 @@ func createVirtConfigModelValue(p virtConfigModelParams) tftypes.Value {
 }
 
 func TestVirtConfigResource_Create_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.UpdateVirtGlobalConfigOpts
 
 	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.global.update" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`{
-						"bridge": "br0",
-						"v4_network": "10.0.0.0/24",
-						"v6_network": "fd00::/64",
-						"pool": "tank"
-					}`), nil
-				}
-				if method == "virt.global.config" {
-					return json.RawMessage(`{
-						"bridge": "br0",
-						"v4_network": "10.0.0.0/24",
-						"v6_network": "fd00::/64",
-						"pool": "tank"
-					}`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				UpdateGlobalConfigFunc: func(ctx context.Context, opts truenas.UpdateVirtGlobalConfigOpts) (*truenas.VirtGlobalConfig, error) {
+					capturedOpts = opts
+					return &truenas.VirtGlobalConfig{
+						Bridge:    "br0",
+						V4Network: "10.0.0.0/24",
+						V6Network: "fd00::/64",
+						Pool:      "tank",
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -212,27 +200,18 @@ func TestVirtConfigResource_Create_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "virt.global.update" {
-		t.Errorf("expected method 'virt.global.update', got %q", capturedMethod)
+	// Verify opts
+	if capturedOpts.Bridge == nil || *capturedOpts.Bridge != "br0" {
+		t.Errorf("expected bridge 'br0', got %v", capturedOpts.Bridge)
 	}
-
-	// Verify params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.V4Network == nil || *capturedOpts.V4Network != "10.0.0.0/24" {
+		t.Errorf("expected v4_network '10.0.0.0/24', got %v", capturedOpts.V4Network)
 	}
-
-	if params["bridge"] != "br0" {
-		t.Errorf("expected bridge 'br0', got %v", params["bridge"])
+	if capturedOpts.V6Network == nil || *capturedOpts.V6Network != "fd00::/64" {
+		t.Errorf("expected v6_network 'fd00::/64', got %v", capturedOpts.V6Network)
 	}
-	if params["v4_network"] != "10.0.0.0/24" {
-		t.Errorf("expected v4_network '10.0.0.0/24', got %v", params["v4_network"])
-	}
-	if params["v6_network"] != "fd00::/64" {
-		t.Errorf("expected v6_network 'fd00::/64', got %v", params["v6_network"])
-	}
-	if params["pool"] != "tank" {
-		t.Errorf("expected pool 'tank', got %v", params["pool"])
+	if capturedOpts.Pool == nil || *capturedOpts.Pool != "tank" {
+		t.Errorf("expected pool 'tank', got %v", capturedOpts.Pool)
 	}
 
 	// Verify state was set
@@ -256,32 +235,22 @@ func TestVirtConfigResource_Create_Success(t *testing.T) {
 }
 
 func TestVirtConfigResource_Create_PartialConfig(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.UpdateVirtGlobalConfigOpts
 
 	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.global.update" {
-					capturedParams = params
-					return json.RawMessage(`{
-						"bridge": null,
-						"v4_network": "10.0.0.0/24",
-						"v6_network": null,
-						"pool": null
-					}`), nil
-				}
-				if method == "virt.global.config" {
-					return json.RawMessage(`{
-						"bridge": null,
-						"v4_network": "10.0.0.0/24",
-						"v6_network": null,
-						"pool": null
-					}`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				UpdateGlobalConfigFunc: func(ctx context.Context, opts truenas.UpdateVirtGlobalConfigOpts) (*truenas.VirtGlobalConfig, error) {
+					capturedOpts = opts
+					return &truenas.VirtGlobalConfig{
+						Bridge:    "",
+						V4Network: "10.0.0.0/24",
+						V6Network: "",
+						Pool:      "",
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -312,25 +281,19 @@ func TestVirtConfigResource_Create_PartialConfig(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify params only contains the set value
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	// Verify opts - only v4_network should be set
+	if capturedOpts.V4Network == nil || *capturedOpts.V4Network != "10.0.0.0/24" {
+		t.Errorf("expected v4_network '10.0.0.0/24', got %v", capturedOpts.V4Network)
 	}
-
-	// Only v4_network should be in params
-	if params["v4_network"] != "10.0.0.0/24" {
-		t.Errorf("expected v4_network '10.0.0.0/24', got %v", params["v4_network"])
+	// Other fields should be nil (null values are not sent)
+	if capturedOpts.Bridge != nil {
+		t.Error("expected bridge to be nil in opts")
 	}
-	// Other fields should not be in params (null values are not sent)
-	if _, exists := params["bridge"]; exists {
-		t.Error("expected bridge to not be in params")
+	if capturedOpts.V6Network != nil {
+		t.Error("expected v6_network to be nil in opts")
 	}
-	if _, exists := params["v6_network"]; exists {
-		t.Error("expected v6_network to not be in params")
-	}
-	if _, exists := params["pool"]; exists {
-		t.Error("expected pool to not be in params")
+	if capturedOpts.Pool != nil {
+		t.Error("expected pool to be nil in opts")
 	}
 
 	// Verify state was set
@@ -355,12 +318,13 @@ func TestVirtConfigResource_Create_PartialConfig(t *testing.T) {
 
 func TestVirtConfigResource_Create_APIError(t *testing.T) {
 	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				UpdateGlobalConfigFunc: func(ctx context.Context, opts truenas.UpdateVirtGlobalConfigOpts) (*truenas.VirtGlobalConfig, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -398,24 +362,18 @@ func TestVirtConfigResource_Create_APIError(t *testing.T) {
 
 func TestVirtConfigResource_Read_Success(t *testing.T) {
 	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "virt.global.config" {
-					t.Errorf("expected method 'virt.global.config', got %q", method)
-				}
-				// Verify no params are passed
-				if params != nil {
-					t.Errorf("expected nil params, got %v", params)
-				}
-				return json.RawMessage(`{
-					"bridge": "br0",
-					"v4_network": "10.0.0.0/24",
-					"v6_network": "fd00::/64",
-					"pool": "tank"
-				}`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				GetGlobalConfigFunc: func(ctx context.Context) (*truenas.VirtGlobalConfig, error) {
+					return &truenas.VirtGlobalConfig{
+						Bridge:    "br0",
+						V4Network: "10.0.0.0/24",
+						V6Network: "fd00::/64",
+						Pool:      "tank",
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -468,17 +426,18 @@ func TestVirtConfigResource_Read_Success(t *testing.T) {
 
 func TestVirtConfigResource_Read_NullFields(t *testing.T) {
 	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`{
-					"bridge": null,
-					"v4_network": "10.0.0.0/24",
-					"v6_network": null,
-					"pool": null
-				}`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				GetGlobalConfigFunc: func(ctx context.Context) (*truenas.VirtGlobalConfig, error) {
+					return &truenas.VirtGlobalConfig{
+						Bridge:    "",
+						V4Network: "10.0.0.0/24",
+						V6Network: "",
+						Pool:      "",
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -517,7 +476,7 @@ func TestVirtConfigResource_Read_NullFields(t *testing.T) {
 		t.Errorf("expected v4_network '10.0.0.0/24', got %q", resultData.V4Network.ValueString())
 	}
 
-	// Null fields should be null in the model
+	// Null fields should be null in the model (empty string from API = null)
 	if !resultData.Bridge.IsNull() {
 		t.Errorf("expected bridge to be null, got %q", resultData.Bridge.ValueString())
 	}
@@ -531,12 +490,13 @@ func TestVirtConfigResource_Read_NullFields(t *testing.T) {
 
 func TestVirtConfigResource_Read_APIError(t *testing.T) {
 	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				GetGlobalConfigFunc: func(ctx context.Context) (*truenas.VirtGlobalConfig, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -568,74 +528,23 @@ func TestVirtConfigResource_Read_APIError(t *testing.T) {
 	}
 }
 
-func TestVirtConfigResource_Read_InvalidJSON(t *testing.T) {
-	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-
-	}
-
-	schemaResp := getVirtConfigResourceSchema(t)
-	stateValue := createVirtConfigModelValue(virtConfigModelParams{
-		ID:            "virt_config",
-		Bridge:        "br0",
-		V4Network:     "10.0.0.0/24",
-		V6Network:     "fd00::/64",
-		Pool: "tank",
-	})
-
-	req := resource.ReadRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
-	}
-
-	resp := &resource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON")
-	}
-}
-
 func TestVirtConfigResource_Update_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.UpdateVirtGlobalConfigOpts
 
 	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.global.update" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`{
-						"bridge": "br1",
-						"v4_network": "192.168.1.0/24",
-						"v6_network": "fd01::/64",
-						"pool": "storage"
-					}`), nil
-				}
-				if method == "virt.global.config" {
-					return json.RawMessage(`{
-						"bridge": "br1",
-						"v4_network": "192.168.1.0/24",
-						"v6_network": "fd01::/64",
-						"pool": "storage"
-					}`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				UpdateGlobalConfigFunc: func(ctx context.Context, opts truenas.UpdateVirtGlobalConfigOpts) (*truenas.VirtGlobalConfig, error) {
+					capturedOpts = opts
+					return &truenas.VirtGlobalConfig{
+						Bridge:    "br1",
+						V4Network: "192.168.1.0/24",
+						V6Network: "fd01::/64",
+						Pool:      "storage",
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -681,27 +590,18 @@ func TestVirtConfigResource_Update_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "virt.global.update" {
-		t.Errorf("expected method 'virt.global.update', got %q", capturedMethod)
+	// Verify opts
+	if capturedOpts.Bridge == nil || *capturedOpts.Bridge != "br1" {
+		t.Errorf("expected bridge 'br1', got %v", capturedOpts.Bridge)
 	}
-
-	// Verify params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.V4Network == nil || *capturedOpts.V4Network != "192.168.1.0/24" {
+		t.Errorf("expected v4_network '192.168.1.0/24', got %v", capturedOpts.V4Network)
 	}
-
-	if params["bridge"] != "br1" {
-		t.Errorf("expected bridge 'br1', got %v", params["bridge"])
+	if capturedOpts.V6Network == nil || *capturedOpts.V6Network != "fd01::/64" {
+		t.Errorf("expected v6_network 'fd01::/64', got %v", capturedOpts.V6Network)
 	}
-	if params["v4_network"] != "192.168.1.0/24" {
-		t.Errorf("expected v4_network '192.168.1.0/24', got %v", params["v4_network"])
-	}
-	if params["v6_network"] != "fd01::/64" {
-		t.Errorf("expected v6_network 'fd01::/64', got %v", params["v6_network"])
-	}
-	if params["pool"] != "storage" {
-		t.Errorf("expected pool 'storage', got %v", params["pool"])
+	if capturedOpts.Pool == nil || *capturedOpts.Pool != "storage" {
+		t.Errorf("expected pool 'storage', got %v", capturedOpts.Pool)
 	}
 
 	// Verify state was set
@@ -726,12 +626,13 @@ func TestVirtConfigResource_Update_Success(t *testing.T) {
 
 func TestVirtConfigResource_Update_APIError(t *testing.T) {
 	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				UpdateGlobalConfigFunc: func(ctx context.Context, opts truenas.UpdateVirtGlobalConfigOpts) (*truenas.VirtGlobalConfig, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -779,23 +680,22 @@ func TestVirtConfigResource_Update_APIError(t *testing.T) {
 }
 
 func TestVirtConfigResource_Delete_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.UpdateVirtGlobalConfigOpts
 
 	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedParams = params
-				return json.RawMessage(`{
-					"bridge": null,
-					"v4_network": null,
-					"v6_network": null,
-					"pool": null
-				}`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				UpdateGlobalConfigFunc: func(ctx context.Context, opts truenas.UpdateVirtGlobalConfigOpts) (*truenas.VirtGlobalConfig, error) {
+					capturedOpts = opts
+					return &truenas.VirtGlobalConfig{
+						Bridge:    "",
+						V4Network: "",
+						V6Network: "",
+						Pool:      "",
+					}, nil
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -822,38 +722,38 @@ func TestVirtConfigResource_Delete_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "virt.global.update" {
-		t.Errorf("expected method 'virt.global.update', got %q", capturedMethod)
+	// Verify opts - all fields should be non-nil pointers to empty strings (resetting to defaults)
+	if capturedOpts.Bridge == nil {
+		t.Error("expected bridge to be non-nil")
+	} else if *capturedOpts.Bridge != "" {
+		t.Errorf("expected bridge to be empty string, got %q", *capturedOpts.Bridge)
 	}
-
-	// Verify params - should reset all fields to nil
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.V4Network == nil {
+		t.Error("expected v4_network to be non-nil")
+	} else if *capturedOpts.V4Network != "" {
+		t.Errorf("expected v4_network to be empty string, got %q", *capturedOpts.V4Network)
 	}
-
-	if params["bridge"] != nil {
-		t.Errorf("expected bridge nil, got %v", params["bridge"])
+	if capturedOpts.V6Network == nil {
+		t.Error("expected v6_network to be non-nil")
+	} else if *capturedOpts.V6Network != "" {
+		t.Errorf("expected v6_network to be empty string, got %q", *capturedOpts.V6Network)
 	}
-	if params["v4_network"] != nil {
-		t.Errorf("expected v4_network nil, got %v", params["v4_network"])
-	}
-	if params["v6_network"] != nil {
-		t.Errorf("expected v6_network nil, got %v", params["v6_network"])
-	}
-	if params["pool"] != nil {
-		t.Errorf("expected pool nil, got %v", params["pool"])
+	if capturedOpts.Pool == nil {
+		t.Error("expected pool to be non-nil")
+	} else if *capturedOpts.Pool != "" {
+		t.Errorf("expected pool to be empty string, got %q", *capturedOpts.Pool)
 	}
 }
 
 func TestVirtConfigResource_Delete_APIError(t *testing.T) {
 	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("unable to reset config")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{
+				UpdateGlobalConfigFunc: func(ctx context.Context, opts truenas.UpdateVirtGlobalConfigOpts) (*truenas.VirtGlobalConfig, error) {
+					return nil, errors.New("unable to reset config")
+				},
 			},
 		}},
-
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
@@ -922,7 +822,9 @@ func TestVirtConfigResource_ImportState(t *testing.T) {
 
 func TestVirtConfigResource_ImportState_InvalidID(t *testing.T) {
 	r := &VirtConfigResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Virt: &truenas.MockVirtService{},
+		}},
 	}
 
 	schemaResp := getVirtConfigResourceSchema(t)
