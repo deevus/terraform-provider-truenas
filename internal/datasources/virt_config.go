@@ -2,10 +2,9 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
-	"github.com/deevus/truenas-go/client"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -16,23 +15,15 @@ var _ datasource.DataSourceWithConfigure = &VirtConfigDataSource{}
 
 // VirtConfigDataSource defines the data source implementation.
 type VirtConfigDataSource struct {
-	client client.Client
+	services *services.TrueNASServices
 }
 
 // VirtConfigDataSourceModel describes the data source data model.
 type VirtConfigDataSourceModel struct {
-	Bridge        types.String `tfsdk:"bridge"`
-	V4Network     types.String `tfsdk:"v4_network"`
-	V6Network     types.String `tfsdk:"v6_network"`
-	Pool types.String `tfsdk:"pool"`
-}
-
-// virtConfigResponse represents the JSON response from virt.global.config.
-type virtConfigResponse struct {
-	Bridge    *string `json:"bridge"`
-	V4Network *string `json:"v4_network"`
-	V6Network *string `json:"v6_network"`
-	Pool      *string `json:"pool"`
+	Bridge    types.String `tfsdk:"bridge"`
+	V4Network types.String `tfsdk:"v4_network"`
+	V6Network types.String `tfsdk:"v6_network"`
+	Pool      types.String `tfsdk:"pool"`
 }
 
 // NewVirtConfigDataSource creates a new VirtConfigDataSource.
@@ -74,16 +65,16 @@ func (d *VirtConfigDataSource) Configure(ctx context.Context, req datasource.Con
 		return
 	}
 
-	c, ok := req.ProviderData.(client.Client)
+	s, ok := req.ProviderData.(*services.TrueNASServices)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected *services.TrueNASServices, got: %T.", req.ProviderData),
 		)
 		return
 	}
 
-	d.client = c
+	d.services = s
 }
 
 func (d *VirtConfigDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -95,8 +86,8 @@ func (d *VirtConfigDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		return
 	}
 
-	// Call the TrueNAS API - virt.global.config takes no parameters
-	result, err := d.client.Call(ctx, "virt.global.config", nil)
+	// Get global config via the service
+	config, err := d.services.Virt.GetGlobalConfig(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read LXC Config",
@@ -105,37 +96,29 @@ func (d *VirtConfigDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		return
 	}
 
-	// Parse the response
-	var config virtConfigResponse
-	if err := json.Unmarshal(result, &config); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse LXC Config Response",
-			fmt.Sprintf("Unable to parse virtualization config response: %s", err.Error()),
-		)
-		return
-	}
-
-	// Map response to model, handling nullable fields
-	if config.Bridge != nil {
-		data.Bridge = types.StringValue(*config.Bridge)
+	// Map response to model, handling empty strings as null
+	// VirtGlobalConfig converts nil pointer fields to empty strings,
+	// so we treat empty strings as null for Terraform state.
+	if config.Bridge != "" {
+		data.Bridge = types.StringValue(config.Bridge)
 	} else {
 		data.Bridge = types.StringNull()
 	}
 
-	if config.V4Network != nil {
-		data.V4Network = types.StringValue(*config.V4Network)
+	if config.V4Network != "" {
+		data.V4Network = types.StringValue(config.V4Network)
 	} else {
 		data.V4Network = types.StringNull()
 	}
 
-	if config.V6Network != nil {
-		data.V6Network = types.StringValue(*config.V6Network)
+	if config.V6Network != "" {
+		data.V6Network = types.StringValue(config.V6Network)
 	} else {
 		data.V6Network = types.StringNull()
 	}
 
-	if config.Pool != nil {
-		data.Pool = types.StringValue(*config.Pool)
+	if config.Pool != "" {
+		data.Pool = types.StringValue(config.Pool)
 	} else {
 		data.Pool = types.StringNull()
 	}

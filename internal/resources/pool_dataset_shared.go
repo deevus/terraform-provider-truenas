@@ -1,32 +1,14 @@
 package resources
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/deevus/truenas-go/client"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
-
-// -- Shared response types for pool.dataset.query --
-
-// propertyValueField represents a ZFS property with a string value (e.g., compression, atime).
-// Query responses return these as {"value": "lz4"}.
-type propertyValueField struct {
-	Value string `json:"value"`
-}
-
-// sizePropertyField represents a ZFS size property with both raw and parsed values.
-// Query responses return these as {"value": "10G", "parsed": 10737418240}.
-type sizePropertyField struct {
-	Parsed int64  `json:"parsed"`
-	Value  string `json:"value"`
-}
 
 // -- Shared identity helpers --
 
@@ -66,41 +48,6 @@ func poolDatasetIDToParts(id string) (pool, path string) {
 		return parts[0], parts[1]
 	}
 	return id, ""
-}
-
-// -- Shared API operations --
-
-// queryPoolDataset queries a dataset/zvol by ID using pool.dataset.query.
-// Returns nil, nil if not found (deleted outside Terraform).
-func queryPoolDataset(ctx context.Context, c client.Client, datasetID string) (json.RawMessage, error) {
-	filter := [][]any{{"id", "=", datasetID}}
-	result, err := c.Call(ctx, "pool.dataset.query", filter)
-	if err != nil {
-		return nil, err
-	}
-
-	var results []json.RawMessage
-	if err := json.Unmarshal(result, &results); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-
-	if len(results) == 0 {
-		return nil, nil
-	}
-
-	return results[0], nil
-}
-
-// deletePoolDataset deletes a dataset/zvol by ID.
-// If recursive is true, child datasets are also deleted.
-func deletePoolDataset(ctx context.Context, c client.Client, datasetID string, recursive bool) error {
-	var params any = datasetID
-	if recursive {
-		params = []any{datasetID, map[string]bool{"recursive": true}}
-	}
-
-	_, err := c.Call(ctx, "pool.dataset.delete", params)
-	return err
 }
 
 // -- Shared schema attributes --

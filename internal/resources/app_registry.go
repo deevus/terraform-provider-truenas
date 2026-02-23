@@ -2,7 +2,6 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -94,11 +93,9 @@ func (r *AppRegistryResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	// Build params
-	params := buildAppRegistryParams(&data)
+	opts := buildRegistryOpts(&data)
 
-	// Call API
-	result, err := r.client.Call(ctx, "app.registry.create", params)
+	reg, err := r.services.App.CreateRegistry(ctx, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create App Registry",
@@ -107,38 +104,7 @@ func (r *AppRegistryResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	// Parse response to get ID
-	var createResp struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.Unmarshal(result, &createResp); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Response",
-			fmt.Sprintf("Unable to parse create response: %s", err.Error()),
-		)
-		return
-	}
-
-	// Query to get full state
-	registry, err := r.queryAppRegistry(ctx, createResp.ID)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read App Registry",
-			fmt.Sprintf("App registry created but unable to read: %s", err.Error()),
-		)
-		return
-	}
-
-	if registry == nil {
-		resp.Diagnostics.AddError(
-			"App Registry Not Found",
-			"App registry was created but could not be found.",
-		)
-		return
-	}
-
-	// Set state from response
-	mapAppRegistryToModel(registry, &data)
+	mapAppRegistryToModel(reg, &data)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -160,7 +126,7 @@ func (r *AppRegistryResource) Read(ctx context.Context, req resource.ReadRequest
 		return
 	}
 
-	registry, err := r.queryAppRegistry(ctx, id)
+	reg, err := r.services.App.GetRegistry(ctx, id)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read App Registry",
@@ -169,13 +135,13 @@ func (r *AppRegistryResource) Read(ctx context.Context, req resource.ReadRequest
 		return
 	}
 
-	if registry == nil {
+	if reg == nil {
 		// App registry was deleted outside Terraform
 		resp.State.RemoveResource(ctx)
 		return
 	}
 
-	mapAppRegistryToModel(registry, &data)
+	mapAppRegistryToModel(reg, &data)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -200,11 +166,9 @@ func (r *AppRegistryResource) Update(ctx context.Context, req resource.UpdateReq
 		return
 	}
 
-	// Build update params
-	params := buildAppRegistryParams(&plan)
+	opts := buildRegistryOpts(&plan)
 
-	// Call API with []any{id, params}
-	_, err = r.client.Call(ctx, "app.registry.update", []any{id, params})
+	reg, err := r.services.App.UpdateRegistry(ctx, id, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Update App Registry",
@@ -213,26 +177,7 @@ func (r *AppRegistryResource) Update(ctx context.Context, req resource.UpdateReq
 		return
 	}
 
-	// Query to get full state
-	registry, err := r.queryAppRegistry(ctx, id)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read App Registry",
-			fmt.Sprintf("App registry updated but unable to read: %s", err.Error()),
-		)
-		return
-	}
-
-	if registry == nil {
-		resp.Diagnostics.AddError(
-			"App Registry Not Found",
-			"App registry was updated but could not be found.",
-		)
-		return
-	}
-
-	// Set state from response
-	mapAppRegistryToModel(registry, &plan)
+	mapAppRegistryToModel(reg, &plan)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -254,7 +199,7 @@ func (r *AppRegistryResource) Delete(ctx context.Context, req resource.DeleteReq
 		return
 	}
 
-	_, err = r.client.Call(ctx, "app.registry.delete", id)
+	err = r.services.App.DeleteRegistry(ctx, id)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete App Registry",
@@ -264,58 +209,23 @@ func (r *AppRegistryResource) Delete(ctx context.Context, req resource.DeleteReq
 	}
 }
 
-
-// queryAppRegistry queries an app registry by ID and returns the response.
-func (r *AppRegistryResource) queryAppRegistry(ctx context.Context, id int64) (*truenas.AppRegistryResponse, error) {
-	filter := [][]any{{"id", "=", id}}
-	result, err := r.client.Call(ctx, "app.registry.query", filter)
-	if err != nil {
-		return nil, err
+// buildRegistryOpts builds CreateRegistryOpts from the resource model.
+func buildRegistryOpts(data *AppRegistryResourceModel) truenas.CreateRegistryOpts {
+	return truenas.CreateRegistryOpts{
+		Name:        data.Name.ValueString(),
+		Description: data.Description.ValueString(),
+		Username:    data.Username.ValueString(),
+		Password:    data.Password.ValueString(),
+		URI:         data.URI.ValueString(),
 	}
-
-	var registries []truenas.AppRegistryResponse
-	if err := json.Unmarshal(result, &registries); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-
-	if len(registries) == 0 {
-		return nil, nil
-	}
-
-	return &registries[0], nil
 }
 
-// buildAppRegistryParams builds the API params from the resource model.
-func buildAppRegistryParams(data *AppRegistryResourceModel) map[string]any {
-	params := map[string]any{
-		"name":     data.Name.ValueString(),
-		"username": data.Username.ValueString(),
-		"password": data.Password.ValueString(),
-		"uri":      data.URI.ValueString(),
-	}
-
-	// Handle description - API expects null for empty, not empty string
-	if !data.Description.IsNull() && data.Description.ValueString() != "" {
-		params["description"] = data.Description.ValueString()
-	} else {
-		params["description"] = nil
-	}
-
-	return params
-}
-
-// mapAppRegistryToModel maps an API response to the resource model.
-func mapAppRegistryToModel(registry *truenas.AppRegistryResponse, data *AppRegistryResourceModel) {
+// mapAppRegistryToModel maps a Registry to the resource model.
+func mapAppRegistryToModel(registry *truenas.Registry, data *AppRegistryResourceModel) {
 	data.ID = types.StringValue(strconv.FormatInt(registry.ID, 10))
 	data.Name = types.StringValue(registry.Name)
+	data.Description = types.StringValue(registry.Description)
 	data.Username = types.StringValue(registry.Username)
 	data.Password = types.StringValue(registry.Password)
 	data.URI = types.StringValue(registry.URI)
-
-	// Handle nullable description
-	if registry.Description != nil {
-		data.Description = types.StringValue(*registry.Description)
-	} else {
-		data.Description = types.StringValue("")
-	}
 }

@@ -8,7 +8,9 @@ import (
 	"io/fs"
 	"testing"
 
+	truenas "github.com/deevus/truenas-go"
 	"github.com/deevus/truenas-go/client"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -317,10 +319,8 @@ func TestFileResource_ValidateConfig_HostPathWithoutRelativePath(t *testing.T) {
 func TestFileResource_Configure_Success(t *testing.T) {
 	r := NewFileResource().(*FileResource)
 
-	mockClient := &client.MockClient{}
-
 	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
+		ProviderData: &services.TrueNASServices{},
 	}
 	resp := &resource.ConfigureResponse{}
 
@@ -413,15 +413,21 @@ func TestFileResource_Create_WithHostPath(t *testing.T) {
 	var mkdirPath string
 
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
-				mkdirPath = path
-				return nil
-			},
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
-				writtenPath = path
-				writtenContent = params.Content
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+							mkdirPath = path
+							return nil
+						},
+						WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
+							writtenPath = path
+							writtenContent = params.Content
+							return nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -481,10 +487,16 @@ func TestFileResource_Create_WithStandalonePath(t *testing.T) {
 	var writtenPath string
 
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
-				writtenPath = path
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
+							writtenPath = path
+							return nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -519,12 +531,18 @@ func TestFileResource_Create_WithStandalonePath(t *testing.T) {
 
 func TestFileResource_Create_WriteError(t *testing.T) {
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
-				return nil
-			},
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
-				return errors.New("permission denied")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+							return nil
+						},
+						WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
+							return errors.New("permission denied")
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -566,12 +584,18 @@ func TestFileResource_Read_Success(t *testing.T) {
 	checksum := computeChecksumForTest(content)
 
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
-				return true, nil
-			},
-			ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
-				return []byte(content), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+							return true, nil
+						},
+						ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+							return []byte(content), nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -612,9 +636,15 @@ func TestFileResource_Read_Success(t *testing.T) {
 
 func TestFileResource_Read_FileNotFound(t *testing.T) {
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
-				return false, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+							return false, nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -654,12 +684,18 @@ func TestFileResource_Read_DriftDetection(t *testing.T) {
 	remoteContent := "modified content"
 
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
-				return true, nil
-			},
-			ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
-				return []byte(remoteContent), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+							return true, nil
+						},
+						ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+							return []byte(remoteContent), nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -703,9 +739,15 @@ func TestFileResource_Read_DriftDetection(t *testing.T) {
 
 func TestFileResource_Read_FileExistsError(t *testing.T) {
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
-				return false, errors.New("connection failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+							return false, errors.New("connection failed")
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -736,12 +778,18 @@ func TestFileResource_Read_FileExistsError(t *testing.T) {
 
 func TestFileResource_Read_ReadFileError(t *testing.T) {
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
-				return true, nil
-			},
-			ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
-				return nil, errors.New("read error")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+							return true, nil
+						},
+						ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+							return nil, errors.New("read error")
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -776,10 +824,16 @@ func TestFileResource_Update_ContentChange(t *testing.T) {
 	var writtenContent []byte
 
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
-				writtenContent = params.Content
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
+							writtenContent = params.Content
+							return nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -840,9 +894,15 @@ func TestFileResource_Update_ContentChange(t *testing.T) {
 
 func TestFileResource_Update_WriteError(t *testing.T) {
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
-				return errors.New("permission denied")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
+							return errors.New("permission denied")
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -882,10 +942,16 @@ func TestFileResource_Delete_Success(t *testing.T) {
 	var deletedPath string
 
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			DeleteFileFunc: func(ctx context.Context, path string) error {
-				deletedPath = path
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						DeleteFileFunc: func(ctx context.Context, path string) error {
+							deletedPath = path
+							return nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -920,9 +986,15 @@ func TestFileResource_Delete_Success(t *testing.T) {
 
 func TestFileResource_Delete_Error(t *testing.T) {
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			DeleteFileFunc: func(ctx context.Context, path string) error {
-				return errors.New("permission denied")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						DeleteFileFunc: func(ctx context.Context, path string) error {
+							return errors.New("permission denied")
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -998,13 +1070,19 @@ func TestFileResource_Read_UsesIDWhenPathIsNull(t *testing.T) {
 	var checkedPath string
 
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
-				checkedPath = path
-				return true, nil
-			},
-			ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
-				return []byte(content), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						FileExistsFunc: func(ctx context.Context, path string) (bool, error) {
+							checkedPath = path
+							return true, nil
+						},
+						ReadFileFunc: func(ctx context.Context, path string) ([]byte, error) {
+							return []byte(content), nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -1139,9 +1217,15 @@ func TestFileResource_ImportState(t *testing.T) {
 
 func TestFileResource_Create_MkdirError(t *testing.T) {
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
-				return errors.New("permission denied")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
+							return errors.New("permission denied")
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -1173,9 +1257,15 @@ func TestFileResource_Create_MkdirError(t *testing.T) {
 
 func TestFileResource_Update_SetsDefaultsForUnknownComputedAttributes(t *testing.T) {
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			WriteFileFunc: func(ctx context.Context, path string, params client.WriteFileParams) error {
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
+							return nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -1291,18 +1381,24 @@ func TestFileResource_Delete_ForceDestroy(t *testing.T) {
 	var deletedPath string
 
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			ChownFunc: func(ctx context.Context, path string, uid, gid int) error {
-				chownCalled = true
-				chownPath = path
-				chownUID = uid
-				chownGID = gid
-				return nil
-			},
-			DeleteFileFunc: func(ctx context.Context, path string) error {
-				deleteFileCalled = true
-				deletedPath = path
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						ChownFunc: func(ctx context.Context, path string, uid, gid int) error {
+							chownCalled = true
+							chownPath = path
+							chownUID = uid
+							chownGID = gid
+							return nil
+						},
+						DeleteFileFunc: func(ctx context.Context, path string) error {
+							deleteFileCalled = true
+							deletedPath = path
+							return nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -1373,15 +1469,21 @@ func TestFileResource_Delete_NoForceDestroy(t *testing.T) {
 	var deletedPath string
 
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			ChownFunc: func(ctx context.Context, path string, uid, gid int) error {
-				chownCalled = true
-				return nil
-			},
-			DeleteFileFunc: func(ctx context.Context, path string) error {
-				deleteFileCalled = true
-				deletedPath = path
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						ChownFunc: func(ctx context.Context, path string, uid, gid int) error {
+							chownCalled = true
+							return nil
+						},
+						DeleteFileFunc: func(ctx context.Context, path string) error {
+							deleteFileCalled = true
+							deletedPath = path
+							return nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -1443,15 +1545,21 @@ func TestFileResource_Delete_ForceDestroyNil(t *testing.T) {
 	var deletedPath string
 
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			ChownFunc: func(ctx context.Context, path string, uid, gid int) error {
-				chownCalled = true
-				return nil
-			},
-			DeleteFileFunc: func(ctx context.Context, path string) error {
-				deleteFileCalled = true
-				deletedPath = path
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						ChownFunc: func(ctx context.Context, path string, uid, gid int) error {
+							chownCalled = true
+							return nil
+						},
+						DeleteFileFunc: func(ctx context.Context, path string) error {
+							deleteFileCalled = true
+							deletedPath = path
+							return nil
+						},
+					}
+				},
 			},
 		}},
 	}
@@ -1565,13 +1673,19 @@ func TestFileResource_Delete_ForceDestroy_ChownFailsContinues(t *testing.T) {
 	var deleteFileCalled bool
 
 	r := &FileResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			ChownFunc: func(ctx context.Context, path string, uid, gid int) error {
-				return errors.New("operation not permitted")
-			},
-			DeleteFileFunc: func(ctx context.Context, path string) error {
-				deleteFileCalled = true
-				return nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Filesystem: &truenas.MockFilesystemService{
+				ClientFunc: func() truenas.FileCaller {
+					return &client.MockClient{
+						ChownFunc: func(ctx context.Context, path string, uid, gid int) error {
+							return errors.New("operation not permitted")
+						},
+						DeleteFileFunc: func(ctx context.Context, path string) error {
+							deleteFileCalled = true
+							return nil
+						},
+					}
+				},
 			},
 		}},
 	}

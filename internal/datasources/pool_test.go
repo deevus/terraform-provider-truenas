@@ -2,11 +2,11 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -109,10 +109,10 @@ func TestPoolDataSource_Schema(t *testing.T) {
 func TestPoolDataSource_Configure_Success(t *testing.T) {
 	ds := NewPoolDataSource().(*PoolDataSource)
 
-	mockClient := &client.MockClient{}
+	svc := &services.TrueNASServices{}
 
 	req := datasource.ConfigureRequest{
-		ProviderData: mockClient,
+		ProviderData: svc,
 	}
 	resp := &datasource.ConfigureResponse{}
 
@@ -143,7 +143,7 @@ func TestPoolDataSource_Configure_WrongType(t *testing.T) {
 	ds := NewPoolDataSource().(*PoolDataSource)
 
 	req := datasource.ConfigureRequest{
-		ProviderData: "not a client",
+		ProviderData: "not a services",
 	}
 	resp := &datasource.ConfigureResponse{}
 
@@ -195,21 +195,21 @@ func createTestReadRequest(t *testing.T, name string) datasource.ReadRequest {
 
 func TestPoolDataSource_Read_Success(t *testing.T) {
 	ds := &PoolDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "pool.query" {
-					t.Errorf("expected method 'pool.query', got %q", method)
-				}
-				// Return a pool response
-				return json.RawMessage(`[{
-					"id": 1,
-					"name": "tank",
-					"path": "/mnt/tank",
-					"status": "ONLINE",
-					"size": 1000000000,
-					"allocated": 400000000,
-					"free": 600000000
-				}]`), nil
+		services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				ListPoolsFunc: func(ctx context.Context) ([]truenas.Pool, error) {
+					return []truenas.Pool{
+						{
+							ID:        1,
+							Name:      "tank",
+							Path:      "/mnt/tank",
+							Status:    "ONLINE",
+							Size:      1000000000,
+							Allocated: 400000000,
+							Free:      600000000,
+						},
+					}, nil
+				},
 			},
 		},
 	}
@@ -262,10 +262,11 @@ func TestPoolDataSource_Read_Success(t *testing.T) {
 
 func TestPoolDataSource_Read_PoolNotFound(t *testing.T) {
 	ds := &PoolDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return empty array - pool not found
-				return json.RawMessage(`[]`), nil
+		services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				ListPoolsFunc: func(ctx context.Context) ([]truenas.Pool, error) {
+					return []truenas.Pool{}, nil
+				},
 			},
 		},
 	}
@@ -292,9 +293,11 @@ func TestPoolDataSource_Read_PoolNotFound(t *testing.T) {
 
 func TestPoolDataSource_Read_APIError(t *testing.T) {
 	ds := &PoolDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection failed")
+		services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				ListPoolsFunc: func(ctx context.Context) ([]truenas.Pool, error) {
+					return nil, errors.New("connection failed")
+				},
 			},
 		},
 	}
@@ -319,38 +322,11 @@ func TestPoolDataSource_Read_APIError(t *testing.T) {
 	}
 }
 
-func TestPoolDataSource_Read_InvalidJSON(t *testing.T) {
-	ds := &PoolDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		},
-	}
-
-	req := createTestReadRequest(t, "tank")
-
-	// Get the schema for the state
-	schemaReq := datasource.SchemaRequest{}
-	schemaResp := &datasource.SchemaResponse{}
-	ds.Schema(context.Background(), schemaReq, schemaResp)
-
-	resp := &datasource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	ds.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON")
-	}
-}
-
 func TestPoolDataSource_Read_ConfigError(t *testing.T) {
 	ds := &PoolDataSource{
-		client: &client.MockClient{},
+		services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{},
+		},
 	}
 
 	// Get the schema
@@ -399,22 +375,17 @@ func TestPoolDataSource_Read_ConfigError(t *testing.T) {
 	}
 }
 
-func TestPoolDataSource_Read_VerifyFilterParams(t *testing.T) {
-	var capturedParams any
-
+func TestPoolDataSource_Read_MultiplePoolsFindsMatch(t *testing.T) {
 	ds := &PoolDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedParams = params
-				return json.RawMessage(`[{
-					"id": 1,
-					"name": "mypool",
-					"path": "/mnt/mypool",
-					"status": "ONLINE",
-					"size": 1000000000,
-					"allocated": 400000000,
-					"free": 600000000
-				}]`), nil
+		services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				ListPoolsFunc: func(ctx context.Context) ([]truenas.Pool, error) {
+					return []truenas.Pool{
+						{ID: 1, Name: "boot-pool", Path: "/mnt/boot-pool", Status: "ONLINE", Allocated: 100, Free: 900},
+						{ID: 2, Name: "mypool", Path: "/mnt/mypool", Status: "ONLINE", Allocated: 400000000, Free: 600000000},
+						{ID: 3, Name: "archive", Path: "/mnt/archive", Status: "DEGRADED", Allocated: 200, Free: 800},
+					}, nil
+				},
 			},
 		},
 	}
@@ -437,24 +408,17 @@ func TestPoolDataSource_Read_VerifyFilterParams(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify the filter params were passed correctly
-	// Expected format: [["name", "=", "mypool"]]
-	filters, ok := capturedParams.([][]string)
-	if !ok {
-		t.Fatalf("expected params to be [][]string, got %T", capturedParams)
+	var model PoolDataSourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
 	}
 
-	if len(filters) != 1 {
-		t.Fatalf("expected 1 filter, got %d", len(filters))
+	if model.ID.ValueString() != "2" {
+		t.Errorf("expected ID '2', got %q", model.ID.ValueString())
 	}
-
-	filter := filters[0]
-	if len(filter) != 3 {
-		t.Fatalf("expected 3 filter parts, got %d", len(filter))
-	}
-
-	if filter[0] != "name" || filter[1] != "=" || filter[2] != "mypool" {
-		t.Errorf("expected filter ['name', '=', 'mypool'], got %v", filter)
+	if model.Name.ValueString() != "mypool" {
+		t.Errorf("expected Name 'mypool', got %q", model.Name.ValueString())
 	}
 }
 

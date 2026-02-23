@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	truenas "github.com/deevus/truenas-go"
-	"github.com/deevus/truenas-go/client"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -17,7 +16,7 @@ var _ datasource.DataSourceWithConfigure = &CloudSyncCredentialsDataSource{}
 
 // CloudSyncCredentialsDataSource defines the data source implementation.
 type CloudSyncCredentialsDataSource struct {
-	client client.Client
+	services *services.TrueNASServices
 }
 
 // CloudSyncCredentialsDataSourceModel describes the data source data model.
@@ -62,16 +61,16 @@ func (d *CloudSyncCredentialsDataSource) Configure(ctx context.Context, req data
 		return
 	}
 
-	c, ok := req.ProviderData.(client.Client)
+	s, ok := req.ProviderData.(*services.TrueNASServices)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected client.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected *services.TrueNASServices, got: %T.", req.ProviderData),
 		)
 		return
 	}
 
-	d.client = c
+	d.services = s
 }
 
 func (d *CloudSyncCredentialsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -83,11 +82,8 @@ func (d *CloudSyncCredentialsDataSource) Read(ctx context.Context, req datasourc
 		return
 	}
 
-	// Get version for API compatibility
-	version := d.client.Version()
-
-	// Query all credentials (no filter - API returns all)
-	result, err := d.client.Call(ctx, "cloudsync.credentials.query", [][]any{})
+	// List all credentials via the service
+	credentials, err := d.services.CloudSync.ListCredentials(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Cloud Sync Credentials",
@@ -96,38 +92,26 @@ func (d *CloudSyncCredentialsDataSource) Read(ctx context.Context, req datasourc
 		return
 	}
 
-	// Parse the response using version-aware parser
-	credentials, err := truenas.ParseCredentials(result, version)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Credentials Response",
-			fmt.Sprintf("Unable to parse credentials response: %s", err.Error()),
-		)
-		return
-	}
-
 	// Find the credential with matching name
-	var found *truenas.CloudSyncCredentialResponse
 	searchName := data.Name.ValueString()
-	for i := range credentials {
-		if credentials[i].Name == searchName {
-			found = &credentials[i]
+	found := false
+	for _, cred := range credentials {
+		if cred.Name == searchName {
+			data.ID = types.StringValue(fmt.Sprintf("%d", cred.ID))
+			data.Name = types.StringValue(cred.Name)
+			data.ProviderType = types.StringValue(mapAPIProviderToTerraform(cred.ProviderType))
+			found = true
 			break
 		}
 	}
 
-	if found == nil {
+	if !found {
 		resp.Diagnostics.AddError(
 			"Credentials Not Found",
 			fmt.Sprintf("Cloud sync credentials %q was not found.", searchName),
 		)
 		return
 	}
-
-	// Map response to model
-	data.ID = types.StringValue(fmt.Sprintf("%d", found.ID))
-	data.Name = types.StringValue(found.Name)
-	data.ProviderType = types.StringValue(mapAPIProviderToTerraform(found.Provider.Type))
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

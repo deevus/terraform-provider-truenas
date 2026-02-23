@@ -2,11 +2,11 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -85,58 +85,6 @@ type AddressModel struct {
 	Type    types.String `tfsdk:"type"`    // "INET" or "INET6"
 	Address types.String `tfsdk:"address"` // e.g., "192.168.1.203"
 	Netmask types.Int64  `tfsdk:"netmask"` // e.g., 24
-}
-
-// virtInstanceAPIResponse represents the JSON response from virt.instance API calls (TrueNAS 25.0+).
-type virtInstanceAPIResponse struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	Status      string                 `json:"status"`
-	CPU         *string                `json:"cpu"`
-	Memory      *int64                 `json:"memory"`
-	Autostart   bool                   `json:"autostart"`
-	Environment map[string]string      `json:"environment"`
-	Aliases     []virtInstanceAlias    `json:"aliases"`
-	Image       virtInstanceImage      `json:"image"`
-	StoragePool string                 `json:"storage_pool"`
-	VNCEnabled  bool                   `json:"vnc_enabled"`
-	VNCPort     *int                   `json:"vnc_port"`
-}
-
-// virtInstanceAlias represents an IP address alias from the API.
-type virtInstanceAlias struct {
-	Type    string `json:"type"`    // "INET" or "INET6"
-	Address string `json:"address"`
-	Netmask *int64 `json:"netmask"` // nullable per API schema
-}
-
-type virtInstanceImage struct {
-	Architecture string `json:"architecture"`
-	Description  string `json:"description"`
-	OS           string `json:"os"`
-	Release      string `json:"release"`
-	Variant      string `json:"variant"`
-}
-
-// deviceAPIResponse represents a device from virt.instance.device_list.
-type deviceAPIResponse struct {
-	DevType     string  `json:"dev_type"`
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
-	Readonly    bool    `json:"readonly"`
-	// DISK fields
-	Source      *string `json:"source"`
-	Destination *string `json:"destination"`
-	// NIC fields
-	Network *string `json:"network"`
-	NICType *string `json:"nic_type"`
-	Parent  *string `json:"parent"`
-	// PROXY fields
-	SourceProto *string `json:"source_proto"`
-	SourcePort  *int64  `json:"source_port"`
-	DestProto   *string `json:"dest_proto"`
-	DestPort    *int64  `json:"dest_port"`
 }
 
 // VirtInstanceResource defines the resource implementation.
@@ -360,7 +308,7 @@ func (r *VirtInstanceResource) Create(ctx context.Context, req resource.CreateRe
 	}
 
 	// Check version requirement
-	version := r.client.Version()
+	version := r.services.Client.Version()
 	if !version.AtLeast(25, 0) {
 		resp.Diagnostics.AddError(
 			"Unsupported TrueNAS Version",
@@ -369,34 +317,16 @@ func (r *VirtInstanceResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
-	// Build create params
-	params := r.buildCreateParams(ctx, &data)
+	// Build create opts
+	opts := r.buildCreateOpts(ctx, &data)
 	containerName := data.Name.ValueString()
 
-	// Call virt.instance.create (job-based)
-	_, err := r.client.CallAndWait(ctx, "virt.instance.create", params)
+	// Call VirtService.CreateInstance (does CallAndWait + GetInstance internally)
+	container, err := r.services.Virt.CreateInstance(ctx, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Container",
 			fmt.Sprintf("Unable to create container %q: %s", containerName, err.Error()),
-		)
-		return
-	}
-
-	// Query the container to get current state
-	container, err := r.getVirtInstance(ctx, containerName)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Query Container After Create",
-			fmt.Sprintf("Unable to query container %q after create: %s", containerName, err.Error()),
-		)
-		return
-	}
-
-	if container == nil {
-		resp.Diagnostics.AddError(
-			"Container Not Found After Create",
-			fmt.Sprintf("Container %q was not found after create", containerName),
 		)
 		return
 	}
@@ -408,7 +338,7 @@ func (r *VirtInstanceResource) Create(ctx context.Context, req resource.CreateRe
 	// Filter to only include devices we created (by matching source/destination for disks,
 	// network for NICs, ports for proxies).
 	if len(data.Disks) > 0 || len(data.NICs) > 0 || len(data.Proxies) > 0 {
-		devices, err := r.queryDevices(ctx, container.ID)
+		devices, err := r.services.Virt.ListDevices(ctx, container.ID)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Query Container Devices",
@@ -432,11 +362,9 @@ func (r *VirtInstanceResource) Create(ctx context.Context, req resource.CreateRe
 		}
 
 		if desiredState == VirtInstanceStateRunning {
-			_, err = r.client.CallAndWait(ctx, "virt.instance.start", data.ID.ValueString())
+			err = r.services.Virt.StartInstance(ctx, data.ID.ValueString())
 		} else {
-			// virt.instance.stop takes: id (string), stop_args (object with timeout/force)
-			stopArgs := map[string]any{"timeout": data.ShutdownTimeout.ValueInt64()}
-			_, err = r.client.CallAndWait(ctx, "virt.instance.stop", []any{data.ID.ValueString(), stopArgs})
+			err = r.services.Virt.StopInstance(ctx, data.ID.ValueString(), truenas.StopVirtInstanceOpts{Timeout: data.ShutdownTimeout.ValueInt64()})
 		}
 		if err != nil {
 			action := "start"
@@ -470,7 +398,7 @@ func (r *VirtInstanceResource) Create(ctx context.Context, req resource.CreateRe
 	// Re-query container to get fresh addresses (networking may take time to come up)
 	// Small delay to allow networking to initialize after container start
 	time.Sleep(2 * time.Second)
-	freshContainer, _ := r.getVirtInstance(ctx, containerName)
+	freshContainer, _ := r.services.Virt.GetInstance(ctx, containerName)
 	if freshContainer != nil {
 		data.Addresses = mapAliasesToAddresses(freshContainer.Aliases)
 	}
@@ -487,7 +415,7 @@ func (r *VirtInstanceResource) Read(ctx context.Context, req resource.ReadReques
 	}
 
 	// Check version requirement
-	version := r.client.Version()
+	version := r.services.Client.Version()
 	if !version.AtLeast(25, 0) {
 		resp.Diagnostics.AddError(
 			"Unsupported TrueNAS Version",
@@ -502,7 +430,7 @@ func (r *VirtInstanceResource) Read(ctx context.Context, req resource.ReadReques
 
 	containerName := data.Name.ValueString()
 
-	container, err := r.getVirtInstance(ctx, containerName)
+	container, err := r.services.Virt.GetInstance(ctx, containerName)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Container",
@@ -524,7 +452,7 @@ func (r *VirtInstanceResource) Read(ctx context.Context, req resource.ReadReques
 	// This allows drift detection for managed devices while ignoring system defaults.
 	managedNames := getManagedDeviceNames(&data)
 	if len(managedNames) > 0 {
-		devices, err := r.queryDevices(ctx, container.ID)
+		devices, err := r.services.Virt.ListDevices(ctx, container.ID)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Query Container Devices",
@@ -568,7 +496,7 @@ func (r *VirtInstanceResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	// Check version requirement
-	version := r.client.Version()
+	version := r.services.Client.Version()
 	if !version.AtLeast(25, 0) {
 		resp.Diagnostics.AddError(
 			"Unsupported TrueNAS Version",
@@ -580,12 +508,10 @@ func (r *VirtInstanceResource) Update(ctx context.Context, req resource.UpdateRe
 	containerName := data.Name.ValueString()
 	containerID := data.ID.ValueString()
 
-	// Build update params and check if anything changed
-	updateParams := r.buildUpdateParams(&data, &stateData)
-	if len(updateParams) > 0 {
-		params := []any{containerID, updateParams}
-
-		_, err := r.client.CallAndWait(ctx, "virt.instance.update", params)
+	// Build update opts and check if anything changed
+	updateOpts := r.buildUpdateOpts(&data, &stateData)
+	if updateOpts.Autostart != nil {
+		_, err := r.services.Virt.UpdateInstance(ctx, containerID, updateOpts)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Update Container",
@@ -668,7 +594,7 @@ func (r *VirtInstanceResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	// Query full container info to update state
-	container, err := r.getVirtInstance(ctx, containerName)
+	container, err := r.services.Virt.GetInstance(ctx, containerName)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Query Container After Update",
@@ -709,13 +635,11 @@ func (r *VirtInstanceResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 
 	if currentState == VirtInstanceStateRunning {
-		// virt.instance.stop takes: id (string), stop_args (object with timeout/force)
 		shutdownTimeout := data.ShutdownTimeout.ValueInt64()
 		if shutdownTimeout == 0 {
 			shutdownTimeout = 30 // default
 		}
-		stopArgs := map[string]any{"timeout": shutdownTimeout}
-		_, err := r.client.CallAndWait(ctx, "virt.instance.stop", []any{containerID, stopArgs})
+		err := r.services.Virt.StopInstance(ctx, containerID, truenas.StopVirtInstanceOpts{Timeout: shutdownTimeout})
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Stop Container",
@@ -726,7 +650,7 @@ func (r *VirtInstanceResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 
 	// Delete the container
-	_, err = r.client.CallAndWait(ctx, "virt.instance.delete", containerID)
+	err = r.services.Virt.DeleteInstance(ctx, containerID)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete Container",
@@ -741,84 +665,79 @@ func (r *VirtInstanceResource) ImportState(ctx context.Context, req resource.Imp
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), req.ID)...)
 }
 
-// buildCreateParams builds the API params from the resource model for create.
-// Uses virt.instance.create API for TrueNAS 25.0+.
-func (r *VirtInstanceResource) buildCreateParams(ctx context.Context, data *VirtInstanceResourceModel) map[string]any {
+// buildCreateOpts builds the typed opts from the resource model for create.
+func (r *VirtInstanceResource) buildCreateOpts(ctx context.Context, data *VirtInstanceResourceModel) truenas.CreateVirtInstanceOpts {
 	// Build image string in format "name/version" (e.g., "alpine/3.20")
 	imageStr := fmt.Sprintf("%s/%s", data.ImageName.ValueString(), data.ImageVersion.ValueString())
 
-	// virt.instance.create accepts: name, image, instance_type, source_type, storage_pool, environment, autostart, cpu, memory
-	params := map[string]any{
-		"name":          data.Name.ValueString(),
-		"image":         imageStr,
-		"instance_type": "CONTAINER",
-		"storage_pool":  data.StoragePool.ValueString(),
+	opts := truenas.CreateVirtInstanceOpts{
+		Name:         data.Name.ValueString(),
+		Image:        imageStr,
+		InstanceType: "CONTAINER",
+		StoragePool:  data.StoragePool.ValueString(),
 	}
 
 	if !data.Autostart.IsNull() && !data.Autostart.IsUnknown() {
-		params["autostart"] = data.Autostart.ValueBool()
+		opts.Autostart = data.Autostart.ValueBool()
 	}
 
-	// Build devices array
-	devices := r.buildDevices(data)
-	if len(devices) > 0 {
-		params["devices"] = devices
-	}
+	// Build devices
+	opts.Devices = r.buildDeviceOpts(data)
 
-	return params
+	return opts
 }
 
-// buildDevices builds the devices array from disk, nic, and proxy blocks.
-func (r *VirtInstanceResource) buildDevices(data *VirtInstanceResourceModel) []map[string]any {
-	var devices []map[string]any
+// buildDeviceOpts builds the typed device opts from disk, nic, and proxy blocks.
+func (r *VirtInstanceResource) buildDeviceOpts(data *VirtInstanceResourceModel) []truenas.VirtDeviceOpts {
+	var devices []truenas.VirtDeviceOpts
 
 	// Add disk devices
 	for _, disk := range data.Disks {
-		dev := map[string]any{
-			"dev_type":    "DISK",
-			"source":      disk.Source.ValueString(),
-			"destination": disk.Destination.ValueString(),
+		dev := truenas.VirtDeviceOpts{
+			DevType:     "DISK",
+			Source:      disk.Source.ValueString(),
+			Destination: disk.Destination.ValueString(),
 		}
 		if !disk.Name.IsNull() && disk.Name.ValueString() != "" {
-			dev["name"] = disk.Name.ValueString()
+			dev.Name = disk.Name.ValueString()
 		}
 		if !disk.Readonly.IsNull() {
-			dev["readonly"] = disk.Readonly.ValueBool()
+			dev.Readonly = disk.Readonly.ValueBool()
 		}
 		devices = append(devices, dev)
 	}
 
 	// Add NIC devices
 	for _, nic := range data.NICs {
-		dev := map[string]any{
-			"dev_type": "NIC",
+		dev := truenas.VirtDeviceOpts{
+			DevType: "NIC",
 		}
 		if !nic.Name.IsNull() && nic.Name.ValueString() != "" {
-			dev["name"] = nic.Name.ValueString()
+			dev.Name = nic.Name.ValueString()
 		}
 		if !nic.Network.IsNull() && nic.Network.ValueString() != "" {
-			dev["network"] = nic.Network.ValueString()
+			dev.Network = nic.Network.ValueString()
 		}
 		if !nic.NICType.IsNull() && nic.NICType.ValueString() != "" {
-			dev["nic_type"] = nic.NICType.ValueString()
+			dev.NICType = nic.NICType.ValueString()
 		}
 		if !nic.Parent.IsNull() && nic.Parent.ValueString() != "" {
-			dev["parent"] = nic.Parent.ValueString()
+			dev.Parent = nic.Parent.ValueString()
 		}
 		devices = append(devices, dev)
 	}
 
 	// Add proxy devices
 	for _, proxy := range data.Proxies {
-		dev := map[string]any{
-			"dev_type":     "PROXY",
-			"source_proto": proxy.SourceProto.ValueString(),
-			"source_port":  proxy.SourcePort.ValueInt64(),
-			"dest_proto":   proxy.DestProto.ValueString(),
-			"dest_port":    proxy.DestPort.ValueInt64(),
+		dev := truenas.VirtDeviceOpts{
+			DevType:     "PROXY",
+			SourceProto: proxy.SourceProto.ValueString(),
+			SourcePort:  proxy.SourcePort.ValueInt64(),
+			DestProto:   proxy.DestProto.ValueString(),
+			DestPort:    proxy.DestPort.ValueInt64(),
 		}
 		if !proxy.Name.IsNull() && proxy.Name.ValueString() != "" {
-			dev["name"] = proxy.Name.ValueString()
+			dev.Name = proxy.Name.ValueString()
 		}
 		devices = append(devices, dev)
 	}
@@ -826,36 +745,17 @@ func (r *VirtInstanceResource) buildDevices(data *VirtInstanceResourceModel) []m
 	return devices
 }
 
-// buildUpdateParams builds the API params from the resource model for update.
+// buildUpdateOpts builds the typed opts from the resource model for update.
 // Only includes fields that have changed.
-func (r *VirtInstanceResource) buildUpdateParams(plan, state *VirtInstanceResourceModel) map[string]any {
-	params := map[string]any{}
+func (r *VirtInstanceResource) buildUpdateOpts(plan, state *VirtInstanceResourceModel) truenas.UpdateVirtInstanceOpts {
+	opts := truenas.UpdateVirtInstanceOpts{}
 
 	if !plan.Autostart.Equal(state.Autostart) && !plan.Autostart.IsNull() {
-		params["autostart"] = plan.Autostart.ValueBool()
+		val := plan.Autostart.ValueBool()
+		opts.Autostart = &val
 	}
 
-	return params
-}
-
-// getVirtInstance retrieves a container by name using virt.instance.get_instance.
-// Returns nil, nil if the container does not exist.
-func (r *VirtInstanceResource) getVirtInstance(ctx context.Context, name string) (*virtInstanceAPIResponse, error) {
-	result, err := r.client.Call(ctx, "virt.instance.get_instance", name)
-	if err != nil {
-		// Check if it's a "not found" error
-		if isNotFoundError(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var container virtInstanceAPIResponse
-	if err := json.Unmarshal(result, &container); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-
-	return &container, nil
+	return opts
 }
 
 // isNotFoundError checks if an error indicates the resource was not found.
@@ -872,7 +772,7 @@ func isNotFoundError(err error) bool {
 
 // getVirtInstanceState queries the current state of a container.
 func (r *VirtInstanceResource) getVirtInstanceState(ctx context.Context, name string) (string, error) {
-	container, err := r.getVirtInstance(ctx, name)
+	container, err := r.services.Virt.GetInstance(ctx, name)
 	if err != nil {
 		return "", err
 	}
@@ -884,10 +784,10 @@ func (r *VirtInstanceResource) getVirtInstanceState(ctx context.Context, name st
 	return container.Status, nil
 }
 
-// mapVirtInstanceToModel maps an API response to the resource model.
+// mapVirtInstanceToModel maps a VirtInstance to the resource model.
 // Maps virt.instance API response fields to terraform resource model.
 // Preserves plan/state values for fields that don't change (RequiresReplace).
-func (r *VirtInstanceResource) mapVirtInstanceToModel(container *virtInstanceAPIResponse, data *VirtInstanceResourceModel) {
+func (r *VirtInstanceResource) mapVirtInstanceToModel(container *truenas.VirtInstance, data *VirtInstanceResourceModel) {
 	data.ID = types.StringValue(container.ID)
 	data.Name = types.StringValue(container.Name)
 	data.StoragePool = types.StringValue(container.StoragePool)
@@ -912,8 +812,8 @@ func addressAttrTypes() map[string]attr.Type {
 	}
 }
 
-// mapAliasesToAddresses converts API aliases to types.List.
-func mapAliasesToAddresses(aliases []virtInstanceAlias) types.List {
+// mapAliasesToAddresses converts VirtAlias slice to types.List.
+func mapAliasesToAddresses(aliases []truenas.VirtAlias) types.List {
 	if len(aliases) == 0 {
 		return types.ListValueMust(types.ObjectType{AttrTypes: addressAttrTypes()}, []attr.Value{})
 	}
@@ -927,21 +827,6 @@ func mapAliasesToAddresses(aliases []virtInstanceAlias) types.List {
 		})
 	}
 	return types.ListValueMust(types.ObjectType{AttrTypes: addressAttrTypes()}, elements)
-}
-
-// queryDevices queries the devices attached to a container.
-func (r *VirtInstanceResource) queryDevices(ctx context.Context, containerID string) ([]deviceAPIResponse, error) {
-	result, err := r.client.Call(ctx, "virt.instance.device_list", containerID)
-	if err != nil {
-		return nil, err
-	}
-
-	var devices []deviceAPIResponse
-	if err := json.Unmarshal(result, &devices); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal devices: %w", err)
-	}
-
-	return devices, nil
 }
 
 // getManagedDeviceNames returns a set of device names that are managed by terraform.
@@ -965,23 +850,23 @@ func getManagedDeviceNames(data *VirtInstanceResourceModel) map[string]bool {
 	return names
 }
 
-// mapDevicesToModel maps API device responses to the resource model.
+// mapDevicesToModel maps VirtDevice responses to the resource model.
 // Only includes devices that are in the managedNames set (to exclude system defaults).
 // If managedNames is nil, all devices are included.
-func (r *VirtInstanceResource) mapDevicesToModel(devices []deviceAPIResponse, data *VirtInstanceResourceModel, managedNames map[string]bool) {
+func (r *VirtInstanceResource) mapDevicesToModel(devices []truenas.VirtDevice, data *VirtInstanceResourceModel, managedNames map[string]bool) {
 	var disks []DiskModel
 	var nics []NICModel
 	var proxies []ProxyModel
 
 	for _, dev := range devices {
 		// Skip devices that aren't in our managed set (if filtering is enabled)
-		if managedNames != nil && dev.Name != nil {
-			if !managedNames[*dev.Name] {
+		if managedNames != nil && dev.Name != "" {
+			if !managedNames[dev.Name] {
 				continue
 			}
 		}
 		// Skip devices without names when filtering - we can only track named devices
-		if managedNames != nil && dev.Name == nil {
+		if managedNames != nil && dev.Name == "" {
 			continue
 		}
 
@@ -990,18 +875,18 @@ func (r *VirtInstanceResource) mapDevicesToModel(devices []deviceAPIResponse, da
 			disk := DiskModel{
 				Readonly: types.BoolValue(dev.Readonly),
 			}
-			if dev.Name != nil {
-				disk.Name = types.StringValue(*dev.Name)
+			if dev.Name != "" {
+				disk.Name = types.StringValue(dev.Name)
 			} else {
 				disk.Name = types.StringNull()
 			}
-			if dev.Source != nil {
-				disk.Source = types.StringValue(*dev.Source)
+			if dev.Source != "" {
+				disk.Source = types.StringValue(dev.Source)
 			} else {
 				disk.Source = types.StringNull()
 			}
-			if dev.Destination != nil {
-				disk.Destination = types.StringValue(*dev.Destination)
+			if dev.Destination != "" {
+				disk.Destination = types.StringValue(dev.Destination)
 			} else {
 				disk.Destination = types.StringNull()
 			}
@@ -1009,23 +894,23 @@ func (r *VirtInstanceResource) mapDevicesToModel(devices []deviceAPIResponse, da
 
 		case "NIC":
 			nic := NICModel{}
-			if dev.Name != nil {
-				nic.Name = types.StringValue(*dev.Name)
+			if dev.Name != "" {
+				nic.Name = types.StringValue(dev.Name)
 			} else {
 				nic.Name = types.StringNull()
 			}
-			if dev.Network != nil {
-				nic.Network = types.StringValue(*dev.Network)
+			if dev.Network != "" {
+				nic.Network = types.StringValue(dev.Network)
 			} else {
 				nic.Network = types.StringNull()
 			}
-			if dev.NICType != nil {
-				nic.NICType = types.StringValue(*dev.NICType)
+			if dev.NICType != "" {
+				nic.NICType = types.StringValue(dev.NICType)
 			} else {
 				nic.NICType = types.StringNull()
 			}
-			if dev.Parent != nil {
-				nic.Parent = types.StringValue(*dev.Parent)
+			if dev.Parent != "" {
+				nic.Parent = types.StringValue(dev.Parent)
 			} else {
 				nic.Parent = types.StringNull()
 			}
@@ -1033,22 +918,22 @@ func (r *VirtInstanceResource) mapDevicesToModel(devices []deviceAPIResponse, da
 
 		case "PROXY":
 			proxy := ProxyModel{}
-			if dev.Name != nil {
-				proxy.Name = types.StringValue(*dev.Name)
+			if dev.Name != "" {
+				proxy.Name = types.StringValue(dev.Name)
 			} else {
 				proxy.Name = types.StringNull()
 			}
-			if dev.SourceProto != nil {
-				proxy.SourceProto = types.StringValue(*dev.SourceProto)
+			if dev.SourceProto != "" {
+				proxy.SourceProto = types.StringValue(dev.SourceProto)
 			}
-			if dev.SourcePort != nil {
-				proxy.SourcePort = types.Int64Value(*dev.SourcePort)
+			if dev.SourcePort != 0 {
+				proxy.SourcePort = types.Int64Value(dev.SourcePort)
 			}
-			if dev.DestProto != nil {
-				proxy.DestProto = types.StringValue(*dev.DestProto)
+			if dev.DestProto != "" {
+				proxy.DestProto = types.StringValue(dev.DestProto)
 			}
-			if dev.DestPort != nil {
-				proxy.DestPort = types.Int64Value(*dev.DestPort)
+			if dev.DestPort != 0 {
+				proxy.DestPort = types.Int64Value(dev.DestPort)
 			}
 			proxies = append(proxies, proxy)
 		}
@@ -1061,7 +946,7 @@ func (r *VirtInstanceResource) mapDevicesToModel(devices []deviceAPIResponse, da
 
 // matchCreatedDevices matches API devices to plan devices and fills in server-assigned names.
 // This is called after Create to populate names for devices where user didn't specify a name.
-func (r *VirtInstanceResource) matchCreatedDevices(apiDevices []deviceAPIResponse, data *VirtInstanceResourceModel) {
+func (r *VirtInstanceResource) matchCreatedDevices(apiDevices []truenas.VirtDevice, data *VirtInstanceResourceModel) {
 	// Match disks by source+destination
 	for i := range data.Disks {
 		planDisk := &data.Disks[i]
@@ -1070,13 +955,13 @@ func (r *VirtInstanceResource) matchCreatedDevices(apiDevices []deviceAPIRespons
 			continue
 		}
 		for _, apiDev := range apiDevices {
-			if apiDev.DevType != "DISK" || apiDev.Name == nil {
+			if apiDev.DevType != "DISK" || apiDev.Name == "" {
 				continue
 			}
-			if apiDev.Source != nil && apiDev.Destination != nil {
-				if *apiDev.Source == planDisk.Source.ValueString() &&
-					*apiDev.Destination == planDisk.Destination.ValueString() {
-					planDisk.Name = types.StringValue(*apiDev.Name)
+			if apiDev.Source != "" && apiDev.Destination != "" {
+				if apiDev.Source == planDisk.Source.ValueString() &&
+					apiDev.Destination == planDisk.Destination.ValueString() {
+					planDisk.Name = types.StringValue(apiDev.Name)
 					break
 				}
 			}
@@ -1090,20 +975,20 @@ func (r *VirtInstanceResource) matchCreatedDevices(apiDevices []deviceAPIRespons
 			continue
 		}
 		for _, apiDev := range apiDevices {
-			if apiDev.DevType != "NIC" || apiDev.Name == nil {
+			if apiDev.DevType != "NIC" || apiDev.Name == "" {
 				continue
 			}
 			// Match by network if specified
 			if !planNIC.Network.IsNull() && planNIC.Network.ValueString() != "" {
-				if apiDev.Network != nil && *apiDev.Network == planNIC.Network.ValueString() {
-					planNIC.Name = types.StringValue(*apiDev.Name)
+				if apiDev.Network != "" && apiDev.Network == planNIC.Network.ValueString() {
+					planNIC.Name = types.StringValue(apiDev.Name)
 					break
 				}
 			}
 			// Match by parent if specified
 			if !planNIC.Parent.IsNull() && planNIC.Parent.ValueString() != "" {
-				if apiDev.Parent != nil && *apiDev.Parent == planNIC.Parent.ValueString() {
-					planNIC.Name = types.StringValue(*apiDev.Name)
+				if apiDev.Parent != "" && apiDev.Parent == planNIC.Parent.ValueString() {
+					planNIC.Name = types.StringValue(apiDev.Name)
 					break
 				}
 			}
@@ -1117,16 +1002,16 @@ func (r *VirtInstanceResource) matchCreatedDevices(apiDevices []deviceAPIRespons
 			continue
 		}
 		for _, apiDev := range apiDevices {
-			if apiDev.DevType != "PROXY" || apiDev.Name == nil {
+			if apiDev.DevType != "PROXY" || apiDev.Name == "" {
 				continue
 			}
-			if apiDev.SourceProto != nil && apiDev.SourcePort != nil &&
-				apiDev.DestProto != nil && apiDev.DestPort != nil {
-				if *apiDev.SourceProto == planProxy.SourceProto.ValueString() &&
-					*apiDev.SourcePort == planProxy.SourcePort.ValueInt64() &&
-					*apiDev.DestProto == planProxy.DestProto.ValueString() &&
-					*apiDev.DestPort == planProxy.DestPort.ValueInt64() {
-					planProxy.Name = types.StringValue(*apiDev.Name)
+			if apiDev.SourceProto != "" && apiDev.SourcePort != 0 &&
+				apiDev.DestProto != "" && apiDev.DestPort != 0 {
+				if apiDev.SourceProto == planProxy.SourceProto.ValueString() &&
+					apiDev.SourcePort == planProxy.SourcePort.ValueInt64() &&
+					apiDev.DestProto == planProxy.DestProto.ValueString() &&
+					apiDev.DestPort == planProxy.DestPort.ValueInt64() {
+					planProxy.Name = types.StringValue(apiDev.Name)
 					break
 				}
 			}
@@ -1175,7 +1060,7 @@ func (r *VirtInstanceResource) reconcileDevices(ctx context.Context, containerID
 	// Delete devices that are in state but not in plan
 	for name := range stateDeviceNames {
 		if !planDeviceNames[name] {
-			_, err := r.client.CallAndWait(ctx, "virt.instance.device_delete", []any{containerID, name})
+			err := r.services.Virt.DeleteDevice(ctx, containerID, name)
 			if err != nil {
 				return fmt.Errorf("failed to delete device %q: %w", name, err)
 			}
@@ -1186,16 +1071,16 @@ func (r *VirtInstanceResource) reconcileDevices(ctx context.Context, containerID
 	for _, disk := range plan.Disks {
 		name := disk.Name.ValueString()
 		if name != "" && !stateDeviceNames[name] {
-			dev := map[string]any{
-				"dev_type":    "DISK",
-				"name":        name,
-				"source":      disk.Source.ValueString(),
-				"destination": disk.Destination.ValueString(),
+			opts := truenas.VirtDeviceOpts{
+				DevType:     "DISK",
+				Name:        name,
+				Source:      disk.Source.ValueString(),
+				Destination: disk.Destination.ValueString(),
 			}
 			if !disk.Readonly.IsNull() {
-				dev["readonly"] = disk.Readonly.ValueBool()
+				opts.Readonly = disk.Readonly.ValueBool()
 			}
-			_, err := r.client.CallAndWait(ctx, "virt.instance.device_add", []any{containerID, dev})
+			err := r.services.Virt.AddDevice(ctx, containerID, opts)
 			if err != nil {
 				return fmt.Errorf("failed to add disk device %q: %w", name, err)
 			}
@@ -1205,20 +1090,20 @@ func (r *VirtInstanceResource) reconcileDevices(ctx context.Context, containerID
 	for _, nic := range plan.NICs {
 		name := nic.Name.ValueString()
 		if name != "" && !stateDeviceNames[name] {
-			dev := map[string]any{
-				"dev_type": "NIC",
-				"name":     name,
+			opts := truenas.VirtDeviceOpts{
+				DevType: "NIC",
+				Name:    name,
 			}
 			if !nic.Network.IsNull() && nic.Network.ValueString() != "" {
-				dev["network"] = nic.Network.ValueString()
+				opts.Network = nic.Network.ValueString()
 			}
 			if !nic.NICType.IsNull() && nic.NICType.ValueString() != "" {
-				dev["nic_type"] = nic.NICType.ValueString()
+				opts.NICType = nic.NICType.ValueString()
 			}
 			if !nic.Parent.IsNull() && nic.Parent.ValueString() != "" {
-				dev["parent"] = nic.Parent.ValueString()
+				opts.Parent = nic.Parent.ValueString()
 			}
-			_, err := r.client.CallAndWait(ctx, "virt.instance.device_add", []any{containerID, dev})
+			err := r.services.Virt.AddDevice(ctx, containerID, opts)
 			if err != nil {
 				return fmt.Errorf("failed to add NIC device %q: %w", name, err)
 			}
@@ -1228,15 +1113,15 @@ func (r *VirtInstanceResource) reconcileDevices(ctx context.Context, containerID
 	for _, proxy := range plan.Proxies {
 		name := proxy.Name.ValueString()
 		if name != "" && !stateDeviceNames[name] {
-			dev := map[string]any{
-				"dev_type":     "PROXY",
-				"name":         name,
-				"source_proto": proxy.SourceProto.ValueString(),
-				"source_port":  proxy.SourcePort.ValueInt64(),
-				"dest_proto":   proxy.DestProto.ValueString(),
-				"dest_port":    proxy.DestPort.ValueInt64(),
+			opts := truenas.VirtDeviceOpts{
+				DevType:     "PROXY",
+				Name:        name,
+				SourceProto: proxy.SourceProto.ValueString(),
+				SourcePort:  proxy.SourcePort.ValueInt64(),
+				DestProto:   proxy.DestProto.ValueString(),
+				DestPort:    proxy.DestPort.ValueInt64(),
 			}
-			_, err := r.client.CallAndWait(ctx, "virt.instance.device_add", []any{containerID, dev})
+			err := r.services.Virt.AddDevice(ctx, containerID, opts)
 			if err != nil {
 				return fmt.Errorf("failed to add proxy device %q: %w", name, err)
 			}
@@ -1265,11 +1150,9 @@ func (r *VirtInstanceResource) reconcileDesiredState(
 	// Call the appropriate API
 	var err error
 	if desiredState == VirtInstanceStateRunning {
-		_, err = r.client.CallAndWait(ctx, "virt.instance.start", id)
+		err = r.services.Virt.StartInstance(ctx, id)
 	} else {
-		// virt.instance.stop takes: id (string), stop_args (object with timeout/force)
-		stopArgs := map[string]any{"timeout": shutdownTimeout}
-		_, err = r.client.CallAndWait(ctx, "virt.instance.stop", []any{id, stopArgs})
+		err = r.services.Virt.StopInstance(ctx, id, truenas.StopVirtInstanceOpts{Timeout: shutdownTimeout})
 	}
 	if err != nil {
 		return fmt.Errorf("failed to %s container %q: %w", desiredState, name, err)

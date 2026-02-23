@@ -2,12 +2,11 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
 	truenas "github.com/deevus/truenas-go"
-	"github.com/deevus/truenas-go/client"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -83,10 +82,10 @@ func TestCloudSyncCredentialsDataSource_Schema(t *testing.T) {
 func TestCloudSyncCredentialsDataSource_Configure_Success(t *testing.T) {
 	ds := NewCloudSyncCredentialsDataSource().(*CloudSyncCredentialsDataSource)
 
-	mockClient := &client.MockClient{}
+	svc := &services.TrueNASServices{}
 
 	req := datasource.ConfigureRequest{
-		ProviderData: mockClient,
+		ProviderData: svc,
 	}
 	resp := &datasource.ConfigureResponse{}
 
@@ -117,7 +116,7 @@ func TestCloudSyncCredentialsDataSource_Configure_WrongType(t *testing.T) {
 	ds := NewCloudSyncCredentialsDataSource().(*CloudSyncCredentialsDataSource)
 
 	req := datasource.ConfigureRequest{
-		ProviderData: "not a client",
+		ProviderData: "not a services",
 	}
 	resp := &datasource.ConfigureResponse{}
 
@@ -163,22 +162,18 @@ func createCloudSyncCredentialsTestReadRequest(t *testing.T, name string) dataso
 
 func TestCloudSyncCredentialsDataSource_Read_Success_S3(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
-		client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "cloudsync.credentials.query" {
-					t.Errorf("expected method 'cloudsync.credentials.query', got %q", method)
-				}
-				// Return a credentials response (25.x format)
-				return json.RawMessage(`[{
-					"id": 5,
-					"name": "Scaleway",
-					"provider": {
-						"type": "S3",
-						"access_key_id": "AKIATEST",
-						"secret_access_key": "secret123"
-					}
-				}]`), nil
+		services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				ListCredentialsFunc: func(ctx context.Context) ([]truenas.CloudSyncCredential, error) {
+					return []truenas.CloudSyncCredential{
+						{
+							ID:           5,
+							Name:         "Scaleway",
+							ProviderType: "S3",
+							Attributes:   map[string]string{"access_key_id": "AKIATEST"},
+						},
+					}, nil
+				},
 			},
 		},
 	}
@@ -222,17 +217,13 @@ func TestCloudSyncCredentialsDataSource_Read_Success_S3(t *testing.T) {
 
 func TestCloudSyncCredentialsDataSource_Read_Success_B2(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
-		client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// 25.x format
-				return json.RawMessage(`[{
-					"id": 6,
-					"name": "Backblaze",
-					"provider": {
-						"type": "B2"
-					}
-				}]`), nil
+		services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				ListCredentialsFunc: func(ctx context.Context) ([]truenas.CloudSyncCredential, error) {
+					return []truenas.CloudSyncCredential{
+						{ID: 6, Name: "Backblaze", ProviderType: "B2"},
+					}, nil
+				},
 			},
 		},
 	}
@@ -271,17 +262,13 @@ func TestCloudSyncCredentialsDataSource_Read_Success_B2(t *testing.T) {
 
 func TestCloudSyncCredentialsDataSource_Read_Success_GCS(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
-		client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// 25.x format
-				return json.RawMessage(`[{
-					"id": 7,
-					"name": "GCS",
-					"provider": {
-						"type": "GOOGLE_CLOUD_STORAGE"
-					}
-				}]`), nil
+		services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				ListCredentialsFunc: func(ctx context.Context) ([]truenas.CloudSyncCredential, error) {
+					return []truenas.CloudSyncCredential{
+						{ID: 7, Name: "GCS", ProviderType: "GOOGLE_CLOUD_STORAGE"},
+					}, nil
+				},
 			},
 		},
 	}
@@ -320,17 +307,13 @@ func TestCloudSyncCredentialsDataSource_Read_Success_GCS(t *testing.T) {
 
 func TestCloudSyncCredentialsDataSource_Read_Success_Azure(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
-		client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// 25.x format
-				return json.RawMessage(`[{
-					"id": 8,
-					"name": "Azure",
-					"provider": {
-						"type": "AZUREBLOB"
-					}
-				}]`), nil
+		services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				ListCredentialsFunc: func(ctx context.Context) ([]truenas.CloudSyncCredential, error) {
+					return []truenas.CloudSyncCredential{
+						{ID: 8, Name: "Azure", ProviderType: "AZUREBLOB"},
+					}, nil
+				},
 			},
 		},
 	}
@@ -369,11 +352,11 @@ func TestCloudSyncCredentialsDataSource_Read_Success_Azure(t *testing.T) {
 
 func TestCloudSyncCredentialsDataSource_Read_NotFound(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
-		client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return empty array - no credentials found
-				return json.RawMessage(`[]`), nil
+		services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				ListCredentialsFunc: func(ctx context.Context) ([]truenas.CloudSyncCredential, error) {
+					return []truenas.CloudSyncCredential{}, nil
+				},
 			},
 		},
 	}
@@ -399,15 +382,15 @@ func TestCloudSyncCredentialsDataSource_Read_NotFound(t *testing.T) {
 
 func TestCloudSyncCredentialsDataSource_Read_MultipleCredentials_FindsMatch(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
-		client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return multiple credentials (25.x format)
-				return json.RawMessage(`[
-					{"id": 1, "name": "First", "provider": {"type": "S3"}},
-					{"id": 2, "name": "Target", "provider": {"type": "B2"}},
-					{"id": 3, "name": "Third", "provider": {"type": "AZUREBLOB"}}
-				]`), nil
+		services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				ListCredentialsFunc: func(ctx context.Context) ([]truenas.CloudSyncCredential, error) {
+					return []truenas.CloudSyncCredential{
+						{ID: 1, Name: "First", ProviderType: "S3"},
+						{ID: 2, Name: "Target", ProviderType: "B2"},
+						{ID: 3, Name: "Third", ProviderType: "AZUREBLOB"},
+					}, nil
+				},
 			},
 		},
 	}
@@ -449,10 +432,11 @@ func TestCloudSyncCredentialsDataSource_Read_MultipleCredentials_FindsMatch(t *t
 
 func TestCloudSyncCredentialsDataSource_Read_APIError(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
-		client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection failed")
+		services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				ListCredentialsFunc: func(ctx context.Context) ([]truenas.CloudSyncCredential, error) {
+					return nil, errors.New("connection failed")
+				},
 			},
 		},
 	}
@@ -476,48 +460,15 @@ func TestCloudSyncCredentialsDataSource_Read_APIError(t *testing.T) {
 	}
 }
 
-func TestCloudSyncCredentialsDataSource_Read_InvalidJSON(t *testing.T) {
-	ds := &CloudSyncCredentialsDataSource{
-		client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		},
-	}
-
-	req := createCloudSyncCredentialsTestReadRequest(t, "Scaleway")
-
-	schemaReq := datasource.SchemaRequest{}
-	schemaResp := &datasource.SchemaResponse{}
-	ds.Schema(context.Background(), schemaReq, schemaResp)
-
-	resp := &datasource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	ds.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON")
-	}
-}
-
 func TestCloudSyncCredentialsDataSource_Read_UnknownProvider(t *testing.T) {
 	ds := &CloudSyncCredentialsDataSource{
-		client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// 25.x format
-				return json.RawMessage(`[{
-					"id": 9,
-					"name": "Unknown",
-					"provider": {
-						"type": "DROPBOX"
-					}
-				}]`), nil
+		services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				ListCredentialsFunc: func(ctx context.Context) ([]truenas.CloudSyncCredential, error) {
+					return []truenas.CloudSyncCredential{
+						{ID: 9, Name: "Unknown", ProviderType: "DROPBOX"},
+					}, nil
+				},
 			},
 		},
 	}
@@ -559,59 +510,3 @@ func TestCloudSyncCredentialsDataSource_ImplementsInterfaces(t *testing.T) {
 	_ = datasource.DataSource(ds)
 	_ = datasource.DataSourceWithConfigure(ds.(*CloudSyncCredentialsDataSource))
 }
-
-func TestCloudSyncCredentialsDataSource_Read_Legacy(t *testing.T) {
-	ds := &CloudSyncCredentialsDataSource{
-		client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// 24.x format: provider is a string, attributes is a separate object
-				return json.RawMessage(`[{
-					"id": 3,
-					"name": "Legacy Cred",
-					"provider": "S3",
-					"attributes": {
-						"access_key_id": "AKIALEGACY",
-						"secret_access_key": "secret"
-					}
-				}]`), nil
-			},
-		},
-	}
-
-	req := createCloudSyncCredentialsTestReadRequest(t, "Legacy Cred")
-
-	schemaReq := datasource.SchemaRequest{}
-	schemaResp := &datasource.SchemaResponse{}
-	ds.Schema(context.Background(), schemaReq, schemaResp)
-
-	resp := &datasource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	ds.Read(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-
-	var model CloudSyncCredentialsDataSourceModel
-	diags := resp.State.Get(context.Background(), &model)
-	if diags.HasError() {
-		t.Fatalf("failed to get state: %v", diags)
-	}
-
-	if model.ID.ValueString() != "3" {
-		t.Errorf("expected ID '3', got %q", model.ID.ValueString())
-	}
-	if model.Name.ValueString() != "Legacy Cred" {
-		t.Errorf("expected Name 'Legacy Cred', got %q", model.Name.ValueString())
-	}
-	// Verify provider type is correctly parsed from 24.x format
-	if model.ProviderType.ValueString() != "s3" {
-		t.Errorf("expected ProviderType 's3', got %q", model.ProviderType.ValueString())
-	}
-}
-

@@ -2,9 +2,9 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -26,14 +26,6 @@ type VirtConfigResourceModel struct {
 	V4Network     types.String `tfsdk:"v4_network"`
 	V6Network     types.String `tfsdk:"v6_network"`
 	Pool types.String `tfsdk:"pool"`
-}
-
-// virtConfigAPIResponse represents the JSON response from virt.global.config.
-type virtConfigAPIResponse struct {
-	Bridge    *string `json:"bridge"`
-	V4Network *string `json:"v4_network"`
-	V6Network *string `json:"v6_network"`
-	Pool      *string `json:"pool"`
 }
 
 // VirtConfigResource defines the resource implementation.
@@ -90,25 +82,13 @@ func (r *VirtConfigResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
-	// Build params
-	params := r.buildParams(&data)
-
-	// Call API - Create uses virt.global.update
-	_, err := r.client.Call(ctx, "virt.global.update", params)
+	// Build opts and call API
+	opts := r.buildConfigOpts(&data)
+	config, err := r.services.Virt.UpdateGlobalConfig(ctx, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Update LXC Config",
 			fmt.Sprintf("Unable to update virtualization configuration: %s", err.Error()),
-		)
-		return
-	}
-
-	// Read back the config to get the actual state
-	config, err := r.readConfig(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read LXC Config",
-			fmt.Sprintf("virtualization config updated but unable to read: %s", err.Error()),
 		)
 		return
 	}
@@ -130,7 +110,7 @@ func (r *VirtConfigResource) Read(ctx context.Context, req resource.ReadRequest,
 		return
 	}
 
-	config, err := r.readConfig(ctx)
+	config, err := r.services.Virt.GetGlobalConfig(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read LXC Config",
@@ -155,25 +135,13 @@ func (r *VirtConfigResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
-	// Build params from plan
-	params := r.buildParams(&plan)
-
-	// Call API
-	_, err := r.client.Call(ctx, "virt.global.update", params)
+	// Build opts and call API
+	opts := r.buildConfigOpts(&plan)
+	config, err := r.services.Virt.UpdateGlobalConfig(ctx, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Update LXC Config",
 			fmt.Sprintf("Unable to update virtualization configuration: %s", err.Error()),
-		)
-		return
-	}
-
-	// Read back the config to get the actual state
-	config, err := r.readConfig(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read LXC Config",
-			fmt.Sprintf("virtualization config updated but unable to read: %s", err.Error()),
 		)
 		return
 	}
@@ -188,15 +156,16 @@ func (r *VirtConfigResource) Update(ctx context.Context, req resource.UpdateRequ
 }
 
 func (r *VirtConfigResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	// Reset to defaults by setting all fields to nil
-	params := map[string]any{
-		"bridge":     nil,
-		"v4_network": nil,
-		"v6_network": nil,
-		"pool":       nil,
+	// Reset to defaults by setting all fields to empty strings
+	empty := ""
+	opts := truenas.UpdateVirtGlobalConfigOpts{
+		Bridge:    &empty,
+		V4Network: &empty,
+		V6Network: &empty,
+		Pool:      &empty,
 	}
 
-	_, err := r.client.Call(ctx, "virt.global.update", params)
+	_, err := r.services.Virt.UpdateGlobalConfig(ctx, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Reset LXC Config",
@@ -219,63 +188,50 @@ func (r *VirtConfigResource) ImportState(ctx context.Context, req resource.Impor
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-// readConfig queries the virtualization config from the API.
-func (r *VirtConfigResource) readConfig(ctx context.Context) (*virtConfigAPIResponse, error) {
-	result, err := r.client.Call(ctx, "virt.global.config", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var config virtConfigAPIResponse
-	if err := json.Unmarshal(result, &config); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-
-	return &config, nil
-}
-
-// buildParams builds the API params from the resource model.
-func (r *VirtConfigResource) buildParams(data *VirtConfigResourceModel) map[string]any {
-	params := map[string]any{}
+// buildConfigOpts builds the API opts from the resource model.
+// Only non-null terraform fields are set as pointers.
+func (r *VirtConfigResource) buildConfigOpts(data *VirtConfigResourceModel) truenas.UpdateVirtGlobalConfigOpts {
+	var opts truenas.UpdateVirtGlobalConfigOpts
 
 	if !data.Bridge.IsNull() {
-		params["bridge"] = data.Bridge.ValueString()
+		opts.Bridge = truenas.StringPtr(data.Bridge.ValueString())
 	}
 	if !data.V4Network.IsNull() {
-		params["v4_network"] = data.V4Network.ValueString()
+		opts.V4Network = truenas.StringPtr(data.V4Network.ValueString())
 	}
 	if !data.V6Network.IsNull() {
-		params["v6_network"] = data.V6Network.ValueString()
+		opts.V6Network = truenas.StringPtr(data.V6Network.ValueString())
 	}
 	if !data.Pool.IsNull() {
-		params["pool"] = data.Pool.ValueString()
+		opts.Pool = truenas.StringPtr(data.Pool.ValueString())
 	}
 
-	return params
+	return opts
 }
 
-// mapConfigToModel maps an API response to the resource model.
-func (r *VirtConfigResource) mapConfigToModel(config *virtConfigAPIResponse, data *VirtConfigResourceModel) {
-	if config.Bridge != nil {
-		data.Bridge = types.StringValue(*config.Bridge)
+// mapConfigToModel maps a VirtGlobalConfig to the resource model.
+// Empty strings from the API are mapped to null in the terraform model.
+func (r *VirtConfigResource) mapConfigToModel(config *truenas.VirtGlobalConfig, data *VirtConfigResourceModel) {
+	if config.Bridge != "" {
+		data.Bridge = types.StringValue(config.Bridge)
 	} else {
 		data.Bridge = types.StringNull()
 	}
 
-	if config.V4Network != nil {
-		data.V4Network = types.StringValue(*config.V4Network)
+	if config.V4Network != "" {
+		data.V4Network = types.StringValue(config.V4Network)
 	} else {
 		data.V4Network = types.StringNull()
 	}
 
-	if config.V6Network != nil {
-		data.V6Network = types.StringValue(*config.V6Network)
+	if config.V6Network != "" {
+		data.V6Network = types.StringValue(config.V6Network)
 	} else {
 		data.V6Network = types.StringNull()
 	}
 
-	if config.Pool != nil {
-		data.Pool = types.StringValue(*config.Pool)
+	if config.Pool != "" {
+		data.Pool = types.StringValue(config.Pool)
 	} else {
 		data.Pool = types.StringNull()
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
@@ -25,8 +25,8 @@ func TestBaseResource_Configure_NilProviderData(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if b.client != nil {
-		t.Error("expected client to remain nil")
+	if b.services != nil {
+		t.Error("expected services to remain nil")
 	}
 }
 
@@ -34,7 +34,7 @@ func TestBaseResource_Configure_WrongType(t *testing.T) {
 	b := &BaseResource{}
 
 	req := resource.ConfigureRequest{
-		ProviderData: "not a client",
+		ProviderData: "not a services",
 	}
 	resp := &resource.ConfigureResponse{}
 
@@ -59,10 +59,10 @@ func TestBaseResource_Configure_WrongType(t *testing.T) {
 func TestBaseResource_Configure_Success(t *testing.T) {
 	b := &BaseResource{}
 
-	mockClient := &client.MockClient{}
+	services := &services.TrueNASServices{}
 
 	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
+		ProviderData: services,
 	}
 	resp := &resource.ConfigureResponse{}
 
@@ -72,8 +72,8 @@ func TestBaseResource_Configure_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if b.client != mockClient {
-		t.Error("expected client to be set to mockClient")
+	if b.services != services {
+		t.Error("expected services to be set")
 	}
 }
 

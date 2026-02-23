@@ -2,13 +2,11 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"testing"
 
 	truenas "github.com/deevus/truenas-go"
-	"github.com/deevus/truenas-go/client"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -315,35 +313,27 @@ func createVMModelValue(p vmModelParams) tftypes.Value {
 	return tftypes.NewValue(vmObjectType(), values)
 }
 
-// mockVMResponse generates a valid vm.get_instance JSON response.
-func mockVMResponse(id int64, name string, memory int64, state string) json.RawMessage {
-	return json.RawMessage(fmt.Sprintf(`{
-		"id": %d,
-		"name": %q,
-		"description": "",
-		"vcpus": 1,
-		"cores": 1,
-		"threads": 1,
-		"memory": %d,
-		"min_memory": null,
-		"autostart": true,
-		"time": "LOCAL",
-		"bootloader": "UEFI",
-		"bootloader_ovmf": "OVMF_CODE.fd",
-		"cpu_mode": "CUSTOM",
-		"cpu_model": null,
-		"shutdown_timeout": 90,
-		"command_line_args": "",
-		"status": {"state": %q, "pid": null, "domain_state": "SHUTOFF"},
-		"display_available": false,
-		"devices": []
-	}`, id, name, memory, state))
-}
-
-// mockVMDevicesResponse generates a vm.device.query response.
-func mockVMDevicesResponse(devices ...map[string]any) json.RawMessage {
-	data, _ := json.Marshal(devices)
-	return json.RawMessage(data)
+// mockVM generates a valid *truenas.VM for testing.
+func mockVM(id int64, name string, memory int64, state string) *truenas.VM {
+	return &truenas.VM{
+		ID:              id,
+		Name:            name,
+		Description:     "",
+		VCPUs:           1,
+		Cores:           1,
+		Threads:         1,
+		Memory:          memory,
+		MinMemory:       nil,
+		Autostart:       true,
+		Time:            "LOCAL",
+		Bootloader:      "UEFI",
+		BootloaderOVMF:  "OVMF_CODE.fd",
+		CPUMode:         "CUSTOM",
+		CPUModel:        "",
+		ShutdownTimeout: 90,
+		CommandLineArgs: "",
+		State:           state,
+	}
 }
 
 // defaultVMPlanParams returns params for a minimal VM plan.
@@ -453,9 +443,9 @@ func TestVMResource_Schema(t *testing.T) {
 	}
 }
 
-// -- buildCreateParams tests --
+// -- buildCreateOpts tests --
 
-func TestVMResource_buildCreateParams(t *testing.T) {
+func TestVMResource_buildCreateOpts(t *testing.T) {
 	r := &VMResource{}
 
 	t.Run("minimal", func(t *testing.T) {
@@ -463,12 +453,12 @@ func TestVMResource_buildCreateParams(t *testing.T) {
 			Name:   types.StringValue("test-vm"),
 			Memory: types.Int64Value(2048),
 		}
-		params := r.buildCreateParams(data)
-		if params["name"] != "test-vm" {
-			t.Errorf("expected name 'test-vm', got %v", params["name"])
+		opts := r.buildCreateOpts(data)
+		if opts.Name != "test-vm" {
+			t.Errorf("expected name 'test-vm', got %v", opts.Name)
 		}
-		if params["memory"] != int64(2048) {
-			t.Errorf("expected memory 2048, got %v", params["memory"])
+		if opts.Memory != 2048 {
+			t.Errorf("expected memory 2048, got %v", opts.Memory)
 		}
 	})
 
@@ -486,24 +476,24 @@ func TestVMResource_buildCreateParams(t *testing.T) {
 			CPUMode:         types.StringValue("HOST-PASSTHROUGH"),
 			CommandLineArgs: types.StringValue("-cpu host"),
 		}
-		params := r.buildCreateParams(data)
-		if params["description"] != "A test VM" {
-			t.Errorf("expected description, got %v", params["description"])
+		opts := r.buildCreateOpts(data)
+		if opts.Description != "A test VM" {
+			t.Errorf("expected description, got %v", opts.Description)
 		}
-		if params["vcpus"] != int64(2) {
-			t.Errorf("expected vcpus 2, got %v", params["vcpus"])
+		if opts.VCPUs != 2 {
+			t.Errorf("expected vcpus 2, got %v", opts.VCPUs)
 		}
-		if params["autostart"] != false {
-			t.Errorf("expected autostart false, got %v", params["autostart"])
+		if opts.Autostart != false {
+			t.Errorf("expected autostart false, got %v", opts.Autostart)
 		}
-		if params["time"] != "UTC" {
-			t.Errorf("expected time UTC, got %v", params["time"])
+		if opts.Time != "UTC" {
+			t.Errorf("expected time UTC, got %v", opts.Time)
 		}
-		if params["cpu_mode"] != "HOST-PASSTHROUGH" {
-			t.Errorf("expected cpu_mode HOST-PASSTHROUGH, got %v", params["cpu_mode"])
+		if opts.CPUMode != "HOST-PASSTHROUGH" {
+			t.Errorf("expected cpu_mode HOST-PASSTHROUGH, got %v", opts.CPUMode)
 		}
-		if params["command_line_args"] != "-cpu host" {
-			t.Errorf("expected command_line_args '-cpu host', got %v", params["command_line_args"])
+		if opts.CommandLineArgs != "-cpu host" {
+			t.Errorf("expected command_line_args '-cpu host', got %v", opts.CommandLineArgs)
 		}
 	})
 
@@ -514,12 +504,12 @@ func TestVMResource_buildCreateParams(t *testing.T) {
 			CPUModel:  types.StringNull(),
 			MinMemory: types.Int64Null(),
 		}
-		params := r.buildCreateParams(data)
-		if _, ok := params["cpu_model"]; ok {
-			t.Error("null cpu_model should not be in params")
+		opts := r.buildCreateOpts(data)
+		if opts.CPUModel != "" {
+			t.Errorf("null cpu_model should be empty, got %v", opts.CPUModel)
 		}
-		if _, ok := params["min_memory"]; ok {
-			t.Error("null min_memory should not be in params")
+		if opts.MinMemory != nil {
+			t.Errorf("null min_memory should be nil, got %v", opts.MinMemory)
 		}
 	})
 }
@@ -527,26 +517,21 @@ func TestVMResource_buildCreateParams(t *testing.T) {
 // -- Create tests --
 
 func TestVMResource_Create_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.CreateVMOpts
 
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					capturedMethod = method
-					capturedParams = params
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				capturedOpts = opts
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return nil, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -564,19 +549,11 @@ func TestVMResource_Create_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "vm.create" {
-		t.Errorf("expected method 'vm.create', got %q", capturedMethod)
+	if capturedOpts.Name != "test-vm" {
+		t.Errorf("expected name 'test-vm', got %v", capturedOpts.Name)
 	}
-
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
-	}
-	if params["name"] != "test-vm" {
-		t.Errorf("expected name 'test-vm', got %v", params["name"])
-	}
-	if params["memory"] != int64(2048) {
-		t.Errorf("expected memory 2048, got %v", params["memory"])
+	if capturedOpts.Memory != 2048 {
+		t.Errorf("expected memory 2048, got %v", capturedOpts.Memory)
 	}
 
 	var model VMResourceModel
@@ -590,26 +567,24 @@ func TestVMResource_Create_Success(t *testing.T) {
 }
 
 func TestVMResource_Create_WithStateRunning(t *testing.T) {
-	var methods []string
+	startCalled := false
 
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "RUNNING"), nil
-				case "vm.start":
-					return json.RawMessage(`true`), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "RUNNING"), nil
+			},
+			StartVMFunc: func(ctx context.Context, id int64) error {
+				startCalled = true
+				return nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return nil, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -630,26 +605,18 @@ func TestVMResource_Create_WithStateRunning(t *testing.T) {
 	}
 
 	// Verify vm.start was called
-	foundStart := false
-	for _, m := range methods {
-		if m == "vm.start" {
-			foundStart = true
-			break
-		}
-	}
-	if !foundStart {
-		t.Errorf("expected vm.start to be called, got methods: %v", methods)
+	if !startCalled {
+		t.Error("expected vm.start to be called")
 	}
 }
 
 func TestVMResource_Create_APIError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
 				return nil, errors.New("vm already exists")
 			},
-		}},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -668,32 +635,29 @@ func TestVMResource_Create_APIError(t *testing.T) {
 }
 
 func TestVMResource_Create_WithDevices(t *testing.T) {
-	var deviceCreateCalls []map[string]any
+	var deviceCreateCalls []truenas.CreateVMDeviceOpts
 
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					p, _ := params.(map[string]any)
-					deviceCreateCalls = append(deviceCreateCalls, p)
-					return json.RawMessage(fmt.Sprintf(`{"id": %d}`, len(deviceCreateCalls)+100)), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(
-						map[string]any{"id": float64(101), "vm": float64(1), "order": float64(1000),
-							"attributes": map[string]any{"dtype": "DISK", "path": "/dev/zvol/tank/vms/disk0", "type": "VIRTIO"}},
-						map[string]any{"id": float64(102), "vm": float64(1), "order": float64(1001),
-							"attributes": map[string]any{"dtype": "NIC", "type": "VIRTIO", "nic_attach": "br0", "mac": "00:11:22:33:44:55"}},
-					), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				deviceCreateCalls = append(deviceCreateCalls, opts)
+				return &truenas.VMDevice{ID: int64(len(deviceCreateCalls) + 100)}, nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 101, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeDisk,
+						Disk: &truenas.DiskDevice{Path: "/dev/zvol/tank/vms/disk0", Type: "VIRTIO"}},
+					{ID: 102, VM: 1, Order: 1001, DeviceType: truenas.DeviceTypeNIC,
+						NIC: &truenas.NICDevice{Type: "VIRTIO", NICAttach: "br0", MAC: "00:11:22:33:44:55"}},
+				}, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -730,18 +694,14 @@ func TestVMResource_Create_WithDevices(t *testing.T) {
 
 func TestVMResource_Read_Success(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return nil, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -773,12 +733,11 @@ func TestVMResource_Read_Success(t *testing.T) {
 
 func TestVMResource_Read_NotFound(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
 				return nil, errors.New("does not exist")
 			},
-		}},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -806,23 +765,19 @@ func TestVMResource_Read_NotFound(t *testing.T) {
 
 func TestVMResource_Read_WithDevices(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "RUNNING"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(
-						map[string]any{"id": float64(10), "vm": float64(1), "order": float64(1000),
-							"attributes": map[string]any{"dtype": "DISK", "path": "/dev/zvol/tank/vms/disk0", "type": "VIRTIO"}},
-						map[string]any{"id": float64(11), "vm": float64(1), "order": float64(1001),
-							"attributes": map[string]any{"dtype": "NIC", "type": "VIRTIO", "nic_attach": "br0", "mac": "00:aa:bb:cc:dd:ee"}},
-					), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "RUNNING"), nil
 			},
-		}},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 10, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeDisk,
+						Disk: &truenas.DiskDevice{Path: "/dev/zvol/tank/vms/disk0", Type: "VIRTIO"}},
+					{ID: 11, VM: 1, Order: 1001, DeviceType: truenas.DeviceTypeNIC,
+						NIC: &truenas.NICDevice{Type: "VIRTIO", NICAttach: "br0", MAC: "00:aa:bb:cc:dd:ee"}},
+				}, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -868,24 +823,23 @@ func TestVMResource_Read_WithDevices(t *testing.T) {
 // -- Update tests --
 
 func TestVMResource_Update_TopLevel(t *testing.T) {
-	var capturedUpdateParams any
+	var capturedUpdateOpts truenas.UpdateVMOpts
+	var updateCalled bool
 
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.update":
-					capturedUpdateParams = params
-					return mockVMResponse(1, "test-vm", 4096, "STOPPED"), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 4096, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			UpdateVMFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMOpts) (*truenas.VM, error) {
+				capturedUpdateOpts = opts
+				updateCalled = true
+				return mockVM(1, "test-vm", 4096, "STOPPED"), nil
 			},
-		}},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 4096, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return nil, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -915,21 +869,11 @@ func TestVMResource_Update_TopLevel(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedUpdateParams == nil {
+	if !updateCalled {
 		t.Fatal("expected vm.update to be called")
 	}
-
-	// Params is []any{vmID, updateMap}
-	paramSlice, ok := capturedUpdateParams.([]any)
-	if !ok {
-		t.Fatalf("expected []any, got %T", capturedUpdateParams)
-	}
-	updateMap, ok := paramSlice[1].(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any, got %T", paramSlice[1])
-	}
-	if updateMap["memory"] != int64(4096) {
-		t.Errorf("expected memory 4096, got %v", updateMap["memory"])
+	if capturedUpdateOpts.Memory != 4096 {
+		t.Errorf("expected memory 4096, got %v", capturedUpdateOpts.Memory)
 	}
 }
 
@@ -939,19 +883,14 @@ func TestVMResource_Delete_Stopped(t *testing.T) {
 	var methods []string
 
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				switch method {
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.delete":
-					return json.RawMessage(`true`), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			DeleteVMFunc: func(ctx context.Context, id int64) error {
+				return nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -981,23 +920,18 @@ func TestVMResource_Delete_Running(t *testing.T) {
 	var methods []string
 
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				switch method {
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "RUNNING"), nil
-				case "vm.delete":
-					return json.RawMessage(`true`), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "RUNNING"), nil
 			},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				return json.RawMessage(`true`), nil
+			DeleteVMFunc: func(ctx context.Context, id int64) error {
+				return nil
 			},
-		}},
+			StopVMFunc: func(ctx context.Context, id int64, opts truenas.StopVMOpts) error {
+				methods = append(methods, "vm.stop")
+				return nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1059,30 +993,22 @@ func TestVMResource_ImportState(t *testing.T) {
 func TestVMResource_mapDevicesToModel(t *testing.T) {
 	r := &VMResource{}
 
-	devices := []vmDeviceAPIResponse{
-		{ID: 10, VM: 1, Order: 1000, Attributes: map[string]any{
-			"dtype": "DISK", "path": "/dev/zvol/tank/vms/disk0", "type": "VIRTIO",
-		}},
-		{ID: 11, VM: 1, Order: 1001, Attributes: map[string]any{
-			"dtype": "RAW", "path": "/mnt/tank/vms/raw.img", "type": "AHCI",
-			"boot": true, "size": float64(10737418240),
-		}},
-		{ID: 12, VM: 1, Order: 1002, Attributes: map[string]any{
-			"dtype": "CDROM", "path": "/mnt/tank/iso/ubuntu.iso",
-		}},
-		{ID: 13, VM: 1, Order: 1003, Attributes: map[string]any{
-			"dtype": "NIC", "type": "VIRTIO", "nic_attach": "br0", "mac": "00:aa:bb:cc:dd:ee",
-		}},
-		{ID: 14, VM: 1, Order: 1004, Attributes: map[string]any{
-			"dtype": "DISPLAY", "type": "SPICE", "resolution": "1920x1080",
-			"port": float64(5900), "bind": "0.0.0.0", "web": true,
-		}},
-		{ID: 15, VM: 1, Order: 1005, Attributes: map[string]any{
-			"dtype": "PCI", "pptdev": "0000:01:00.0",
-		}},
-		{ID: 16, VM: 1, Order: 1006, Attributes: map[string]any{
-			"dtype": "USB", "controller_type": "qemu-xhci", "device": "usb_0001",
-		}},
+	size := int64(10737418240)
+	devices := []truenas.VMDevice{
+		{ID: 10, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeDisk,
+			Disk: &truenas.DiskDevice{Path: "/dev/zvol/tank/vms/disk0", Type: "VIRTIO"}},
+		{ID: 11, VM: 1, Order: 1001, DeviceType: truenas.DeviceTypeRaw,
+			Raw: &truenas.RawDevice{Path: "/mnt/tank/vms/raw.img", Type: "AHCI", Boot: true, Size: &size}},
+		{ID: 12, VM: 1, Order: 1002, DeviceType: truenas.DeviceTypeCDROM,
+			CDROM: &truenas.CDROMDevice{Path: "/mnt/tank/iso/ubuntu.iso"}},
+		{ID: 13, VM: 1, Order: 1003, DeviceType: truenas.DeviceTypeNIC,
+			NIC: &truenas.NICDevice{Type: "VIRTIO", NICAttach: "br0", MAC: "00:aa:bb:cc:dd:ee"}},
+		{ID: 14, VM: 1, Order: 1004, DeviceType: truenas.DeviceTypeDisplay,
+			Display: &truenas.DisplayDevice{Type: "SPICE", Resolution: "1920x1080", Port: 5900, Bind: "0.0.0.0", Web: true}},
+		{ID: 15, VM: 1, Order: 1005, DeviceType: truenas.DeviceTypePCI,
+			PCI: &truenas.PCIDevice{PPTDev: "0000:01:00.0"}},
+		{ID: 16, VM: 1, Order: 1006, DeviceType: truenas.DeviceTypeUSB,
+			USB: &truenas.USBDevice{ControllerType: "qemu-xhci", Device: "usb_0001"}},
 	}
 
 	data := &VMResourceModel{}
@@ -1141,96 +1067,93 @@ func TestVMResource_mapDevicesToModel(t *testing.T) {
 	}
 }
 
-// -- buildDeviceParams tests --
+// -- buildDeviceOpts tests --
 
-func TestVMResource_buildDiskDeviceParams(t *testing.T) {
+func TestVMResource_buildDiskDeviceOpts(t *testing.T) {
 	disk := &VMDiskModel{
 		Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
 		Type:   types.StringValue("VIRTIO"),
 		IOType: types.StringValue("THREADS"),
 	}
-	params := buildDiskDeviceParams(disk, 1)
-	if params["vm"] != int64(1) {
-		t.Errorf("expected vm=1, got %v", params["vm"])
+	opts := buildDiskDeviceOpts(disk, 1)
+	if opts.VM != 1 {
+		t.Errorf("expected vm=1, got %v", opts.VM)
 	}
-	attrs, ok := params["attributes"].(map[string]any)
-	if !ok {
-		t.Fatal("expected attributes to be map[string]any")
+	if opts.DeviceType != truenas.DeviceTypeDisk {
+		t.Errorf("expected dtype=DISK, got %v", opts.DeviceType)
 	}
-	if attrs["dtype"] != "DISK" {
-		t.Errorf("expected dtype=DISK, got %v", attrs["dtype"])
-	}
-	if attrs["path"] != "/dev/zvol/tank/vms/disk0" {
-		t.Errorf("expected path, got %v", attrs["path"])
+	if opts.Disk == nil || opts.Disk.Path != "/dev/zvol/tank/vms/disk0" {
+		t.Errorf("expected path /dev/zvol/tank/vms/disk0, got %v", opts.Disk)
 	}
 }
 
-func TestVMResource_buildNICDeviceParams(t *testing.T) {
+func TestVMResource_buildNICDeviceOpts(t *testing.T) {
 	nic := &VMNICModel{
 		Type:      types.StringValue("VIRTIO"),
 		NICAttach: types.StringValue("br0"),
 	}
-	params := buildNICDeviceParams(nic, 1)
-	attrs := params["attributes"].(map[string]any)
-	if attrs["dtype"] != "NIC" {
-		t.Errorf("expected dtype=NIC, got %v", attrs["dtype"])
+	opts := buildNICDeviceOpts(nic, 1)
+	if opts.DeviceType != truenas.DeviceTypeNIC {
+		t.Errorf("expected dtype=NIC, got %v", opts.DeviceType)
 	}
-	if attrs["type"] != "VIRTIO" {
-		t.Errorf("expected type=VIRTIO, got %v", attrs["type"])
+	if opts.NIC == nil || opts.NIC.Type != "VIRTIO" {
+		t.Errorf("expected type=VIRTIO, got %v", opts.NIC)
 	}
 }
 
-func TestVMResource_buildCDROMDeviceParams(t *testing.T) {
+func TestVMResource_buildCDROMDeviceOpts(t *testing.T) {
 	cdrom := &VMCDROMModel{
 		Path: types.StringValue("/mnt/tank/iso/ubuntu.iso"),
 	}
-	params := buildCDROMDeviceParams(cdrom, 1)
-	attrs := params["attributes"].(map[string]any)
-	if attrs["dtype"] != "CDROM" {
-		t.Errorf("expected dtype=CDROM, got %v", attrs["dtype"])
+	opts := buildCDROMDeviceOpts(cdrom, 1)
+	if opts.DeviceType != truenas.DeviceTypeCDROM {
+		t.Errorf("expected dtype=CDROM, got %v", opts.DeviceType)
+	}
+	if opts.CDROM == nil || opts.CDROM.Path != "/mnt/tank/iso/ubuntu.iso" {
+		t.Errorf("expected path /mnt/tank/iso/ubuntu.iso, got %v", opts.CDROM)
 	}
 }
 
-func TestVMResource_buildDisplayDeviceParams(t *testing.T) {
+func TestVMResource_buildDisplayDeviceOpts(t *testing.T) {
 	display := &VMDisplayModel{
 		Type:       types.StringValue("SPICE"),
 		Resolution: types.StringValue("1920x1080"),
 		Bind:       types.StringValue("0.0.0.0"),
 		Web:        types.BoolValue(true),
 	}
-	params := buildDisplayDeviceParams(display, 1)
-	attrs := params["attributes"].(map[string]any)
-	if attrs["dtype"] != "DISPLAY" {
-		t.Errorf("expected dtype=DISPLAY, got %v", attrs["dtype"])
+	opts := buildDisplayDeviceOpts(display, 1)
+	if opts.DeviceType != truenas.DeviceTypeDisplay {
+		t.Errorf("expected dtype=DISPLAY, got %v", opts.DeviceType)
 	}
-	if attrs["resolution"] != "1920x1080" {
-		t.Errorf("expected resolution=1920x1080, got %v", attrs["resolution"])
+	if opts.Display == nil || opts.Display.Resolution != "1920x1080" {
+		t.Errorf("expected resolution=1920x1080, got %v", opts.Display)
 	}
 }
 
-func TestVMResource_buildPCIDeviceParams(t *testing.T) {
+func TestVMResource_buildPCIDeviceOpts(t *testing.T) {
 	pci := &VMPCIModel{
 		PPTDev: types.StringValue("0000:01:00.0"),
 	}
-	params := buildPCIDeviceParams(pci, 1)
-	attrs := params["attributes"].(map[string]any)
-	if attrs["dtype"] != "PCI" {
-		t.Errorf("expected dtype=PCI, got %v", attrs["dtype"])
+	opts := buildPCIDeviceOpts(pci, 1)
+	if opts.DeviceType != truenas.DeviceTypePCI {
+		t.Errorf("expected dtype=PCI, got %v", opts.DeviceType)
+	}
+	if opts.PCI == nil || opts.PCI.PPTDev != "0000:01:00.0" {
+		t.Errorf("expected pptdev 0000:01:00.0, got %v", opts.PCI)
 	}
 }
 
-func TestVMResource_buildUSBDeviceParams(t *testing.T) {
+func TestVMResource_buildUSBDeviceOpts(t *testing.T) {
 	usb := &VMUSBModel{
 		ControllerType: types.StringValue("qemu-xhci"),
 		Device:         types.StringValue("usb_0001"),
 	}
-	params := buildUSBDeviceParams(usb, 1)
-	attrs := params["attributes"].(map[string]any)
-	if attrs["dtype"] != "USB" {
-		t.Errorf("expected dtype=USB, got %v", attrs["dtype"])
+	opts := buildUSBDeviceOpts(usb, 1)
+	if opts.DeviceType != truenas.DeviceTypeUSB {
+		t.Errorf("expected dtype=USB, got %v", opts.DeviceType)
 	}
-	if attrs["controller_type"] != "qemu-xhci" {
-		t.Errorf("expected controller_type=qemu-xhci, got %v", attrs["controller_type"])
+	if opts.USB == nil || opts.USB.ControllerType != "qemu-xhci" {
+		t.Errorf("expected controller_type=qemu-xhci, got %v", opts.USB)
 	}
 }
 
@@ -1238,18 +1161,14 @@ func TestVMResource_buildUSBDeviceParams(t *testing.T) {
 
 func TestVMResource_reconcileDevices(t *testing.T) {
 	t.Run("create new device", func(t *testing.T) {
-		var createdDevices []map[string]any
+		var createdDevices []truenas.CreateVMDeviceOpts
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						p, _ := params.(map[string]any)
-						createdDevices = append(createdDevices, p)
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices = append(createdDevices, opts)
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := &VMResourceModel{
@@ -1272,19 +1191,12 @@ func TestVMResource_reconcileDevices(t *testing.T) {
 	t.Run("delete removed device", func(t *testing.T) {
 		var deletedIDs []int64
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.delete" {
-						// params is device ID
-						id, ok := params.(int64)
-						if ok {
-							deletedIDs = append(deletedIDs, id)
-						}
-						return json.RawMessage(`true`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				DeleteDeviceFunc: func(ctx context.Context, id int64) error {
+					deletedIDs = append(deletedIDs, id)
+					return nil
 				},
-			}},
+			}}},
 		}
 
 		plan := &VMResourceModel{}
@@ -1308,15 +1220,12 @@ func TestVMResource_reconcileDevices(t *testing.T) {
 	t.Run("update existing device", func(t *testing.T) {
 		var updatedParams []any
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.update" {
-						updatedParams = append(updatedParams, params)
-						return json.RawMessage(`{"id": 50}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
+					updatedParams = append(updatedParams, opts)
+					return &truenas.VMDevice{ID: 50}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := &VMResourceModel{
@@ -1346,12 +1255,20 @@ func TestVMResource_reconcileDevices(t *testing.T) {
 	t.Run("no changes no calls", func(t *testing.T) {
 		callCount := 0
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
 					callCount++
-					return nil, fmt.Errorf("unexpected call: %s", method)
+					return &truenas.VMDevice{ID: 1}, nil
 				},
-			}},
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
+					callCount++
+					return &truenas.VMDevice{ID: id}, nil
+				},
+				DeleteDeviceFunc: func(ctx context.Context, id int64) error {
+					callCount++
+					return nil
+				},
+			}}},
 		}
 
 		disk := VMDiskModel{
@@ -1378,12 +1295,12 @@ func TestVMResource_reconcileState(t *testing.T) {
 	t.Run("stopped to running calls vm.start", func(t *testing.T) {
 		var calledMethod string
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					calledMethod = method
-					return json.RawMessage(`true`), nil
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				StartVMFunc: func(ctx context.Context, id int64) error {
+					calledMethod = "vm.start"
+					return nil
 				},
-			}},
+			}}},
 		}
 
 		err := r.reconcileState(context.Background(), 1, "STOPPED", "RUNNING")
@@ -1398,12 +1315,12 @@ func TestVMResource_reconcileState(t *testing.T) {
 	t.Run("running to stopped calls vm.stop via CallAndWait", func(t *testing.T) {
 		var calledMethod string
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					calledMethod = method
-					return json.RawMessage(`true`), nil
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				StopVMFunc: func(ctx context.Context, id int64, opts truenas.StopVMOpts) error {
+					calledMethod = "vm.stop"
+					return nil
 				},
-			}},
+			}}},
 		}
 
 		err := r.reconcileState(context.Background(), 1, "RUNNING", "STOPPED")
@@ -1418,12 +1335,12 @@ func TestVMResource_reconcileState(t *testing.T) {
 	t.Run("same state is no-op", func(t *testing.T) {
 		callCount := 0
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
 					callCount++
 					return nil, nil
 				},
-			}},
+			}}},
 		}
 
 		err := r.reconcileState(context.Background(), 1, "RUNNING", "RUNNING")
@@ -1626,18 +1543,14 @@ func createVMModelValueFull(p vmModelParams, raws []vmRawParams, pcis []vmPCIPar
 
 func TestVMResource_Create_DeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					return nil, errors.New("device creation failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				return nil, errors.New("device creation failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1663,18 +1576,14 @@ func TestVMResource_Create_DeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_StartError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.start":
-					return nil, errors.New("vm.start failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			StartVMFunc: func(ctx context.Context, id int64) error {
+				return errors.New("vm.start failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1696,18 +1605,14 @@ func TestVMResource_Create_StartError(t *testing.T) {
 
 func TestVMResource_Create_ReadBackError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.get_instance":
-					return nil, errors.New("read-back failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return nil, errors.New("read-back failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1727,20 +1632,17 @@ func TestVMResource_Create_ReadBackError(t *testing.T) {
 
 func TestVMResource_Create_DeviceQueryError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return nil, errors.New("device query failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return nil, errors.New("device query failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1759,28 +1661,26 @@ func TestVMResource_Create_DeviceQueryError(t *testing.T) {
 }
 
 func TestVMResource_Create_WithCDROMDevice(t *testing.T) {
-	var deviceMethods []string
+	deviceCreateCalled := false
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				deviceMethods = append(deviceMethods, method)
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					return json.RawMessage(`{"id": 101}`), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(
-						map[string]any{"id": float64(101), "vm": float64(1), "order": float64(1000),
-							"attributes": map[string]any{"dtype": "CDROM", "path": "/mnt/tank/iso/test.iso"}},
-					), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				deviceCreateCalled = true
+				return &truenas.VMDevice{ID: 101}, nil
+			},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 101, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeCDROM,
+						CDROM: &truenas.CDROMDevice{Path: "/mnt/tank/iso/test.iso"}},
+				}, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1801,41 +1701,32 @@ func TestVMResource_Create_WithCDROMDevice(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	foundDeviceCreate := false
-	for _, m := range deviceMethods {
-		if m == "vm.device.create" {
-			foundDeviceCreate = true
-		}
-	}
-	if !foundDeviceCreate {
-		t.Errorf("expected vm.device.create to be called for CDROM device")
+	if !deviceCreateCalled {
+		t.Error("expected vm.device.create to be called for CDROM device")
 	}
 }
 
 func TestVMResource_Create_WithDisplayDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					deviceCreateCalls++
-					return json.RawMessage(`{"id": 101}`), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(
-						map[string]any{"id": float64(101), "vm": float64(1), "order": float64(1000),
-							"attributes": map[string]any{"dtype": "DISPLAY", "type": "SPICE", "resolution": "1920x1080",
-								"bind": "0.0.0.0", "web": true, "port": float64(5900)}},
-					), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				deviceCreateCalls++
+				return &truenas.VMDevice{ID: 101}, nil
+			},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 101, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeDisplay,
+						Display: &truenas.DisplayDevice{Type: "SPICE", Resolution: "1920x1080", Bind: "0.0.0.0", Web: true, Port: 5900}},
+				}, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1864,26 +1755,24 @@ func TestVMResource_Create_WithDisplayDevice(t *testing.T) {
 func TestVMResource_Create_WithRawDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					deviceCreateCalls++
-					return json.RawMessage(`{"id": 101}`), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(
-						map[string]any{"id": float64(101), "vm": float64(1), "order": float64(1000),
-							"attributes": map[string]any{"dtype": "RAW", "path": "/mnt/tank/vms/raw.img", "type": "AHCI", "boot": false}},
-					), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				deviceCreateCalls++
+				return &truenas.VMDevice{ID: 101}, nil
+			},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 101, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeRaw,
+						Raw: &truenas.RawDevice{Path: "/mnt/tank/vms/raw.img", Type: "AHCI", Boot: false}},
+				}, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1915,26 +1804,24 @@ func TestVMResource_Create_WithRawDevice(t *testing.T) {
 func TestVMResource_Create_WithPCIDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					deviceCreateCalls++
-					return json.RawMessage(`{"id": 101}`), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(
-						map[string]any{"id": float64(101), "vm": float64(1), "order": float64(1000),
-							"attributes": map[string]any{"dtype": "PCI", "pptdev": "0000:01:00.0"}},
-					), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				deviceCreateCalls++
+				return &truenas.VMDevice{ID: 101}, nil
+			},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 101, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypePCI,
+						PCI: &truenas.PCIDevice{PPTDev: "0000:01:00.0"}},
+				}, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -1962,26 +1849,24 @@ func TestVMResource_Create_WithPCIDevice(t *testing.T) {
 func TestVMResource_Create_WithUSBDevice(t *testing.T) {
 	var deviceCreateCalls int
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					deviceCreateCalls++
-					return json.RawMessage(`{"id": 101}`), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(
-						map[string]any{"id": float64(101), "vm": float64(1), "order": float64(1000),
-							"attributes": map[string]any{"dtype": "USB", "controller_type": "qemu-xhci", "device": "usb_0001"}},
-					), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				deviceCreateCalls++
+				return &truenas.VMDevice{ID: 101}, nil
+			},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 101, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeUSB,
+						USB: &truenas.USBDevice{ControllerType: "qemu-xhci", Device: "usb_0001"}},
+				}, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2007,18 +1892,14 @@ func TestVMResource_Create_WithUSBDevice(t *testing.T) {
 
 func TestVMResource_Create_RawDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					return nil, errors.New("raw device creation failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				return nil, errors.New("raw device creation failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2046,18 +1927,14 @@ func TestVMResource_Create_RawDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_CDROMDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					return nil, errors.New("cdrom device creation failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				return nil, errors.New("cdrom device creation failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2079,18 +1956,14 @@ func TestVMResource_Create_CDROMDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_NICDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					return nil, errors.New("nic device creation failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				return nil, errors.New("nic device creation failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2112,18 +1985,14 @@ func TestVMResource_Create_NICDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_DisplayDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					return nil, errors.New("display device creation failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				return nil, errors.New("display device creation failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2148,18 +2017,14 @@ func TestVMResource_Create_DisplayDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_PCIDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					return nil, errors.New("pci device creation failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				return nil, errors.New("pci device creation failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2183,18 +2048,14 @@ func TestVMResource_Create_PCIDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Create_USBDeviceCreateError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.create":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					return nil, errors.New("usb device creation failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				return nil, errors.New("usb device creation failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2219,12 +2080,11 @@ func TestVMResource_Create_USBDeviceCreateError(t *testing.T) {
 
 func TestVMResource_Read_NonNotFoundError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
 				return nil, errors.New("internal server error")
 			},
-		}},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2246,18 +2106,14 @@ func TestVMResource_Read_NonNotFoundError(t *testing.T) {
 
 func TestVMResource_Read_DeviceQueryError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return nil, errors.New("device query failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return nil, errors.New("device query failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2280,30 +2136,31 @@ func TestVMResource_Read_DeviceQueryError(t *testing.T) {
 // -- Update additional tests --
 
 func TestVMResource_Update_WithDeviceReconciliation(t *testing.T) {
-	var methods []string
+	deleteCalled := false
+	createCalled := false
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				switch method {
-				case "vm.update":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.create":
-					return json.RawMessage(`{"id": 102}`), nil
-				case "vm.device.delete":
-					return json.RawMessage(`true`), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(
-						map[string]any{"id": float64(102), "vm": float64(1), "order": float64(1000),
-							"attributes": map[string]any{"dtype": "DISK", "path": "/dev/zvol/tank/vms/new-disk", "type": "VIRTIO"}},
-					), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			UpdateVMFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				createCalled = true
+				return &truenas.VMDevice{ID: 102}, nil
+			},
+			DeleteDeviceFunc: func(ctx context.Context, id int64) error {
+				deleteCalled = true
+				return nil
+			},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 102, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeDisk,
+						Disk: &truenas.DiskDevice{Path: "/dev/zvol/tank/vms/new-disk", Type: "VIRTIO"}},
+				}, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2340,44 +2197,32 @@ func TestVMResource_Update_WithDeviceReconciliation(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	foundDelete := false
-	foundCreate := false
-	for _, m := range methods {
-		if m == "vm.device.delete" {
-			foundDelete = true
-		}
-		if m == "vm.device.create" {
-			foundCreate = true
-		}
-	}
-	if !foundDelete {
+	if !deleteCalled {
 		t.Error("expected vm.device.delete to be called for removed device")
 	}
-	if !foundCreate {
+	if !createCalled {
 		t.Error("expected vm.device.create to be called for new device")
 	}
 }
 
 func TestVMResource_Update_StateTransition(t *testing.T) {
-	var methods []string
+	startCalled := false
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				switch method {
-				case "vm.update":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(), nil
-				case "vm.start":
-					return json.RawMessage(`true`), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			UpdateVMFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return nil, nil
+			},
+			StartVMFunc: func(ctx context.Context, id int64) error {
+				startCalled = true
+				return nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2405,28 +2250,18 @@ func TestVMResource_Update_StateTransition(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	foundStart := false
-	for _, m := range methods {
-		if m == "vm.start" {
-			foundStart = true
-		}
-	}
-	if !foundStart {
-		t.Errorf("expected vm.start to be called for state transition, got: %v", methods)
+	if !startCalled {
+		t.Error("expected vm.start to be called for state transition")
 	}
 }
 
 func TestVMResource_Update_UpdateError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "vm.update" {
-					return nil, errors.New("update failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			UpdateVMFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMOpts) (*truenas.VM, error) {
+				return nil, errors.New("update failed")
 			},
-		}},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2457,16 +2292,11 @@ func TestVMResource_Update_UpdateError(t *testing.T) {
 
 func TestVMResource_Update_DeviceReconcileError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.device.delete":
-					return nil, errors.New("device delete failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			DeleteDeviceFunc: func(ctx context.Context, id int64) error {
+				return errors.New("device delete failed")
 			},
-		}},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2502,23 +2332,15 @@ func TestVMResource_Update_DeviceReconcileError(t *testing.T) {
 func TestVMResource_Update_StateTransitionQueryError(t *testing.T) {
 	callCount := 0
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.get_instance":
-					callCount++
-					// First call during state transition check
-					if callCount == 1 {
-						return nil, errors.New("query state failed")
-					}
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				callCount++
+				return nil, errors.New("query state failed")
 			},
-		}},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return nil, nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2549,20 +2371,17 @@ func TestVMResource_Update_StateTransitionQueryError(t *testing.T) {
 
 func TestVMResource_Update_StateReconcileError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(), nil
-				case "vm.start":
-					return nil, errors.New("start failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return nil, nil
+			},
+			StartVMFunc: func(ctx context.Context, id int64) error {
+				return errors.New("start failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2594,25 +2413,21 @@ func TestVMResource_Update_StateReconcileError(t *testing.T) {
 func TestVMResource_Update_ReadBackError(t *testing.T) {
 	getInstanceCallCount := 0
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.get_instance":
-					getInstanceCallCount++
-					// The read-back call (after reconcileState or if no state change, the final read)
-					if getInstanceCallCount >= 2 {
-						return nil, errors.New("read-back failed")
-					}
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return mockVMDevicesResponse(), nil
-				case "vm.start":
-					return json.RawMessage(`true`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				getInstanceCallCount++
+				if getInstanceCallCount >= 2 {
+					return nil, errors.New("read-back failed")
 				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return nil, nil
+			},
+			StartVMFunc: func(ctx context.Context, id int64) error {
+				return nil
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2643,18 +2458,14 @@ func TestVMResource_Update_ReadBackError(t *testing.T) {
 
 func TestVMResource_Update_DeviceQueryError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.device.query":
-					return nil, errors.New("device query failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return nil, errors.New("device query failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2685,15 +2496,11 @@ func TestVMResource_Update_DeviceQueryError(t *testing.T) {
 
 func TestVMResource_Delete_StatusError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "vm.get_instance" {
-					return nil, errors.New("internal server error")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return nil, errors.New("internal server error")
 			},
-		}},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2713,18 +2520,14 @@ func TestVMResource_Delete_StatusError(t *testing.T) {
 
 func TestVMResource_Delete_StopError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "vm.get_instance" {
-					return mockVMResponse(1, "test-vm", 2048, "RUNNING"), nil
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "RUNNING"), nil
 			},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("stop failed")
+			StopVMFunc: func(ctx context.Context, id int64, opts truenas.StopVMOpts) error {
+				return errors.New("stop failed")
 			},
-		}},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2745,18 +2548,14 @@ func TestVMResource_Delete_StopError(t *testing.T) {
 
 func TestVMResource_Delete_DeleteError(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				switch method {
-				case "vm.get_instance":
-					return mockVMResponse(1, "test-vm", 2048, "STOPPED"), nil
-				case "vm.delete":
-					return nil, errors.New("delete failed")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
 			},
-		}},
+			DeleteVMFunc: func(ctx context.Context, id int64) error {
+				return errors.New("delete failed")
+			},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2776,15 +2575,11 @@ func TestVMResource_Delete_DeleteError(t *testing.T) {
 
 func TestVMResource_Delete_AlreadyDeleted(t *testing.T) {
 	r := &VMResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "vm.get_instance" {
-					return nil, errors.New("does not exist")
-				}
-				return nil, fmt.Errorf("unexpected method: %s", method)
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return nil, errors.New("does not exist")
 			},
-		}},
+		}}},
 	}
 
 	schemaResp := getVMResourceSchema(t)
@@ -2802,19 +2597,22 @@ func TestVMResource_Delete_AlreadyDeleted(t *testing.T) {
 	}
 }
 
-// -- buildUpdateParams tests --
+// -- buildUpdateOpts tests --
 
-func TestVMResource_buildUpdateParams(t *testing.T) {
+func TestVMResource_buildUpdateOpts(t *testing.T) {
 	r := &VMResource{}
 
-	t.Run("no changes returns empty", func(t *testing.T) {
+	t.Run("no changes returns nil", func(t *testing.T) {
 		data := &VMResourceModel{
 			Name:   types.StringValue("test-vm"),
 			Memory: types.Int64Value(2048),
 		}
-		params := r.buildUpdateParams(data, data)
-		if len(params) != 0 {
-			t.Errorf("expected empty params for no changes, got %v", params)
+		opts, changed := r.buildUpdateOpts(data, data)
+		if changed {
+			t.Error("expected no changes")
+		}
+		if opts != nil {
+			t.Errorf("expected nil opts for no changes, got %v", opts)
 		}
 	})
 
@@ -2853,29 +2651,48 @@ func TestVMResource_buildUpdateParams(t *testing.T) {
 			ShutdownTimeout: types.Int64Value(90),
 			CommandLineArgs: types.StringValue(""),
 		}
-		params := r.buildUpdateParams(plan, state)
-
-		expected := map[string]any{
-			"name":            "new-name",
-			"description":     "new desc",
-			"vcpus":           int64(4),
-			"cores":           int64(4),
-			"threads":         int64(2),
-			"memory":          int64(8192),
-			"min_memory":      int64(4096),
-			"autostart":       false,
-			"time":            "UTC",
-			"bootloader":      "UEFI_CSM",
-			"bootloader_ovmf": "OVMF_CODE_TPM.fd",
-			"cpu_mode":        "HOST-PASSTHROUGH",
-			"cpu_model":         "Haswell",
-			"shutdown_timeout":  int64(120),
-			"command_line_args": "-cpu host",
+		opts, changed := r.buildUpdateOpts(plan, state)
+		if !changed {
+			t.Fatal("expected changes")
 		}
-		for k, v := range expected {
-			if params[k] != v {
-				t.Errorf("expected %s=%v, got %v", k, v, params[k])
-			}
+		if opts == nil {
+			t.Fatal("expected non-nil opts")
+		}
+		if opts.Name != "new-name" {
+			t.Errorf("expected name new-name, got %v", opts.Name)
+		}
+		if opts.Description != "new desc" {
+			t.Errorf("expected description 'new desc', got %v", opts.Description)
+		}
+		if opts.VCPUs != 4 {
+			t.Errorf("expected vcpus 4, got %v", opts.VCPUs)
+		}
+		if opts.Memory != 8192 {
+			t.Errorf("expected memory 8192, got %v", opts.Memory)
+		}
+		if opts.MinMemory == nil || *opts.MinMemory != 4096 {
+			t.Errorf("expected min_memory 4096, got %v", opts.MinMemory)
+		}
+		if opts.Autostart != false {
+			t.Errorf("expected autostart false, got %v", opts.Autostart)
+		}
+		if opts.Bootloader != "UEFI_CSM" {
+			t.Errorf("expected bootloader UEFI_CSM, got %v", opts.Bootloader)
+		}
+		if opts.BootloaderOVMF != "OVMF_CODE_TPM.fd" {
+			t.Errorf("expected bootloader_ovmf OVMF_CODE_TPM.fd, got %v", opts.BootloaderOVMF)
+		}
+		if opts.CPUMode != "HOST-PASSTHROUGH" {
+			t.Errorf("expected cpu_mode HOST-PASSTHROUGH, got %v", opts.CPUMode)
+		}
+		if opts.CPUModel != "Haswell" {
+			t.Errorf("expected cpu_model Haswell, got %v", opts.CPUModel)
+		}
+		if opts.ShutdownTimeout != 120 {
+			t.Errorf("expected shutdown_timeout 120, got %v", opts.ShutdownTimeout)
+		}
+		if opts.CommandLineArgs != "-cpu host" {
+			t.Errorf("expected command_line_args '-cpu host', got %v", opts.CommandLineArgs)
 		}
 	})
 
@@ -2888,13 +2705,12 @@ func TestVMResource_buildUpdateParams(t *testing.T) {
 			Name:      types.StringValue("test-vm"),
 			MinMemory: types.Int64Value(1024),
 		}
-		params := r.buildUpdateParams(plan, state)
-		val, ok := params["min_memory"]
-		if !ok {
-			t.Fatal("expected min_memory in params")
+		opts, changed := r.buildUpdateOpts(plan, state)
+		if !changed {
+			t.Fatal("expected changes for min_memory change")
 		}
-		if val != nil {
-			t.Errorf("expected min_memory=nil, got %v", val)
+		if opts.MinMemory != nil {
+			t.Errorf("expected min_memory=nil, got %v", opts.MinMemory)
 		}
 	})
 
@@ -2907,20 +2723,19 @@ func TestVMResource_buildUpdateParams(t *testing.T) {
 			Name:     types.StringValue("test-vm"),
 			CPUModel: types.StringValue("Haswell"),
 		}
-		params := r.buildUpdateParams(plan, state)
-		val, ok := params["cpu_model"]
-		if !ok {
-			t.Fatal("expected cpu_model in params")
+		opts, changed := r.buildUpdateOpts(plan, state)
+		if !changed {
+			t.Fatal("expected changes for cpu_model change")
 		}
-		if val != nil {
-			t.Errorf("expected cpu_model=nil, got %v", val)
+		if opts.CPUModel != "" {
+			t.Errorf("expected cpu_model empty, got %v", opts.CPUModel)
 		}
 	})
 }
 
-// -- buildRawDeviceParams tests --
+// -- buildRawDeviceOpts tests --
 
-func TestVMResource_buildRawDeviceParams(t *testing.T) {
+func TestVMResource_buildRawDeviceOpts(t *testing.T) {
 	t.Run("basic", func(t *testing.T) {
 		raw := &VMRawModel{
 			Path:   types.StringValue("/mnt/tank/vms/raw.img"),
@@ -2928,25 +2743,24 @@ func TestVMResource_buildRawDeviceParams(t *testing.T) {
 			Boot:   types.BoolValue(false),
 			IOType: types.StringValue("THREADS"),
 		}
-		params := buildRawDeviceParams(raw, 1)
-		if params["vm"] != int64(1) {
-			t.Errorf("expected vm=1, got %v", params["vm"])
+		opts := buildRawDeviceOpts(raw, 1)
+		if opts.VM != 1 {
+			t.Errorf("expected vm=1, got %v", opts.VM)
 		}
-		attrs, ok := params["attributes"].(map[string]any)
-		if !ok {
-			t.Fatal("expected attributes to be map[string]any")
+		if opts.DeviceType != truenas.DeviceTypeRaw {
+			t.Errorf("expected dtype=RAW, got %v", opts.DeviceType)
 		}
-		if attrs["dtype"] != "RAW" {
-			t.Errorf("expected dtype=RAW, got %v", attrs["dtype"])
+		if opts.Raw == nil {
+			t.Fatal("expected raw device to be set")
 		}
-		if attrs["path"] != "/mnt/tank/vms/raw.img" {
-			t.Errorf("expected path, got %v", attrs["path"])
+		if opts.Raw.Path != "/mnt/tank/vms/raw.img" {
+			t.Errorf("expected path, got %v", opts.Raw.Path)
 		}
-		if attrs["type"] != "AHCI" {
-			t.Errorf("expected type=AHCI, got %v", attrs["type"])
+		if opts.Raw.Type != "AHCI" {
+			t.Errorf("expected type=AHCI, got %v", opts.Raw.Type)
 		}
-		if attrs["boot"] != false {
-			t.Errorf("expected boot=false, got %v", attrs["boot"])
+		if opts.Raw.Boot != false {
+			t.Errorf("expected boot=false, got %v", opts.Raw.Boot)
 		}
 	})
 
@@ -2958,10 +2772,12 @@ func TestVMResource_buildRawDeviceParams(t *testing.T) {
 			Exists: types.BoolValue(true),
 			IOType: types.StringValue("THREADS"),
 		}
-		params := buildRawDeviceParams(raw, 1)
-		attrs := params["attributes"].(map[string]any)
-		if attrs["exists"] != true {
-			t.Errorf("expected exists=true, got %v", attrs["exists"])
+		opts := buildRawDeviceOpts(raw, 1)
+		if opts.Raw == nil {
+			t.Fatal("expected raw device to be set")
+		}
+		if opts.Raw.Exists != true {
+			t.Errorf("expected exists=true, got %v", opts.Raw.Exists)
 		}
 	})
 
@@ -2977,29 +2793,31 @@ func TestVMResource_buildRawDeviceParams(t *testing.T) {
 			Serial:             types.StringValue("RAW001"),
 			Order:              types.Int64Value(1000),
 		}
-		params := buildRawDeviceParams(raw, 2)
-		attrs := params["attributes"].(map[string]any)
-		if attrs["size"] != int64(10737418240) {
-			t.Errorf("expected size=10737418240, got %v", attrs["size"])
+		opts := buildRawDeviceOpts(raw, 2)
+		if opts.Raw == nil {
+			t.Fatal("expected raw device to be set")
 		}
-		if attrs["logical_sectorsize"] != int64(512) {
-			t.Errorf("expected logical_sectorsize=512, got %v", attrs["logical_sectorsize"])
+		if opts.Raw.Size == nil || *opts.Raw.Size != 10737418240 {
+			t.Errorf("expected size=10737418240, got %v", opts.Raw.Size)
 		}
-		if attrs["physical_sectorsize"] != int64(4096) {
-			t.Errorf("expected physical_sectorsize=4096, got %v", attrs["physical_sectorsize"])
+		if opts.Raw.Logical_Sector_Size == nil || *opts.Raw.Logical_Sector_Size != 512 {
+			t.Errorf("expected logical_sectorsize=512, got %v", opts.Raw.Logical_Sector_Size)
 		}
-		if attrs["serial"] != "RAW001" {
-			t.Errorf("expected serial=RAW001, got %v", attrs["serial"])
+		if opts.Raw.PhysicalSectorSize == nil || *opts.Raw.PhysicalSectorSize != 4096 {
+			t.Errorf("expected physical_sectorsize=4096, got %v", opts.Raw.PhysicalSectorSize)
 		}
-		if params["order"] != int64(1000) {
-			t.Errorf("expected order=1000, got %v", params["order"])
+		if opts.Raw.Serial != "RAW001" {
+			t.Errorf("expected serial=RAW001, got %v", opts.Raw.Serial)
+		}
+		if opts.Order == nil || *opts.Order != 1000 {
+			t.Errorf("expected order=1000, got %v", opts.Order)
 		}
 	})
 }
 
-// -- buildDiskDeviceParams additional tests --
+// -- buildDiskDeviceOpts additional tests --
 
-func TestVMResource_buildDiskDeviceParams_WithOptionalFields(t *testing.T) {
+func TestVMResource_buildDiskDeviceOpts_WithOptionalFields(t *testing.T) {
 	disk := &VMDiskModel{
 		Path:               types.StringValue("/dev/zvol/tank/vms/disk0"),
 		Type:               types.StringValue("VIRTIO"),
@@ -3009,26 +2827,27 @@ func TestVMResource_buildDiskDeviceParams_WithOptionalFields(t *testing.T) {
 		Serial:             types.StringValue("DISK001"),
 		Order:              types.Int64Value(1000),
 	}
-	params := buildDiskDeviceParams(disk, 1)
-	attrs := params["attributes"].(map[string]any)
-
-	if attrs["logical_sectorsize"] != int64(512) {
-		t.Errorf("expected logical_sectorsize=512, got %v", attrs["logical_sectorsize"])
+	opts := buildDiskDeviceOpts(disk, 1)
+	if opts.Disk == nil {
+		t.Fatal("expected disk device to be set")
 	}
-	if attrs["physical_sectorsize"] != int64(4096) {
-		t.Errorf("expected physical_sectorsize=4096, got %v", attrs["physical_sectorsize"])
+	if opts.Disk.Logical_Sector_Size == nil || *opts.Disk.Logical_Sector_Size != 512 {
+		t.Errorf("expected logical_sectorsize=512, got %v", opts.Disk.Logical_Sector_Size)
 	}
-	if attrs["serial"] != "DISK001" {
-		t.Errorf("expected serial=DISK001, got %v", attrs["serial"])
+	if opts.Disk.PhysicalSectorSize == nil || *opts.Disk.PhysicalSectorSize != 4096 {
+		t.Errorf("expected physical_sectorsize=4096, got %v", opts.Disk.PhysicalSectorSize)
 	}
-	if params["order"] != int64(1000) {
-		t.Errorf("expected order=1000, got %v", params["order"])
+	if opts.Disk.Serial != "DISK001" {
+		t.Errorf("expected serial=DISK001, got %v", opts.Disk.Serial)
+	}
+	if opts.Order == nil || *opts.Order != 1000 {
+		t.Errorf("expected order=1000, got %v", opts.Order)
 	}
 }
 
-// -- buildDisplayDeviceParams additional tests --
+// -- buildDisplayDeviceOpts additional tests --
 
-func TestVMResource_buildDisplayDeviceParams_WithOptionalFields(t *testing.T) {
+func TestVMResource_buildDisplayDeviceOpts_WithOptionalFields(t *testing.T) {
 	display := &VMDisplayModel{
 		Type:       types.StringValue("SPICE"),
 		Resolution: types.StringValue("1920x1080"),
@@ -3040,23 +2859,24 @@ func TestVMResource_buildDisplayDeviceParams_WithOptionalFields(t *testing.T) {
 		Web:        types.BoolValue(true),
 		Order:      types.Int64Value(1000),
 	}
-	params := buildDisplayDeviceParams(display, 1)
-	attrs := params["attributes"].(map[string]any)
-
-	if attrs["port"] != int64(5900) {
-		t.Errorf("expected port=5900, got %v", attrs["port"])
+	opts := buildDisplayDeviceOpts(display, 1)
+	if opts.Display == nil {
+		t.Fatal("expected display device to be set")
 	}
-	if attrs["web_port"] != int64(5901) {
-		t.Errorf("expected web_port=5901, got %v", attrs["web_port"])
+	if opts.Display.Port != 5900 {
+		t.Errorf("expected port=5900, got %v", opts.Display.Port)
 	}
-	if attrs["password"] != "secret" {
-		t.Errorf("expected password=secret, got %v", attrs["password"])
+	if opts.Display.WebPort != 5901 {
+		t.Errorf("expected web_port=5901, got %v", opts.Display.WebPort)
 	}
-	if attrs["wait"] != true {
-		t.Errorf("expected wait=true, got %v", attrs["wait"])
+	if opts.Display.Password != "secret" {
+		t.Errorf("expected password=secret, got %v", opts.Display.Password)
 	}
-	if params["order"] != int64(1000) {
-		t.Errorf("expected order=1000, got %v", params["order"])
+	if opts.Display.Wait != true {
+		t.Errorf("expected wait=true, got %v", opts.Display.Wait)
+	}
+	if opts.Order == nil || *opts.Order != 1000 {
+		t.Errorf("expected order=1000, got %v", opts.Order)
 	}
 }
 
@@ -3064,18 +2884,14 @@ func TestVMResource_buildDisplayDeviceParams_WithOptionalFields(t *testing.T) {
 
 func TestVMResource_reconcileRawDevices(t *testing.T) {
 	t.Run("create new raw device", func(t *testing.T) {
-		var createdDevices []map[string]any
+		var createdDevices []truenas.CreateVMDeviceOpts
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						p, _ := params.(map[string]any)
-						createdDevices = append(createdDevices, p)
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices = append(createdDevices, opts)
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMRawModel{{
@@ -3097,15 +2913,12 @@ func TestVMResource_reconcileRawDevices(t *testing.T) {
 	t.Run("update changed raw device", func(t *testing.T) {
 		var updatedParams []any
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.update" {
-						updatedParams = append(updatedParams, params)
-						return json.RawMessage(`{"id": 50}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
+					updatedParams = append(updatedParams, opts)
+					return &truenas.VMDevice{ID: 50}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMRawModel{{
@@ -3132,11 +2945,11 @@ func TestVMResource_reconcileRawDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("create failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMRawModel{{
@@ -3151,11 +2964,11 @@ func TestVMResource_reconcileRawDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("update failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMRawModel{{
@@ -3181,15 +2994,12 @@ func TestVMResource_reconcileCDROMDevices(t *testing.T) {
 	t.Run("create new cdrom", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						createdDevices++
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices++
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMCDROMModel{{
@@ -3207,15 +3017,12 @@ func TestVMResource_reconcileCDROMDevices(t *testing.T) {
 	t.Run("update changed cdrom", func(t *testing.T) {
 		var updatedCount int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.update" {
-						updatedCount++
-						return json.RawMessage(`{"id": 50}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
+					updatedCount++
+					return &truenas.VMDevice{ID: 50}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMCDROMModel{{
@@ -3237,11 +3044,11 @@ func TestVMResource_reconcileCDROMDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("create failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMCDROMModel{{Path: types.StringValue("/mnt/tank/iso/test.iso")}}
@@ -3253,11 +3060,11 @@ func TestVMResource_reconcileCDROMDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("update failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMCDROMModel{{DeviceID: types.Int64Value(50), Path: types.StringValue("/mnt/tank/iso/new.iso")}}
@@ -3273,15 +3080,12 @@ func TestVMResource_reconcileNICDevices(t *testing.T) {
 	t.Run("create new nic", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						createdDevices++
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices++
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMNICModel{{
@@ -3300,15 +3104,12 @@ func TestVMResource_reconcileNICDevices(t *testing.T) {
 	t.Run("update changed nic", func(t *testing.T) {
 		var updatedCount int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.update" {
-						updatedCount++
-						return json.RawMessage(`{"id": 50}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
+					updatedCount++
+					return &truenas.VMDevice{ID: 50}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMNICModel{{
@@ -3332,11 +3133,11 @@ func TestVMResource_reconcileNICDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("create failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMNICModel{{Type: types.StringValue("VIRTIO"), NICAttach: types.StringValue("br0")}}
@@ -3348,11 +3149,11 @@ func TestVMResource_reconcileNICDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("update failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMNICModel{{DeviceID: types.Int64Value(50), Type: types.StringValue("E1000"), NICAttach: types.StringValue("br0")}}
@@ -3368,15 +3169,12 @@ func TestVMResource_reconcileDisplayDevices(t *testing.T) {
 	t.Run("create new display", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						createdDevices++
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices++
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMDisplayModel{{
@@ -3397,15 +3195,12 @@ func TestVMResource_reconcileDisplayDevices(t *testing.T) {
 	t.Run("update changed display", func(t *testing.T) {
 		var updatedCount int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.update" {
-						updatedCount++
-						return json.RawMessage(`{"id": 50}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
+					updatedCount++
+					return &truenas.VMDevice{ID: 50}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMDisplayModel{{
@@ -3439,11 +3234,11 @@ func TestVMResource_reconcileDisplayDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("create failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMDisplayModel{{Type: types.StringValue("SPICE"), Resolution: types.StringValue("1024x768"), Bind: types.StringValue("0.0.0.0")}}
@@ -3455,11 +3250,11 @@ func TestVMResource_reconcileDisplayDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("update failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMDisplayModel{{DeviceID: types.Int64Value(50), Type: types.StringValue("SPICE"), Resolution: types.StringValue("1920x1080"), Bind: types.StringValue("0.0.0.0"), Web: types.BoolValue(true), Wait: types.BoolValue(false), Port: types.Int64Value(5900), WebPort: types.Int64Value(5901)}}
@@ -3475,15 +3270,12 @@ func TestVMResource_reconcilePCIDevices(t *testing.T) {
 	t.Run("create new pci", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						createdDevices++
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices++
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMPCIModel{{PPTDev: types.StringValue("0000:01:00.0")}}
@@ -3499,15 +3291,12 @@ func TestVMResource_reconcilePCIDevices(t *testing.T) {
 	t.Run("update changed pci", func(t *testing.T) {
 		var updatedCount int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.update" {
-						updatedCount++
-						return json.RawMessage(`{"id": 50}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
+					updatedCount++
+					return &truenas.VMDevice{ID: 50}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMPCIModel{{DeviceID: types.Int64Value(50), PPTDev: types.StringValue("0000:02:00.0")}}
@@ -3523,11 +3312,11 @@ func TestVMResource_reconcilePCIDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("create failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMPCIModel{{PPTDev: types.StringValue("0000:01:00.0")}}
@@ -3539,11 +3328,11 @@ func TestVMResource_reconcilePCIDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("update failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMPCIModel{{DeviceID: types.Int64Value(50), PPTDev: types.StringValue("0000:02:00.0")}}
@@ -3559,15 +3348,12 @@ func TestVMResource_reconcileUSBDevices(t *testing.T) {
 	t.Run("create new usb", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						createdDevices++
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices++
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMUSBModel{{ControllerType: types.StringValue("qemu-xhci"), Device: types.StringValue("usb_0001")}}
@@ -3583,15 +3369,12 @@ func TestVMResource_reconcileUSBDevices(t *testing.T) {
 	t.Run("update changed usb", func(t *testing.T) {
 		var updatedCount int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.update" {
-						updatedCount++
-						return json.RawMessage(`{"id": 50}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
+					updatedCount++
+					return &truenas.VMDevice{ID: 50}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMUSBModel{{DeviceID: types.Int64Value(50), ControllerType: types.StringValue("nec-xhci"), Device: types.StringValue("usb_0001")}}
@@ -3607,11 +3390,11 @@ func TestVMResource_reconcileUSBDevices(t *testing.T) {
 
 	t.Run("create error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("create failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMUSBModel{{ControllerType: types.StringValue("qemu-xhci"), Device: types.StringValue("usb_0001")}}
@@ -3623,11 +3406,11 @@ func TestVMResource_reconcileUSBDevices(t *testing.T) {
 
 	t.Run("update error", func(t *testing.T) {
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				UpdateDeviceFunc: func(ctx context.Context, id int64, opts truenas.UpdateVMDeviceOpts) (*truenas.VMDevice, error) {
 					return nil, errors.New("update failed")
 				},
-			}},
+			}}},
 		}
 
 		plan := []VMUSBModel{{DeviceID: types.Int64Value(50), ControllerType: types.StringValue("nec-xhci"), Device: types.StringValue("usb_0001")}}
@@ -3862,66 +3645,6 @@ func TestVMResource_collectDeviceIDs_SkipsNullAndUnknown(t *testing.T) {
 	}
 }
 
-// -- intAttrFromMap tests --
-
-func TestVMResource_intAttrFromMap(t *testing.T) {
-	t.Run("float64 value", func(t *testing.T) {
-		m := map[string]any{"port": float64(5900)}
-		result := intAttrFromMap(m, "port")
-		if result.IsNull() {
-			t.Fatal("expected non-null result for float64")
-		}
-		if result.ValueInt64() != 5900 {
-			t.Errorf("expected 5900, got %d", result.ValueInt64())
-		}
-	})
-
-	t.Run("int64 value", func(t *testing.T) {
-		m := map[string]any{"port": int64(5900)}
-		result := intAttrFromMap(m, "port")
-		if result.IsNull() {
-			t.Fatal("expected non-null result for int64")
-		}
-		if result.ValueInt64() != 5900 {
-			t.Errorf("expected 5900, got %d", result.ValueInt64())
-		}
-	})
-
-	t.Run("json.Number value", func(t *testing.T) {
-		m := map[string]any{"port": json.Number("5900")}
-		result := intAttrFromMap(m, "port")
-		if result.IsNull() {
-			t.Fatal("expected non-null result for json.Number")
-		}
-		if result.ValueInt64() != 5900 {
-			t.Errorf("expected 5900, got %d", result.ValueInt64())
-		}
-	})
-
-	t.Run("nil value", func(t *testing.T) {
-		m := map[string]any{"port": nil}
-		result := intAttrFromMap(m, "port")
-		if !result.IsNull() {
-			t.Error("expected null result for nil value")
-		}
-	})
-
-	t.Run("missing key", func(t *testing.T) {
-		m := map[string]any{}
-		result := intAttrFromMap(m, "port")
-		if !result.IsNull() {
-			t.Error("expected null result for missing key")
-		}
-	})
-
-	t.Run("unsupported type", func(t *testing.T) {
-		m := map[string]any{"port": "not-a-number"}
-		result := intAttrFromMap(m, "port")
-		if !result.IsNull() {
-			t.Error("expected null result for unsupported type")
-		}
-	})
-}
 
 // -- reconcileDevices dispatching to non-disk types --
 
@@ -3929,15 +3652,12 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to raw reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						createdDevices++
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices++
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := &VMResourceModel{
@@ -3962,15 +3682,12 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to cdrom reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						createdDevices++
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices++
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := &VMResourceModel{
@@ -3990,15 +3707,12 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to nic reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						createdDevices++
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices++
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := &VMResourceModel{
@@ -4018,15 +3732,12 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to display reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						createdDevices++
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices++
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := &VMResourceModel{
@@ -4046,15 +3757,12 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to pci reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						createdDevices++
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices++
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := &VMResourceModel{
@@ -4074,15 +3782,12 @@ func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
 	t.Run("dispatches to usb reconciler", func(t *testing.T) {
 		var createdDevices int
 		r := &VMResource{
-			BaseResource: BaseResource{client: &client.MockClient{
-				CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-					if method == "vm.device.create" {
-						createdDevices++
-						return json.RawMessage(`{"id": 100}`), nil
-					}
-					return nil, fmt.Errorf("unexpected method: %s", method)
+			BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+				CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+					createdDevices++
+					return &truenas.VMDevice{ID: 100}, nil
 				},
-			}},
+			}}},
 		}
 
 		plan := &VMResourceModel{

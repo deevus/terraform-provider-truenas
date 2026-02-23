@@ -2,12 +2,11 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -54,21 +53,22 @@ func TestZvolResource_Schema(t *testing.T) {
 }
 
 func TestZvolResource_Create_Basic(t *testing.T) {
-	var createCalled bool
-	var createParams map[string]any
+	var capturedOpts truenas.CreateZvolOpts
 
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					createCalled = true
-					createParams = params.(map[string]any)
-					return json.RawMessage(`{"id":"tank/myvol"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					return json.RawMessage(mockZvolQueryResponse("tank/myvol", "lz4", "", 10737418240, "16K", false)), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateZvolFunc: func(ctx context.Context, opts truenas.CreateZvolOpts) (*truenas.Zvol, error) {
+					capturedOpts = opts
+					return &truenas.Zvol{
+						ID:           "tank/myvol",
+						Name:         "tank/myvol",
+						Pool:         "tank",
+						Compression:  "lz4",
+						Volsize:      10737418240,
+						Volblocksize: "16K",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -88,17 +88,11 @@ func TestZvolResource_Create_Basic(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
-	if !createCalled {
-		t.Fatal("expected pool.dataset.create to be called")
+	if capturedOpts.Name != "tank/myvol" {
+		t.Errorf("expected name 'tank/myvol', got %v", capturedOpts.Name)
 	}
-	if createParams["name"] != "tank/myvol" {
-		t.Errorf("expected name 'tank/myvol', got %v", createParams["name"])
-	}
-	if createParams["type"] != "VOLUME" {
-		t.Errorf("expected type 'VOLUME', got %v", createParams["type"])
-	}
-	if createParams["volsize"] != int64(10737418240) {
-		t.Errorf("expected volsize 10737418240, got %v", createParams["volsize"])
+	if capturedOpts.Volsize != int64(10737418240) {
+		t.Errorf("expected volsize 10737418240, got %v", capturedOpts.Volsize)
 	}
 
 	var model ZvolResourceModel
@@ -112,19 +106,24 @@ func TestZvolResource_Create_Basic(t *testing.T) {
 }
 
 func TestZvolResource_Create_WithOptionalFields(t *testing.T) {
-	var createParams map[string]any
+	var capturedOpts truenas.CreateZvolOpts
 
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					createParams = params.(map[string]any)
-					return json.RawMessage(`{"id":"tank/myvol"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					return json.RawMessage(mockZvolQueryResponse("tank/myvol", "zstd", "test vol", 10737418240, "64K", true)), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateZvolFunc: func(ctx context.Context, opts truenas.CreateZvolOpts) (*truenas.Zvol, error) {
+					capturedOpts = opts
+					return &truenas.Zvol{
+						ID:           "tank/myvol",
+						Name:         "tank/myvol",
+						Pool:         "tank",
+						Compression:  "zstd",
+						Comments:     "test vol",
+						Volsize:      10737418240,
+						Volblocksize: "64K",
+						Sparse:       true,
+					}, nil
+				},
 			},
 		}},
 	}
@@ -149,22 +148,22 @@ func TestZvolResource_Create_WithOptionalFields(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
-	if createParams["volblocksize"] != "64K" {
-		t.Errorf("expected volblocksize '64K', got %v", createParams["volblocksize"])
+	if capturedOpts.Volblocksize != "64K" {
+		t.Errorf("expected volblocksize '64K', got %v", capturedOpts.Volblocksize)
 	}
-	if createParams["sparse"] != true {
-		t.Errorf("expected sparse true, got %v", createParams["sparse"])
+	if capturedOpts.Sparse != true {
+		t.Errorf("expected sparse true, got %v", capturedOpts.Sparse)
 	}
-	if createParams["compression"] != "zstd" {
-		t.Errorf("expected compression 'zstd', got %v", createParams["compression"])
+	if capturedOpts.Compression != "zstd" {
+		t.Errorf("expected compression 'zstd', got %v", capturedOpts.Compression)
 	}
-	if createParams["comments"] != "test vol" {
-		t.Errorf("expected comments 'test vol', got %v", createParams["comments"])
+	if capturedOpts.Comments != "test vol" {
+		t.Errorf("expected comments 'test vol', got %v", capturedOpts.Comments)
 	}
 }
 
 func TestZvolResource_Create_InvalidName(t *testing.T) {
-	r := &ZvolResource{BaseResource: BaseResource{client: &client.MockClient{}}}
+	r := &ZvolResource{BaseResource: BaseResource{services: &services.TrueNASServices{}}}
 
 	schemaResp := getZvolResourceSchema(t)
 	p := zvolModelParams{Volsize: strPtr("10G")} // no pool/path
@@ -186,9 +185,11 @@ func TestZvolResource_Create_InvalidName(t *testing.T) {
 
 func TestZvolResource_Create_APIError(t *testing.T) {
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("pool not found")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateZvolFunc: func(ctx context.Context, opts truenas.CreateZvolOpts) (*truenas.Zvol, error) {
+					return nil, errors.New("pool not found")
+				},
 			},
 		}},
 	}
@@ -210,11 +211,48 @@ func TestZvolResource_Create_APIError(t *testing.T) {
 	}
 }
 
+func TestZvolResource_Create_NotFoundAfterCreate(t *testing.T) {
+	r := &ZvolResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				CreateZvolFunc: func(ctx context.Context, opts truenas.CreateZvolOpts) (*truenas.Zvol, error) {
+					return nil, nil
+				},
+			},
+		}},
+	}
+
+	schemaResp := getZvolResourceSchema(t)
+	planValue := createZvolModelValue(defaultZvolPlanParams())
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
+	}
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when zvol not found after create")
+	}
+}
+
 func TestZvolResource_Read_Basic(t *testing.T) {
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(mockZvolQueryResponse("tank/myvol", "lz4", "", 10737418240, "16K", false)), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetZvolFunc: func(ctx context.Context, id string) (*truenas.Zvol, error) {
+					return &truenas.Zvol{
+						ID:           "tank/myvol",
+						Name:         "tank/myvol",
+						Pool:         "tank",
+						Compression:  "lz4",
+						Volsize:      10737418240,
+						Volblocksize: "16K",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -252,9 +290,11 @@ func TestZvolResource_Read_Basic(t *testing.T) {
 
 func TestZvolResource_Read_NotFound(t *testing.T) {
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetZvolFunc: func(ctx context.Context, id string) (*truenas.Zvol, error) {
+					return nil, nil
+				},
 			},
 		}},
 	}
@@ -284,22 +324,24 @@ func TestZvolResource_Read_NotFound(t *testing.T) {
 }
 
 func TestZvolResource_Update_Volsize(t *testing.T) {
-	var updateID string
-	var updateParams map[string]any
+	var capturedID string
+	var capturedOpts truenas.UpdateZvolOpts
 
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.update" {
-					args := params.([]any)
-					updateID = args[0].(string)
-					updateParams = args[1].(map[string]any)
-					return json.RawMessage(`{"id":"tank/myvol"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					return json.RawMessage(mockZvolQueryResponse("tank/myvol", "lz4", "", 21474836480, "16K", false)), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateZvolFunc: func(ctx context.Context, id string, opts truenas.UpdateZvolOpts) (*truenas.Zvol, error) {
+					capturedID = id
+					capturedOpts = opts
+					return &truenas.Zvol{
+						ID:           "tank/myvol",
+						Name:         "tank/myvol",
+						Pool:         "tank",
+						Compression:  "lz4",
+						Volsize:      21474836480,
+						Volblocksize: "16K",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -332,11 +374,11 @@ func TestZvolResource_Update_Volsize(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
-	if updateID != "tank/myvol" {
-		t.Errorf("expected update ID 'tank/myvol', got %q", updateID)
+	if capturedID != "tank/myvol" {
+		t.Errorf("expected update ID 'tank/myvol', got %q", capturedID)
 	}
-	if updateParams["volsize"] != int64(21474836480) {
-		t.Errorf("expected volsize 21474836480, got %v", updateParams["volsize"])
+	if capturedOpts.Volsize == nil || *capturedOpts.Volsize != int64(21474836480) {
+		t.Errorf("expected volsize 21474836480, got %v", capturedOpts.Volsize)
 	}
 }
 
@@ -344,16 +386,22 @@ func TestZvolResource_Update_NoChanges(t *testing.T) {
 	var updateCalled bool
 
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.update" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateZvolFunc: func(ctx context.Context, id string, opts truenas.UpdateZvolOpts) (*truenas.Zvol, error) {
 					updateCalled = true
-					return json.RawMessage(`{"id":"tank/myvol"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					return json.RawMessage(mockZvolQueryResponse("tank/myvol", "lz4", "", 10737418240, "16K", false)), nil
-				}
-				return nil, nil
+					return nil, nil
+				},
+				GetZvolFunc: func(ctx context.Context, id string) (*truenas.Zvol, error) {
+					return &truenas.Zvol{
+						ID:           "tank/myvol",
+						Name:         "tank/myvol",
+						Pool:         "tank",
+						Compression:  "lz4",
+						Volsize:      10737418240,
+						Volblocksize: "16K",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -380,18 +428,17 @@ func TestZvolResource_Update_NoChanges(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 	if updateCalled {
-		t.Error("expected pool.dataset.update to NOT be called when nothing changed")
+		t.Error("expected UpdateZvol to NOT be called when nothing changed")
 	}
 }
 
 func TestZvolResource_Update_APIError(t *testing.T) {
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.update" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateZvolFunc: func(ctx context.Context, id string, opts truenas.UpdateZvolOpts) (*truenas.Zvol, error) {
 					return nil, errors.New("update failed")
-				}
-				return nil, nil
+				},
 			},
 		}},
 	}
@@ -431,14 +478,13 @@ func TestZvolResource_Delete_Basic(t *testing.T) {
 	var deleteID string
 
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.delete" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				DeleteZvolFunc: func(ctx context.Context, id string) error {
 					deleteCalled = true
-					deleteID = params.(string)
-					return json.RawMessage(`true`), nil
-				}
-				return nil, nil
+					deleteID = id
+					return nil
+				},
 			},
 		}},
 	}
@@ -459,7 +505,7 @@ func TestZvolResource_Delete_Basic(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 	if !deleteCalled {
-		t.Fatal("expected pool.dataset.delete to be called")
+		t.Fatal("expected DeleteZvol to be called")
 	}
 	if deleteID != "tank/myvol" {
 		t.Errorf("expected delete ID 'tank/myvol', got %q", deleteID)
@@ -467,16 +513,19 @@ func TestZvolResource_Delete_Basic(t *testing.T) {
 }
 
 func TestZvolResource_Delete_ForceDestroy(t *testing.T) {
-	var deleteParams []any
+	var deleteDatasetCalled bool
+	var deleteDatasetID string
+	var deleteDatasetRecursive bool
 
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.delete" {
-					deleteParams = params.([]any)
-					return json.RawMessage(`true`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				DeleteDatasetFunc: func(ctx context.Context, id string, recursive bool) error {
+					deleteDatasetCalled = true
+					deleteDatasetID = id
+					deleteDatasetRecursive = recursive
+					return nil
+				},
 			},
 		}},
 	}
@@ -497,20 +546,24 @@ func TestZvolResource_Delete_ForceDestroy(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
-	if len(deleteParams) != 2 {
-		t.Fatalf("expected 2 delete params (id + options), got %d", len(deleteParams))
+	if !deleteDatasetCalled {
+		t.Fatal("expected DeleteDataset to be called for force_destroy")
 	}
-	opts := deleteParams[1].(map[string]bool)
-	if !opts["recursive"] {
+	if deleteDatasetID != "tank/myvol" {
+		t.Errorf("expected delete ID 'tank/myvol', got %q", deleteDatasetID)
+	}
+	if !deleteDatasetRecursive {
 		t.Error("expected recursive=true for force_destroy")
 	}
 }
 
 func TestZvolResource_Delete_APIError(t *testing.T) {
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("zvol is busy")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				DeleteZvolFunc: func(ctx context.Context, id string) error {
+					return errors.New("zvol is busy")
+				},
 			},
 		}},
 	}
@@ -533,20 +586,23 @@ func TestZvolResource_Delete_APIError(t *testing.T) {
 }
 
 func TestZvolResource_Update_CompressionAndComments(t *testing.T) {
-	var updateParams map[string]any
+	var capturedOpts truenas.UpdateZvolOpts
 
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.update" {
-					args := params.([]any)
-					updateParams = args[1].(map[string]any)
-					return json.RawMessage(`{"id":"tank/myvol"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					return json.RawMessage(mockZvolQueryResponse("tank/myvol", "zstd", "new comment", 10737418240, "16K", false)), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateZvolFunc: func(ctx context.Context, id string, opts truenas.UpdateZvolOpts) (*truenas.Zvol, error) {
+					capturedOpts = opts
+					return &truenas.Zvol{
+						ID:           "tank/myvol",
+						Name:         "tank/myvol",
+						Pool:         "tank",
+						Compression:  "zstd",
+						Comments:     "new comment",
+						Volsize:      10737418240,
+						Volblocksize: "16K",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -580,29 +636,31 @@ func TestZvolResource_Update_CompressionAndComments(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
-	if updateParams["compression"] != "zstd" {
-		t.Errorf("expected compression 'zstd', got %v", updateParams["compression"])
+	if capturedOpts.Compression != "zstd" {
+		t.Errorf("expected compression 'zstd', got %v", capturedOpts.Compression)
 	}
-	if updateParams["comments"] != "new comment" {
-		t.Errorf("expected comments 'new comment', got %v", updateParams["comments"])
+	if capturedOpts.Comments == nil || *capturedOpts.Comments != "new comment" {
+		t.Errorf("expected comments 'new comment', got %v", capturedOpts.Comments)
 	}
 }
 
 func TestZvolResource_Update_ClearComments(t *testing.T) {
-	var updateParams map[string]any
+	var capturedOpts truenas.UpdateZvolOpts
 
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.update" {
-					args := params.([]any)
-					updateParams = args[1].(map[string]any)
-					return json.RawMessage(`{"id":"tank/myvol"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					return json.RawMessage(mockZvolQueryResponse("tank/myvol", "lz4", "", 10737418240, "16K", false)), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateZvolFunc: func(ctx context.Context, id string, opts truenas.UpdateZvolOpts) (*truenas.Zvol, error) {
+					capturedOpts = opts
+					return &truenas.Zvol{
+						ID:           "tank/myvol",
+						Name:         "tank/myvol",
+						Pool:         "tank",
+						Compression:  "lz4",
+						Volsize:      10737418240,
+						Volblocksize: "16K",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -636,42 +694,13 @@ func TestZvolResource_Update_ClearComments(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
-	if updateParams["comments"] != "" {
-		t.Errorf("expected comments to be empty string, got %v", updateParams["comments"])
-	}
-}
-
-func TestZvolResource_Create_BadCreateResponse(t *testing.T) {
-	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					return json.RawMessage(`not json`), nil
-				}
-				return nil, nil
-			},
-		}},
-	}
-
-	schemaResp := getZvolResourceSchema(t)
-	planValue := createZvolModelValue(defaultZvolPlanParams())
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
-	}
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{Schema: schemaResp.Schema},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for bad create response JSON")
+	if capturedOpts.Comments == nil || *capturedOpts.Comments != "" {
+		t.Errorf("expected comments to be empty string, got %v", capturedOpts.Comments)
 	}
 }
 
 func TestZvolResource_Create_InvalidVolsizeFormat(t *testing.T) {
-	r := &ZvolResource{BaseResource: BaseResource{client: &client.MockClient{}}}
+	r := &ZvolResource{BaseResource: BaseResource{services: &services.TrueNASServices{}}}
 
 	schemaResp := getZvolResourceSchema(t)
 	p := defaultZvolPlanParams()
@@ -693,18 +722,12 @@ func TestZvolResource_Create_InvalidVolsizeFormat(t *testing.T) {
 }
 
 func TestZvolResource_Update_ReadAfterUpdateFails(t *testing.T) {
-	callCount := 0
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.update" {
-					return json.RawMessage(`{"id":"tank/myvol"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					callCount++
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateZvolFunc: func(ctx context.Context, id string, opts truenas.UpdateZvolOpts) (*truenas.Zvol, error) {
 					return nil, errors.New("read failed")
-				}
-				return nil, nil
+				},
 			},
 		}},
 	}
@@ -739,38 +762,6 @@ func TestZvolResource_Update_ReadAfterUpdateFails(t *testing.T) {
 	}
 }
 
-func TestZvolResource_Create_QueryAfterCreateNotFound(t *testing.T) {
-	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					return json.RawMessage(`{"id":"tank/myvol"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					return json.RawMessage(`[]`), nil
-				}
-				return nil, nil
-			},
-		}},
-	}
-
-	schemaResp := getZvolResourceSchema(t)
-	planValue := createZvolModelValue(defaultZvolPlanParams())
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
-	}
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{Schema: schemaResp.Schema},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when zvol not found after create")
-	}
-}
-
 func TestZvolResource_ImportState(t *testing.T) {
 	r := NewZvolResource().(*ZvolResource)
 	schemaResp := getZvolResourceSchema(t)
@@ -800,9 +791,18 @@ func TestZvolResource_ImportState(t *testing.T) {
 
 func TestZvolResource_Read_PopulatesPoolPath_AfterImport(t *testing.T) {
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(mockZvolQueryResponse("tank/vms/disk0", "lz4", "", 10737418240, "16K", false)), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetZvolFunc: func(ctx context.Context, id string) (*truenas.Zvol, error) {
+					return &truenas.Zvol{
+						ID:           "tank/vms/disk0",
+						Name:         "tank/vms/disk0",
+						Pool:         "tank",
+						Compression:  "lz4",
+						Volsize:      10737418240,
+						Volblocksize: "16K",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -841,40 +841,13 @@ func TestZvolResource_Read_PopulatesPoolPath_AfterImport(t *testing.T) {
 	}
 }
 
-func TestZvolResource_Read_InvalidJSON(t *testing.T) {
-	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Valid JSON array but first element is not a valid object for zvolQueryResponse unmarshal
-				return json.RawMessage(`["not_an_object"]`), nil
-			},
-		}},
-	}
-
-	schemaResp := getZvolResourceSchema(t)
-	p := defaultZvolPlanParams()
-	p.ID = strPtr("tank/myvol")
-	stateValue := createZvolModelValue(p)
-
-	req := resource.ReadRequest{
-		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
-	}
-	resp := &resource.ReadResponse{
-		State: tfsdk.State{Schema: schemaResp.Schema},
-	}
-
-	r.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON response")
-	}
-}
-
 func TestZvolResource_Read_APIError(t *testing.T) {
 	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetZvolFunc: func(ctx context.Context, id string) (*truenas.Zvol, error) {
+					return nil, errors.New("connection failed")
+				},
 			},
 		}},
 	}
@@ -895,38 +868,6 @@ func TestZvolResource_Read_APIError(t *testing.T) {
 
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("expected error for read API failure")
-	}
-}
-
-func TestZvolResource_Create_QueryAfterCreateFails(t *testing.T) {
-	r := &ZvolResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "pool.dataset.create" {
-					return json.RawMessage(`{"id":"tank/myvol"}`), nil
-				}
-				if method == "pool.dataset.query" {
-					return nil, errors.New("query failed")
-				}
-				return nil, nil
-			},
-		}},
-	}
-
-	schemaResp := getZvolResourceSchema(t)
-	planValue := createZvolModelValue(defaultZvolPlanParams())
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
-	}
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{Schema: schemaResp.Schema},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when query after create fails")
 	}
 }
 
@@ -953,6 +894,144 @@ func TestZvolResource_Configure_WrongType(t *testing.T) {
 
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("expected error for wrong provider data type")
+	}
+}
+
+func TestZvolResource_Update_NotFoundAfterUpdate(t *testing.T) {
+	r := &ZvolResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				UpdateZvolFunc: func(ctx context.Context, id string, opts truenas.UpdateZvolOpts) (*truenas.Zvol, error) {
+					return nil, nil
+				},
+			},
+		}},
+	}
+
+	schemaResp := getZvolResourceSchema(t)
+
+	stateP := defaultZvolPlanParams()
+	stateP.ID = strPtr("tank/myvol")
+	stateP.Volblocksize = strPtr("16K")
+	stateP.Compression = strPtr("lz4")
+	stateValue := createZvolModelValue(stateP)
+
+	planP := defaultZvolPlanParams()
+	planP.ID = strPtr("tank/myvol")
+	planP.Volsize = strPtr("21474836480")
+	planP.Volblocksize = strPtr("16K")
+	planP.Compression = strPtr("lz4")
+	planValue := createZvolModelValue(planP)
+
+	req := resource.UpdateRequest{
+		Plan:  tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when zvol not found after update")
+	}
+}
+
+func TestZvolResource_Update_NoChanges_ReadFails(t *testing.T) {
+	r := &ZvolResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetZvolFunc: func(ctx context.Context, id string) (*truenas.Zvol, error) {
+					return nil, errors.New("read failed")
+				},
+			},
+		}},
+	}
+
+	schemaResp := getZvolResourceSchema(t)
+
+	p := defaultZvolPlanParams()
+	p.ID = strPtr("tank/myvol")
+	p.Volblocksize = strPtr("16K")
+	p.Compression = strPtr("lz4")
+	value := createZvolModelValue(p)
+
+	req := resource.UpdateRequest{
+		Plan:  tfsdk.Plan{Schema: schemaResp.Schema, Raw: value},
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: value},
+	}
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when read fails in no-changes path")
+	}
+}
+
+func TestZvolResource_Update_NoChanges_NotFound(t *testing.T) {
+	r := &ZvolResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetZvolFunc: func(ctx context.Context, id string) (*truenas.Zvol, error) {
+					return nil, nil
+				},
+			},
+		}},
+	}
+
+	schemaResp := getZvolResourceSchema(t)
+
+	p := defaultZvolPlanParams()
+	p.ID = strPtr("tank/myvol")
+	p.Volblocksize = strPtr("16K")
+	p.Compression = strPtr("lz4")
+	value := createZvolModelValue(p)
+
+	req := resource.UpdateRequest{
+		Plan:  tfsdk.Plan{Schema: schemaResp.Schema, Raw: value},
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: value},
+	}
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when zvol not found in no-changes path")
+	}
+}
+
+func TestZvolResource_Delete_ForceDestroy_APIError(t *testing.T) {
+	r := &ZvolResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				DeleteDatasetFunc: func(ctx context.Context, id string, recursive bool) error {
+					return errors.New("delete failed")
+				},
+			},
+		}},
+	}
+
+	schemaResp := getZvolResourceSchema(t)
+	p := defaultZvolPlanParams()
+	p.ID = strPtr("tank/myvol")
+	p.ForceDestroy = boolPtr(true)
+	stateValue := createZvolModelValue(p)
+
+	req := resource.DeleteRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.DeleteResponse{}
+
+	r.Delete(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for force_destroy delete API failure")
 	}
 }
 
@@ -1100,17 +1179,3 @@ func defaultZvolPlanParams() zvolModelParams {
 	}
 }
 
-// mockZvolQueryResponse returns a mock pool.dataset.query response for a zvol.
-func mockZvolQueryResponse(id, compression, comments string, volsize int64, volblocksize string, sparse bool) string {
-	return fmt.Sprintf(`[{
-		"id": %q,
-		"type": "VOLUME",
-		"name": %q,
-		"pool": "tank",
-		"volsize": {"value": "%d", "parsed": %d},
-		"volblocksize": {"value": %q, "parsed": 0},
-		"sparse": {"value": "%t", "parsed": %t},
-		"compression": {"value": %q},
-		"comments": {"value": %q}
-	}]`, id, id, volsize, volsize, volblocksize, sparse, sparse, compression, comments)
-}

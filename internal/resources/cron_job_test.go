@@ -2,11 +2,11 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -47,10 +47,10 @@ func TestCronJobResource_Metadata(t *testing.T) {
 func TestCronJobResource_Configure_Success(t *testing.T) {
 	r := NewCronJobResource().(*CronJobResource)
 
-	mockClient := &client.MockClient{}
+	svc := &services.TrueNASServices{}
 
 	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
+		ProviderData: svc,
 	}
 	resp := &resource.ConfigureResponse{}
 
@@ -58,10 +58,6 @@ func TestCronJobResource_Configure_Success(t *testing.T) {
 
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-
-	if r.client == nil {
-		t.Error("expected client to be set")
 	}
 }
 
@@ -218,31 +214,36 @@ func createCronJobModelValue(p cronJobModelParams) tftypes.Value {
 	return tftypes.NewValue(objectType, values)
 }
 
+// testCronJob returns a standard test cron job for use in tests.
+func testCronJob() *truenas.CronJob {
+	return &truenas.CronJob{
+		ID:            5,
+		User:          "root",
+		Command:       "/usr/local/bin/backup.sh",
+		Description:   "Daily Backup",
+		Enabled:       true,
+		CaptureStdout: false,
+		CaptureStderr: true,
+		Schedule: truenas.Schedule{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+	}
+}
+
 func TestCronJobResource_Create_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.CreateCronJobOpts
 
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cronjob.create" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`{"id": 5}`), nil
-				}
-				if method == "cronjob.query" {
-					return json.RawMessage(`[{
-						"id": 5,
-						"user": "root",
-						"command": "/usr/local/bin/backup.sh",
-						"description": "Daily Backup",
-						"enabled": true,
-						"stdout": true,
-						"stderr": false,
-						"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"}
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateCronJobOpts) (*truenas.CronJob, error) {
+					capturedOpts = opts
+					return testCronJob(), nil
+				},
 			},
 		}},
 	}
@@ -283,56 +284,41 @@ func TestCronJobResource_Create_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cronjob.create" {
-		t.Errorf("expected method 'cronjob.create', got %q", capturedMethod)
+	// Verify opts sent to service
+	if capturedOpts.User != "root" {
+		t.Errorf("expected user 'root', got %q", capturedOpts.User)
+	}
+	if capturedOpts.Command != "/usr/local/bin/backup.sh" {
+		t.Errorf("expected command '/usr/local/bin/backup.sh', got %q", capturedOpts.Command)
+	}
+	if capturedOpts.Description != "Daily Backup" {
+		t.Errorf("expected description 'Daily Backup', got %q", capturedOpts.Description)
+	}
+	if capturedOpts.Enabled != true {
+		t.Errorf("expected enabled true, got %v", capturedOpts.Enabled)
+	}
+	if capturedOpts.CaptureStdout != false {
+		t.Errorf("expected CaptureStdout false, got %v", capturedOpts.CaptureStdout)
+	}
+	if capturedOpts.CaptureStderr != true {
+		t.Errorf("expected CaptureStderr true, got %v", capturedOpts.CaptureStderr)
 	}
 
-	// Verify params - API receives inverted values
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	// Verify schedule opts
+	if capturedOpts.Schedule.Minute != "0" {
+		t.Errorf("expected schedule minute '0', got %q", capturedOpts.Schedule.Minute)
 	}
-
-	if params["user"] != "root" {
-		t.Errorf("expected user 'root', got %v", params["user"])
+	if capturedOpts.Schedule.Hour != "3" {
+		t.Errorf("expected schedule hour '3', got %q", capturedOpts.Schedule.Hour)
 	}
-	if params["command"] != "/usr/local/bin/backup.sh" {
-		t.Errorf("expected command '/usr/local/bin/backup.sh', got %v", params["command"])
+	if capturedOpts.Schedule.Dom != "*" {
+		t.Errorf("expected schedule dom '*', got %q", capturedOpts.Schedule.Dom)
 	}
-	if params["description"] != "Daily Backup" {
-		t.Errorf("expected description 'Daily Backup', got %v", params["description"])
+	if capturedOpts.Schedule.Month != "*" {
+		t.Errorf("expected schedule month '*', got %q", capturedOpts.Schedule.Month)
 	}
-	if params["enabled"] != true {
-		t.Errorf("expected enabled true, got %v", params["enabled"])
-	}
-	// capture_stdout=false means stdout=true (inverted)
-	if params["stdout"] != true {
-		t.Errorf("expected stdout true (inverted from capture_stdout=false), got %v", params["stdout"])
-	}
-	// capture_stderr=true means stderr=false (inverted)
-	if params["stderr"] != false {
-		t.Errorf("expected stderr false (inverted from capture_stderr=true), got %v", params["stderr"])
-	}
-
-	// Verify schedule
-	schedule, ok := params["schedule"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
-	}
-	if schedule["minute"] != "0" {
-		t.Errorf("expected schedule minute '0', got %v", schedule["minute"])
-	}
-	if schedule["hour"] != "3" {
-		t.Errorf("expected schedule hour '3', got %v", schedule["hour"])
-	}
-	if schedule["dom"] != "*" {
-		t.Errorf("expected schedule dom '*', got %v", schedule["dom"])
-	}
-	if schedule["month"] != "*" {
-		t.Errorf("expected schedule month '*', got %v", schedule["month"])
-	}
-	if schedule["dow"] != "*" {
-		t.Errorf("expected schedule dow '*', got %v", schedule["dow"])
+	if capturedOpts.Schedule.Dow != "*" {
+		t.Errorf("expected schedule dow '*', got %q", capturedOpts.Schedule.Dow)
 	}
 
 	// Verify state was set
@@ -353,21 +339,23 @@ func TestCronJobResource_Create_Success(t *testing.T) {
 	if resultData.Enabled.ValueBool() != true {
 		t.Errorf("expected enabled true, got %v", resultData.Enabled.ValueBool())
 	}
-	// API returns stdout=true, which maps to capture_stdout=false (inverted)
+	// CronJob already handles inversion: CaptureStdout=false maps directly
 	if resultData.CaptureStdout.ValueBool() != false {
-		t.Errorf("expected capture_stdout false (inverted from API stdout=true), got %v", resultData.CaptureStdout.ValueBool())
+		t.Errorf("expected capture_stdout false, got %v", resultData.CaptureStdout.ValueBool())
 	}
-	// API returns stderr=false, which maps to capture_stderr=true (inverted)
+	// CronJob already handles inversion: CaptureStderr=true maps directly
 	if resultData.CaptureStderr.ValueBool() != true {
-		t.Errorf("expected capture_stderr true (inverted from API stderr=false), got %v", resultData.CaptureStderr.ValueBool())
+		t.Errorf("expected capture_stderr true, got %v", resultData.CaptureStderr.ValueBool())
 	}
 }
 
 func TestCronJobResource_Create_APIError(t *testing.T) {
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateCronJobOpts) (*truenas.CronJob, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
 	}
@@ -416,18 +404,11 @@ func TestCronJobResource_Create_APIError(t *testing.T) {
 
 func TestCronJobResource_Read_Success(t *testing.T) {
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": 5,
-					"user": "root",
-					"command": "/usr/local/bin/backup.sh",
-					"description": "Daily Backup",
-					"enabled": true,
-					"stdout": true,
-					"stderr": false,
-					"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"}
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				GetFunc: func(ctx context.Context, id int64) (*truenas.CronJob, error) {
+					return testCronJob(), nil
+				},
 			},
 		}},
 	}
@@ -487,13 +468,11 @@ func TestCronJobResource_Read_Success(t *testing.T) {
 	if resultData.Enabled.ValueBool() != true {
 		t.Errorf("expected enabled true, got %v", resultData.Enabled.ValueBool())
 	}
-	// API returns stdout=true, which maps to capture_stdout=false (inverted)
 	if resultData.CaptureStdout.ValueBool() != false {
-		t.Errorf("expected capture_stdout false (inverted from API stdout=true), got %v", resultData.CaptureStdout.ValueBool())
+		t.Errorf("expected capture_stdout false, got %v", resultData.CaptureStdout.ValueBool())
 	}
-	// API returns stderr=false, which maps to capture_stderr=true (inverted)
 	if resultData.CaptureStderr.ValueBool() != true {
-		t.Errorf("expected capture_stderr true (inverted from API stderr=false), got %v", resultData.CaptureStderr.ValueBool())
+		t.Errorf("expected capture_stderr true, got %v", resultData.CaptureStderr.ValueBool())
 	}
 	if resultData.Schedule == nil {
 		t.Fatal("expected schedule block to be set")
@@ -517,9 +496,11 @@ func TestCronJobResource_Read_Success(t *testing.T) {
 
 func TestCronJobResource_Read_NotFound(t *testing.T) {
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				GetFunc: func(ctx context.Context, id int64) (*truenas.CronJob, error) {
+					return nil, nil
+				},
 			},
 		}},
 	}
@@ -569,9 +550,11 @@ func TestCronJobResource_Read_NotFound(t *testing.T) {
 
 func TestCronJobResource_Read_APIError(t *testing.T) {
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				GetFunc: func(ctx context.Context, id int64) (*truenas.CronJob, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
 	}
@@ -615,33 +598,32 @@ func TestCronJobResource_Read_APIError(t *testing.T) {
 }
 
 func TestCronJobResource_Update_Success(t *testing.T) {
-	var capturedMethod string
 	var capturedID int64
-	var capturedUpdateData map[string]any
+	var capturedOpts truenas.UpdateCronJobOpts
 
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cronjob.update" {
-					capturedMethod = method
-					args := params.([]any)
-					capturedID = args[0].(int64)
-					capturedUpdateData = args[1].(map[string]any)
-					return json.RawMessage(`{"id": 5}`), nil
-				}
-				if method == "cronjob.query" {
-					return json.RawMessage(`[{
-						"id": 5,
-						"user": "admin",
-						"command": "/usr/local/bin/updated-backup.sh",
-						"description": "Updated Daily Backup",
-						"enabled": false,
-						"stdout": false,
-						"stderr": true,
-						"schedule": {"minute": "30", "hour": "4", "dom": "1", "month": "*", "dow": "1-5"}
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				UpdateFunc: func(ctx context.Context, id int64, opts truenas.UpdateCronJobOpts) (*truenas.CronJob, error) {
+					capturedID = id
+					capturedOpts = opts
+					return &truenas.CronJob{
+						ID:            5,
+						User:          "admin",
+						Command:       "/usr/local/bin/updated-backup.sh",
+						Description:   "Updated Daily Backup",
+						Enabled:       false,
+						CaptureStdout: true,
+						CaptureStderr: false,
+						Schedule: truenas.Schedule{
+							Minute: "30",
+							Hour:   "4",
+							Dom:    "1",
+							Month:  "*",
+							Dow:    "1-5",
+						},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -707,52 +689,42 @@ func TestCronJobResource_Update_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cronjob.update" {
-		t.Errorf("expected method 'cronjob.update', got %q", capturedMethod)
-	}
-
 	if capturedID != 5 {
 		t.Errorf("expected ID 5, got %d", capturedID)
 	}
 
-	// Verify update params - API receives inverted values
-	if capturedUpdateData["user"] != "admin" {
-		t.Errorf("expected user 'admin', got %v", capturedUpdateData["user"])
+	// Verify update opts
+	if capturedOpts.User != "admin" {
+		t.Errorf("expected user 'admin', got %q", capturedOpts.User)
 	}
-	if capturedUpdateData["command"] != "/usr/local/bin/updated-backup.sh" {
-		t.Errorf("expected command '/usr/local/bin/updated-backup.sh', got %v", capturedUpdateData["command"])
+	if capturedOpts.Command != "/usr/local/bin/updated-backup.sh" {
+		t.Errorf("expected command '/usr/local/bin/updated-backup.sh', got %q", capturedOpts.Command)
 	}
-	if capturedUpdateData["description"] != "Updated Daily Backup" {
-		t.Errorf("expected description 'Updated Daily Backup', got %v", capturedUpdateData["description"])
+	if capturedOpts.Description != "Updated Daily Backup" {
+		t.Errorf("expected description 'Updated Daily Backup', got %q", capturedOpts.Description)
 	}
-	if capturedUpdateData["enabled"] != false {
-		t.Errorf("expected enabled false, got %v", capturedUpdateData["enabled"])
+	if capturedOpts.Enabled != false {
+		t.Errorf("expected enabled false, got %v", capturedOpts.Enabled)
 	}
-	// capture_stdout=true means stdout=false (inverted)
-	if capturedUpdateData["stdout"] != false {
-		t.Errorf("expected stdout false (inverted from capture_stdout=true), got %v", capturedUpdateData["stdout"])
+	if capturedOpts.CaptureStdout != true {
+		t.Errorf("expected CaptureStdout true, got %v", capturedOpts.CaptureStdout)
 	}
-	// capture_stderr=false means stderr=true (inverted)
-	if capturedUpdateData["stderr"] != true {
-		t.Errorf("expected stderr true (inverted from capture_stderr=false), got %v", capturedUpdateData["stderr"])
+	if capturedOpts.CaptureStderr != false {
+		t.Errorf("expected CaptureStderr false, got %v", capturedOpts.CaptureStderr)
 	}
 
-	// Verify schedule in update params
-	schedule, ok := capturedUpdateData["schedule"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected schedule to be map[string]any, got %T", capturedUpdateData["schedule"])
+	// Verify schedule in update opts
+	if capturedOpts.Schedule.Minute != "30" {
+		t.Errorf("expected schedule minute '30', got %q", capturedOpts.Schedule.Minute)
 	}
-	if schedule["minute"] != "30" {
-		t.Errorf("expected schedule minute '30', got %v", schedule["minute"])
+	if capturedOpts.Schedule.Hour != "4" {
+		t.Errorf("expected schedule hour '4', got %q", capturedOpts.Schedule.Hour)
 	}
-	if schedule["hour"] != "4" {
-		t.Errorf("expected schedule hour '4', got %v", schedule["hour"])
+	if capturedOpts.Schedule.Dom != "1" {
+		t.Errorf("expected schedule dom '1', got %q", capturedOpts.Schedule.Dom)
 	}
-	if schedule["dom"] != "1" {
-		t.Errorf("expected schedule dom '1', got %v", schedule["dom"])
-	}
-	if schedule["dow"] != "1-5" {
-		t.Errorf("expected schedule dow '1-5', got %v", schedule["dow"])
+	if capturedOpts.Schedule.Dow != "1-5" {
+		t.Errorf("expected schedule dow '1-5', got %q", capturedOpts.Schedule.Dow)
 	}
 
 	// Verify state was set
@@ -773,13 +745,11 @@ func TestCronJobResource_Update_Success(t *testing.T) {
 	if resultData.Enabled.ValueBool() != false {
 		t.Errorf("expected enabled false, got %v", resultData.Enabled.ValueBool())
 	}
-	// API returns stdout=false, which maps to capture_stdout=true (inverted)
 	if resultData.CaptureStdout.ValueBool() != true {
-		t.Errorf("expected capture_stdout true (inverted from API stdout=false), got %v", resultData.CaptureStdout.ValueBool())
+		t.Errorf("expected capture_stdout true, got %v", resultData.CaptureStdout.ValueBool())
 	}
-	// API returns stderr=true, which maps to capture_stderr=false (inverted)
 	if resultData.CaptureStderr.ValueBool() != false {
-		t.Errorf("expected capture_stderr false (inverted from API stderr=true), got %v", resultData.CaptureStderr.ValueBool())
+		t.Errorf("expected capture_stderr false, got %v", resultData.CaptureStderr.ValueBool())
 	}
 	if resultData.Schedule == nil {
 		t.Fatal("expected schedule block to be set")
@@ -800,9 +770,11 @@ func TestCronJobResource_Update_Success(t *testing.T) {
 
 func TestCronJobResource_Update_APIError(t *testing.T) {
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				UpdateFunc: func(ctx context.Context, id int64, opts truenas.UpdateCronJobOpts) (*truenas.CronJob, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
 	}
@@ -870,15 +842,17 @@ func TestCronJobResource_Update_APIError(t *testing.T) {
 }
 
 func TestCronJobResource_Delete_Success(t *testing.T) {
-	var capturedMethod string
+	var deleteCalled bool
 	var capturedID int64
 
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedID = params.(int64)
-				return json.RawMessage(`true`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				DeleteFunc: func(ctx context.Context, id int64) error {
+					deleteCalled = true
+					capturedID = id
+					return nil
+				},
 			},
 		}},
 	}
@@ -916,8 +890,8 @@ func TestCronJobResource_Delete_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cronjob.delete" {
-		t.Errorf("expected method 'cronjob.delete', got %q", capturedMethod)
+	if !deleteCalled {
+		t.Error("expected Delete to be called")
 	}
 
 	if capturedID != 5 {
@@ -927,9 +901,11 @@ func TestCronJobResource_Delete_Success(t *testing.T) {
 
 func TestCronJobResource_Delete_APIError(t *testing.T) {
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("cron job in use")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				DeleteFunc: func(ctx context.Context, id int64) error {
+					return errors.New("cron job in use")
+				},
 			},
 		}},
 	}
@@ -969,28 +945,30 @@ func TestCronJobResource_Delete_APIError(t *testing.T) {
 }
 
 func TestCronJobResource_Create_CustomSchedule(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateCronJobOpts
 
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cronjob.create" {
-					capturedParams = params
-					return json.RawMessage(`{"id": 10}`), nil
-				}
-				if method == "cronjob.query" {
-					return json.RawMessage(`[{
-						"id": 10,
-						"user": "admin",
-						"command": "/usr/local/bin/report.sh",
-						"description": "Business Hours Report",
-						"enabled": true,
-						"stdout": true,
-						"stderr": true,
-						"schedule": {"minute": "*/15", "hour": "9-17", "dom": "1,15", "month": "*", "dow": "1-5"}
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateCronJobOpts) (*truenas.CronJob, error) {
+					capturedOpts = opts
+					return &truenas.CronJob{
+						ID:            10,
+						User:          "admin",
+						Command:       "/usr/local/bin/report.sh",
+						Description:   "Business Hours Report",
+						Enabled:       true,
+						CaptureStdout: false,
+						CaptureStderr: false,
+						Schedule: truenas.Schedule{
+							Minute: "*/15",
+							Hour:   "9-17",
+							Dom:    "1,15",
+							Month:  "*",
+							Dow:    "1-5",
+						},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1031,31 +1009,21 @@ func TestCronJobResource_Create_CustomSchedule(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify schedule params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	// Verify schedule opts
+	if capturedOpts.Schedule.Minute != "*/15" {
+		t.Errorf("expected schedule minute '*/15', got %q", capturedOpts.Schedule.Minute)
 	}
-
-	schedule, ok := params["schedule"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
+	if capturedOpts.Schedule.Hour != "9-17" {
+		t.Errorf("expected schedule hour '9-17', got %q", capturedOpts.Schedule.Hour)
 	}
-
-	if schedule["minute"] != "*/15" {
-		t.Errorf("expected schedule minute '*/15', got %v", schedule["minute"])
+	if capturedOpts.Schedule.Dom != "1,15" {
+		t.Errorf("expected schedule dom '1,15', got %q", capturedOpts.Schedule.Dom)
 	}
-	if schedule["hour"] != "9-17" {
-		t.Errorf("expected schedule hour '9-17', got %v", schedule["hour"])
+	if capturedOpts.Schedule.Month != "*" {
+		t.Errorf("expected schedule month '*', got %q", capturedOpts.Schedule.Month)
 	}
-	if schedule["dom"] != "1,15" {
-		t.Errorf("expected schedule dom '1,15', got %v", schedule["dom"])
-	}
-	if schedule["month"] != "*" {
-		t.Errorf("expected schedule month '*', got %v", schedule["month"])
-	}
-	if schedule["dow"] != "1-5" {
-		t.Errorf("expected schedule dow '1-5', got %v", schedule["dow"])
+	if capturedOpts.Schedule.Dow != "1-5" {
+		t.Errorf("expected schedule dow '1-5', got %q", capturedOpts.Schedule.Dow)
 	}
 
 	// Verify state was set correctly
@@ -1082,29 +1050,30 @@ func TestCronJobResource_Create_CustomSchedule(t *testing.T) {
 }
 
 func TestCronJobResource_Update_ScheduleOnly(t *testing.T) {
-	var capturedUpdateData map[string]any
+	var capturedOpts truenas.UpdateCronJobOpts
 
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cronjob.update" {
-					args := params.([]any)
-					capturedUpdateData = args[1].(map[string]any)
-					return json.RawMessage(`{"id": 7}`), nil
-				}
-				if method == "cronjob.query" {
-					return json.RawMessage(`[{
-						"id": 7,
-						"user": "root",
-						"command": "/usr/local/bin/backup.sh",
-						"description": "Daily Backup",
-						"enabled": true,
-						"stdout": true,
-						"stderr": false,
-						"schedule": {"minute": "*/30", "hour": "*/2", "dom": "*", "month": "1-6", "dow": "0,6"}
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				UpdateFunc: func(ctx context.Context, id int64, opts truenas.UpdateCronJobOpts) (*truenas.CronJob, error) {
+					capturedOpts = opts
+					return &truenas.CronJob{
+						ID:            7,
+						User:          "root",
+						Command:       "/usr/local/bin/backup.sh",
+						Description:   "Daily Backup",
+						Enabled:       true,
+						CaptureStdout: false,
+						CaptureStderr: true,
+						Schedule: truenas.Schedule{
+							Minute: "*/30",
+							Hour:   "*/2",
+							Dom:    "*",
+							Month:  "1-6",
+							Dow:    "0,6",
+						},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1170,47 +1139,41 @@ func TestCronJobResource_Update_ScheduleOnly(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify non-schedule params remain unchanged - API receives inverted values
-	if capturedUpdateData["user"] != "root" {
-		t.Errorf("expected user 'root', got %v", capturedUpdateData["user"])
+	// Verify non-schedule opts remain unchanged
+	if capturedOpts.User != "root" {
+		t.Errorf("expected user 'root', got %q", capturedOpts.User)
 	}
-	if capturedUpdateData["command"] != "/usr/local/bin/backup.sh" {
-		t.Errorf("expected command '/usr/local/bin/backup.sh', got %v", capturedUpdateData["command"])
+	if capturedOpts.Command != "/usr/local/bin/backup.sh" {
+		t.Errorf("expected command '/usr/local/bin/backup.sh', got %q", capturedOpts.Command)
 	}
-	if capturedUpdateData["description"] != "Daily Backup" {
-		t.Errorf("expected description 'Daily Backup', got %v", capturedUpdateData["description"])
+	if capturedOpts.Description != "Daily Backup" {
+		t.Errorf("expected description 'Daily Backup', got %q", capturedOpts.Description)
 	}
-	if capturedUpdateData["enabled"] != true {
-		t.Errorf("expected enabled true, got %v", capturedUpdateData["enabled"])
+	if capturedOpts.Enabled != true {
+		t.Errorf("expected enabled true, got %v", capturedOpts.Enabled)
 	}
-	// capture_stdout=false means stdout=true (inverted)
-	if capturedUpdateData["stdout"] != true {
-		t.Errorf("expected stdout true (inverted from capture_stdout=false), got %v", capturedUpdateData["stdout"])
+	if capturedOpts.CaptureStdout != false {
+		t.Errorf("expected CaptureStdout false, got %v", capturedOpts.CaptureStdout)
 	}
-	// capture_stderr=true means stderr=false (inverted)
-	if capturedUpdateData["stderr"] != false {
-		t.Errorf("expected stderr false (inverted from capture_stderr=true), got %v", capturedUpdateData["stderr"])
+	if capturedOpts.CaptureStderr != true {
+		t.Errorf("expected CaptureStderr true, got %v", capturedOpts.CaptureStderr)
 	}
 
-	// Verify schedule params changed
-	schedule, ok := capturedUpdateData["schedule"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected schedule to be map[string]any, got %T", capturedUpdateData["schedule"])
+	// Verify schedule opts changed
+	if capturedOpts.Schedule.Minute != "*/30" {
+		t.Errorf("expected schedule minute '*/30', got %q", capturedOpts.Schedule.Minute)
 	}
-	if schedule["minute"] != "*/30" {
-		t.Errorf("expected schedule minute '*/30', got %v", schedule["minute"])
+	if capturedOpts.Schedule.Hour != "*/2" {
+		t.Errorf("expected schedule hour '*/2', got %q", capturedOpts.Schedule.Hour)
 	}
-	if schedule["hour"] != "*/2" {
-		t.Errorf("expected schedule hour '*/2', got %v", schedule["hour"])
+	if capturedOpts.Schedule.Dom != "*" {
+		t.Errorf("expected schedule dom '*', got %q", capturedOpts.Schedule.Dom)
 	}
-	if schedule["dom"] != "*" {
-		t.Errorf("expected schedule dom '*', got %v", schedule["dom"])
+	if capturedOpts.Schedule.Month != "1-6" {
+		t.Errorf("expected schedule month '1-6', got %q", capturedOpts.Schedule.Month)
 	}
-	if schedule["month"] != "1-6" {
-		t.Errorf("expected schedule month '1-6', got %v", schedule["month"])
-	}
-	if schedule["dow"] != "0,6" {
-		t.Errorf("expected schedule dow '0,6', got %v", schedule["dow"])
+	if capturedOpts.Schedule.Dow != "0,6" {
+		t.Errorf("expected schedule dow '0,6', got %q", capturedOpts.Schedule.Dow)
 	}
 
 	// Verify state was set correctly
@@ -1234,28 +1197,30 @@ func TestCronJobResource_Update_ScheduleOnly(t *testing.T) {
 }
 
 func TestCronJobResource_Create_DisabledJob(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateCronJobOpts
 
 	r := &CronJobResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cronjob.create" {
-					capturedParams = params
-					return json.RawMessage(`{"id": 12}`), nil
-				}
-				if method == "cronjob.query" {
-					return json.RawMessage(`[{
-						"id": 12,
-						"user": "root",
-						"command": "/usr/local/bin/maintenance.sh",
-						"description": "Disabled Maintenance Job",
-						"enabled": false,
-						"stdout": false,
-						"stderr": false,
-						"schedule": {"minute": "0", "hour": "0", "dom": "*", "month": "*", "dow": "*"}
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Cron: &truenas.MockCronService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateCronJobOpts) (*truenas.CronJob, error) {
+					capturedOpts = opts
+					return &truenas.CronJob{
+						ID:            12,
+						User:          "root",
+						Command:       "/usr/local/bin/maintenance.sh",
+						Description:   "Disabled Maintenance Job",
+						Enabled:       false,
+						CaptureStdout: true,
+						CaptureStderr: true,
+						Schedule: truenas.Schedule{
+							Minute: "0",
+							Hour:   "0",
+							Dom:    "*",
+							Month:  "*",
+							Dow:    "*",
+						},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1296,22 +1261,15 @@ func TestCronJobResource_Create_DisabledJob(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify enabled flag is false in params - API receives inverted values
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	// Verify enabled flag is false in opts
+	if capturedOpts.Enabled != false {
+		t.Errorf("expected enabled false, got %v", capturedOpts.Enabled)
 	}
-
-	if params["enabled"] != false {
-		t.Errorf("expected enabled false, got %v", params["enabled"])
+	if capturedOpts.CaptureStdout != true {
+		t.Errorf("expected CaptureStdout true, got %v", capturedOpts.CaptureStdout)
 	}
-	// capture_stdout=true means stdout=false (inverted)
-	if params["stdout"] != false {
-		t.Errorf("expected stdout false (inverted from capture_stdout=true), got %v", params["stdout"])
-	}
-	// capture_stderr=true means stderr=false (inverted)
-	if params["stderr"] != false {
-		t.Errorf("expected stderr false (inverted from capture_stderr=true), got %v", params["stderr"])
+	if capturedOpts.CaptureStderr != true {
+		t.Errorf("expected CaptureStderr true, got %v", capturedOpts.CaptureStderr)
 	}
 
 	// Verify state was set correctly with enabled=false

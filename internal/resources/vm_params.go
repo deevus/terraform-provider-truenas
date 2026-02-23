@@ -1,277 +1,259 @@
 package resources
 
+import (
+	truenas "github.com/deevus/truenas-go"
+)
 
-func (r *VMResource) buildCreateParams(data *VMResourceModel) map[string]any {
-	params := map[string]any{
-		"name":   data.Name.ValueString(),
-		"memory": data.Memory.ValueInt64(),
-	}
-
-	if !data.Description.IsNull() && !data.Description.IsUnknown() {
-		params["description"] = data.Description.ValueString()
-	}
-	if !data.VCPUs.IsNull() && !data.VCPUs.IsUnknown() {
-		params["vcpus"] = data.VCPUs.ValueInt64()
-	}
-	if !data.Cores.IsNull() && !data.Cores.IsUnknown() {
-		params["cores"] = data.Cores.ValueInt64()
-	}
-	if !data.Threads.IsNull() && !data.Threads.IsUnknown() {
-		params["threads"] = data.Threads.ValueInt64()
+func (r *VMResource) buildCreateOpts(data *VMResourceModel) truenas.CreateVMOpts {
+	opts := truenas.CreateVMOpts{
+		Name:            data.Name.ValueString(),
+		Description:     data.Description.ValueString(),
+		VCPUs:           data.VCPUs.ValueInt64(),
+		Cores:           data.Cores.ValueInt64(),
+		Threads:         data.Threads.ValueInt64(),
+		Memory:          data.Memory.ValueInt64(),
+		Autostart:       data.Autostart.ValueBool(),
+		Time:            data.Time.ValueString(),
+		Bootloader:      data.Bootloader.ValueString(),
+		BootloaderOVMF:  data.BootloaderOVMF.ValueString(),
+		CPUMode:         data.CPUMode.ValueString(),
+		ShutdownTimeout: data.ShutdownTimeout.ValueInt64(),
+		CommandLineArgs: data.CommandLineArgs.ValueString(),
 	}
 	if !data.MinMemory.IsNull() && !data.MinMemory.IsUnknown() {
-		params["min_memory"] = data.MinMemory.ValueInt64()
-	}
-	if !data.Autostart.IsNull() && !data.Autostart.IsUnknown() {
-		params["autostart"] = data.Autostart.ValueBool()
-	}
-	if !data.Time.IsNull() && !data.Time.IsUnknown() {
-		params["time"] = data.Time.ValueString()
-	}
-	if !data.Bootloader.IsNull() && !data.Bootloader.IsUnknown() {
-		params["bootloader"] = data.Bootloader.ValueString()
-	}
-	if !data.BootloaderOVMF.IsNull() && !data.BootloaderOVMF.IsUnknown() {
-		params["bootloader_ovmf"] = data.BootloaderOVMF.ValueString()
-	}
-	if !data.CPUMode.IsNull() && !data.CPUMode.IsUnknown() {
-		params["cpu_mode"] = data.CPUMode.ValueString()
+		v := data.MinMemory.ValueInt64()
+		opts.MinMemory = &v
 	}
 	if !data.CPUModel.IsNull() && !data.CPUModel.IsUnknown() {
-		params["cpu_model"] = data.CPUModel.ValueString()
+		opts.CPUModel = data.CPUModel.ValueString()
 	}
-	if !data.ShutdownTimeout.IsNull() && !data.ShutdownTimeout.IsUnknown() {
-		params["shutdown_timeout"] = data.ShutdownTimeout.ValueInt64()
-	}
-	if !data.CommandLineArgs.IsNull() && !data.CommandLineArgs.IsUnknown() {
-		params["command_line_args"] = data.CommandLineArgs.ValueString()
-	}
-
-	return params
+	return opts
 }
 
-func (r *VMResource) buildUpdateParams(plan, state *VMResourceModel) map[string]any {
-	params := map[string]any{}
-
-	if !plan.Name.Equal(state.Name) {
-		params["name"] = plan.Name.ValueString()
+func (r *VMResource) buildUpdateOpts(plan, state *VMResourceModel) (*truenas.UpdateVMOpts, bool) {
+	opts := r.buildCreateOpts(plan)
+	changed := !plan.Name.Equal(state.Name) ||
+		!plan.Description.Equal(state.Description) ||
+		!plan.VCPUs.Equal(state.VCPUs) ||
+		!plan.Cores.Equal(state.Cores) ||
+		!plan.Threads.Equal(state.Threads) ||
+		!plan.Memory.Equal(state.Memory) ||
+		!plan.MinMemory.Equal(state.MinMemory) ||
+		!plan.Autostart.Equal(state.Autostart) ||
+		!plan.Time.Equal(state.Time) ||
+		!plan.Bootloader.Equal(state.Bootloader) ||
+		!plan.BootloaderOVMF.Equal(state.BootloaderOVMF) ||
+		!plan.CPUMode.Equal(state.CPUMode) ||
+		!plan.CPUModel.Equal(state.CPUModel) ||
+		!plan.ShutdownTimeout.Equal(state.ShutdownTimeout) ||
+		!plan.CommandLineArgs.Equal(state.CommandLineArgs)
+	if !changed {
+		return nil, false
 	}
-	if !plan.Description.Equal(state.Description) {
-		params["description"] = plan.Description.ValueString()
-	}
-	if !plan.VCPUs.Equal(state.VCPUs) {
-		params["vcpus"] = plan.VCPUs.ValueInt64()
-	}
-	if !plan.Cores.Equal(state.Cores) {
-		params["cores"] = plan.Cores.ValueInt64()
-	}
-	if !plan.Threads.Equal(state.Threads) {
-		params["threads"] = plan.Threads.ValueInt64()
-	}
-	if !plan.Memory.Equal(state.Memory) {
-		params["memory"] = plan.Memory.ValueInt64()
-	}
-	if !plan.MinMemory.Equal(state.MinMemory) {
-		if plan.MinMemory.IsNull() {
-			params["min_memory"] = nil
-		} else {
-			params["min_memory"] = plan.MinMemory.ValueInt64()
-		}
-	}
-	if !plan.Autostart.Equal(state.Autostart) {
-		params["autostart"] = plan.Autostart.ValueBool()
-	}
-	if !plan.Time.Equal(state.Time) {
-		params["time"] = plan.Time.ValueString()
-	}
-	if !plan.Bootloader.Equal(state.Bootloader) {
-		params["bootloader"] = plan.Bootloader.ValueString()
-	}
-	if !plan.BootloaderOVMF.Equal(state.BootloaderOVMF) {
-		params["bootloader_ovmf"] = plan.BootloaderOVMF.ValueString()
-	}
-	if !plan.CPUMode.Equal(state.CPUMode) {
-		params["cpu_mode"] = plan.CPUMode.ValueString()
-	}
-	if !plan.CPUModel.Equal(state.CPUModel) {
-		if plan.CPUModel.IsNull() {
-			params["cpu_model"] = nil
-		} else {
-			params["cpu_model"] = plan.CPUModel.ValueString()
-		}
-	}
-	if !plan.ShutdownTimeout.Equal(state.ShutdownTimeout) {
-		params["shutdown_timeout"] = plan.ShutdownTimeout.ValueInt64()
-	}
-	if !plan.CommandLineArgs.Equal(state.CommandLineArgs) {
-		params["command_line_args"] = plan.CommandLineArgs.ValueString()
-	}
-
-	return params
+	return &opts, true
 }
 
-// -- Device param builders --
+// -- Device opts builders --
 
-func buildDiskDeviceParams(disk *VMDiskModel, vmID int64) map[string]any {
-	attrs := map[string]any{"dtype": "DISK"}
+func buildDiskDeviceOpts(disk *VMDiskModel, vmID int64) truenas.CreateVMDeviceOpts {
+	d := &truenas.DiskDevice{}
 	if !disk.Path.IsNull() {
-		attrs["path"] = disk.Path.ValueString()
+		d.Path = disk.Path.ValueString()
 	}
 	if !disk.Type.IsNull() && !disk.Type.IsUnknown() {
-		attrs["type"] = disk.Type.ValueString()
-	}
-	if !disk.LogicalSectorSize.IsNull() {
-		attrs["logical_sectorsize"] = disk.LogicalSectorSize.ValueInt64()
-	}
-	if !disk.PhysicalSectorSize.IsNull() {
-		attrs["physical_sectorsize"] = disk.PhysicalSectorSize.ValueInt64()
+		d.Type = disk.Type.ValueString()
 	}
 	if !disk.IOType.IsNull() && !disk.IOType.IsUnknown() {
-		attrs["iotype"] = disk.IOType.ValueString()
+		d.IOType = disk.IOType.ValueString()
 	}
 	if !disk.Serial.IsNull() && !disk.Serial.IsUnknown() {
-		attrs["serial"] = disk.Serial.ValueString()
+		d.Serial = disk.Serial.ValueString()
+	}
+	if !disk.LogicalSectorSize.IsNull() && !disk.LogicalSectorSize.IsUnknown() {
+		v := disk.LogicalSectorSize.ValueInt64()
+		d.Logical_Sector_Size = &v
+	}
+	if !disk.PhysicalSectorSize.IsNull() && !disk.PhysicalSectorSize.IsUnknown() {
+		v := disk.PhysicalSectorSize.ValueInt64()
+		d.PhysicalSectorSize = &v
 	}
 
-	params := map[string]any{"vm": vmID, "attributes": attrs}
-	if !disk.Order.IsNull() && !disk.Order.IsUnknown() {
-		params["order"] = disk.Order.ValueInt64()
+	opts := truenas.CreateVMDeviceOpts{
+		VM:         vmID,
+		DeviceType: truenas.DeviceTypeDisk,
+		Disk:       d,
 	}
-	return params
+	if !disk.Order.IsNull() && !disk.Order.IsUnknown() {
+		v := disk.Order.ValueInt64()
+		opts.Order = &v
+	}
+	return opts
 }
 
-func buildRawDeviceParams(raw *VMRawModel, vmID int64) map[string]any {
-	attrs := map[string]any{"dtype": "RAW"}
+func buildRawDeviceOpts(raw *VMRawModel, vmID int64) truenas.CreateVMDeviceOpts {
+	r := &truenas.RawDevice{}
 	if !raw.Path.IsNull() {
-		attrs["path"] = raw.Path.ValueString()
+		r.Path = raw.Path.ValueString()
 	}
 	if !raw.Type.IsNull() && !raw.Type.IsUnknown() {
-		attrs["type"] = raw.Type.ValueString()
+		r.Type = raw.Type.ValueString()
 	}
 	if !raw.Boot.IsNull() && !raw.Boot.IsUnknown() {
-		attrs["boot"] = raw.Boot.ValueBool()
+		r.Boot = raw.Boot.ValueBool()
 	}
 	if !raw.Exists.IsNull() && !raw.Exists.IsUnknown() {
-		attrs["exists"] = raw.Exists.ValueBool()
-	}
-	if !raw.Size.IsNull() {
-		attrs["size"] = raw.Size.ValueInt64()
-	}
-	if !raw.LogicalSectorSize.IsNull() {
-		attrs["logical_sectorsize"] = raw.LogicalSectorSize.ValueInt64()
-	}
-	if !raw.PhysicalSectorSize.IsNull() {
-		attrs["physical_sectorsize"] = raw.PhysicalSectorSize.ValueInt64()
+		r.Exists = raw.Exists.ValueBool()
 	}
 	if !raw.IOType.IsNull() && !raw.IOType.IsUnknown() {
-		attrs["iotype"] = raw.IOType.ValueString()
+		r.IOType = raw.IOType.ValueString()
 	}
 	if !raw.Serial.IsNull() && !raw.Serial.IsUnknown() {
-		attrs["serial"] = raw.Serial.ValueString()
+		r.Serial = raw.Serial.ValueString()
+	}
+	if !raw.Size.IsNull() && !raw.Size.IsUnknown() {
+		v := raw.Size.ValueInt64()
+		r.Size = &v
+	}
+	if !raw.LogicalSectorSize.IsNull() && !raw.LogicalSectorSize.IsUnknown() {
+		v := raw.LogicalSectorSize.ValueInt64()
+		r.Logical_Sector_Size = &v
+	}
+	if !raw.PhysicalSectorSize.IsNull() && !raw.PhysicalSectorSize.IsUnknown() {
+		v := raw.PhysicalSectorSize.ValueInt64()
+		r.PhysicalSectorSize = &v
 	}
 
-	params := map[string]any{"vm": vmID, "attributes": attrs}
+	opts := truenas.CreateVMDeviceOpts{
+		VM:         vmID,
+		DeviceType: truenas.DeviceTypeRaw,
+		Raw:        r,
+	}
 	if !raw.Order.IsNull() && !raw.Order.IsUnknown() {
-		params["order"] = raw.Order.ValueInt64()
+		v := raw.Order.ValueInt64()
+		opts.Order = &v
 	}
-	return params
+	return opts
 }
 
-func buildCDROMDeviceParams(cdrom *VMCDROMModel, vmID int64) map[string]any {
-	attrs := map[string]any{"dtype": "CDROM"}
+func buildCDROMDeviceOpts(cdrom *VMCDROMModel, vmID int64) truenas.CreateVMDeviceOpts {
+	c := &truenas.CDROMDevice{}
 	if !cdrom.Path.IsNull() {
-		attrs["path"] = cdrom.Path.ValueString()
+		c.Path = cdrom.Path.ValueString()
 	}
 
-	params := map[string]any{"vm": vmID, "attributes": attrs}
-	if !cdrom.Order.IsNull() && !cdrom.Order.IsUnknown() {
-		params["order"] = cdrom.Order.ValueInt64()
+	opts := truenas.CreateVMDeviceOpts{
+		VM:         vmID,
+		DeviceType: truenas.DeviceTypeCDROM,
+		CDROM:      c,
 	}
-	return params
+	if !cdrom.Order.IsNull() && !cdrom.Order.IsUnknown() {
+		v := cdrom.Order.ValueInt64()
+		opts.Order = &v
+	}
+	return opts
 }
 
-func buildNICDeviceParams(nic *VMNICModel, vmID int64) map[string]any {
-	attrs := map[string]any{"dtype": "NIC"}
+func buildNICDeviceOpts(nic *VMNICModel, vmID int64) truenas.CreateVMDeviceOpts {
+	n := &truenas.NICDevice{}
 	if !nic.Type.IsNull() && !nic.Type.IsUnknown() {
-		attrs["type"] = nic.Type.ValueString()
+		n.Type = nic.Type.ValueString()
 	}
 	if !nic.NICAttach.IsNull() {
-		attrs["nic_attach"] = nic.NICAttach.ValueString()
+		n.NICAttach = nic.NICAttach.ValueString()
 	}
 	if !nic.MAC.IsNull() && !nic.MAC.IsUnknown() {
-		attrs["mac"] = nic.MAC.ValueString()
+		n.MAC = nic.MAC.ValueString()
 	}
 	if !nic.TrustGuestRXFilters.IsNull() && !nic.TrustGuestRXFilters.IsUnknown() {
-		attrs["trust_guest_rx_filters"] = nic.TrustGuestRXFilters.ValueBool()
+		n.TrustGuestRxFilters = nic.TrustGuestRXFilters.ValueBool()
 	}
 
-	params := map[string]any{"vm": vmID, "attributes": attrs}
-	if !nic.Order.IsNull() && !nic.Order.IsUnknown() {
-		params["order"] = nic.Order.ValueInt64()
+	opts := truenas.CreateVMDeviceOpts{
+		VM:         vmID,
+		DeviceType: truenas.DeviceTypeNIC,
+		NIC:        n,
 	}
-	return params
+	if !nic.Order.IsNull() && !nic.Order.IsUnknown() {
+		v := nic.Order.ValueInt64()
+		opts.Order = &v
+	}
+	return opts
 }
 
-func buildDisplayDeviceParams(display *VMDisplayModel, vmID int64) map[string]any {
-	attrs := map[string]any{"dtype": "DISPLAY"}
+func buildDisplayDeviceOpts(display *VMDisplayModel, vmID int64) truenas.CreateVMDeviceOpts {
+	d := &truenas.DisplayDevice{}
 	if !display.Type.IsNull() && !display.Type.IsUnknown() {
-		attrs["type"] = display.Type.ValueString()
+		d.Type = display.Type.ValueString()
 	}
 	if !display.Resolution.IsNull() && !display.Resolution.IsUnknown() {
-		attrs["resolution"] = display.Resolution.ValueString()
+		d.Resolution = display.Resolution.ValueString()
 	}
 	if !display.Port.IsNull() && !display.Port.IsUnknown() {
-		attrs["port"] = display.Port.ValueInt64()
+		d.Port = display.Port.ValueInt64()
 	}
 	if !display.WebPort.IsNull() && !display.WebPort.IsUnknown() {
-		attrs["web_port"] = display.WebPort.ValueInt64()
+		d.WebPort = display.WebPort.ValueInt64()
 	}
 	if !display.Bind.IsNull() && !display.Bind.IsUnknown() {
-		attrs["bind"] = display.Bind.ValueString()
+		d.Bind = display.Bind.ValueString()
 	}
 	if !display.Wait.IsNull() && !display.Wait.IsUnknown() {
-		attrs["wait"] = display.Wait.ValueBool()
+		d.Wait = display.Wait.ValueBool()
 	}
 	if !display.Password.IsNull() && !display.Password.IsUnknown() {
-		attrs["password"] = display.Password.ValueString()
+		d.Password = display.Password.ValueString()
 	}
 	if !display.Web.IsNull() && !display.Web.IsUnknown() {
-		attrs["web"] = display.Web.ValueBool()
+		d.Web = display.Web.ValueBool()
 	}
 
-	params := map[string]any{"vm": vmID, "attributes": attrs}
+	opts := truenas.CreateVMDeviceOpts{
+		VM:         vmID,
+		DeviceType: truenas.DeviceTypeDisplay,
+		Display:    d,
+	}
 	if !display.Order.IsNull() && !display.Order.IsUnknown() {
-		params["order"] = display.Order.ValueInt64()
+		v := display.Order.ValueInt64()
+		opts.Order = &v
 	}
-	return params
+	return opts
 }
 
-func buildPCIDeviceParams(pci *VMPCIModel, vmID int64) map[string]any {
-	attrs := map[string]any{"dtype": "PCI"}
+func buildPCIDeviceOpts(pci *VMPCIModel, vmID int64) truenas.CreateVMDeviceOpts {
+	p := &truenas.PCIDevice{}
 	if !pci.PPTDev.IsNull() {
-		attrs["pptdev"] = pci.PPTDev.ValueString()
+		p.PPTDev = pci.PPTDev.ValueString()
 	}
 
-	params := map[string]any{"vm": vmID, "attributes": attrs}
-	if !pci.Order.IsNull() && !pci.Order.IsUnknown() {
-		params["order"] = pci.Order.ValueInt64()
+	opts := truenas.CreateVMDeviceOpts{
+		VM:         vmID,
+		DeviceType: truenas.DeviceTypePCI,
+		PCI:        p,
 	}
-	return params
+	if !pci.Order.IsNull() && !pci.Order.IsUnknown() {
+		v := pci.Order.ValueInt64()
+		opts.Order = &v
+	}
+	return opts
 }
 
-func buildUSBDeviceParams(usb *VMUSBModel, vmID int64) map[string]any {
-	attrs := map[string]any{"dtype": "USB"}
+func buildUSBDeviceOpts(usb *VMUSBModel, vmID int64) truenas.CreateVMDeviceOpts {
+	u := &truenas.USBDevice{}
 	if !usb.ControllerType.IsNull() && !usb.ControllerType.IsUnknown() {
-		attrs["controller_type"] = usb.ControllerType.ValueString()
+		u.ControllerType = usb.ControllerType.ValueString()
 	}
 	if !usb.Device.IsNull() {
-		attrs["device"] = usb.Device.ValueString()
+		u.Device = usb.Device.ValueString()
 	}
 
-	params := map[string]any{"vm": vmID, "attributes": attrs}
+	opts := truenas.CreateVMDeviceOpts{
+		VM:         vmID,
+		DeviceType: truenas.DeviceTypeUSB,
+		USB:        u,
+	}
 	if !usb.Order.IsNull() && !usb.Order.IsUnknown() {
-		params["order"] = usb.Order.ValueInt64()
+		v := usb.Order.ValueInt64()
+		opts.Order = &v
 	}
-	return params
+	return opts
 }
-

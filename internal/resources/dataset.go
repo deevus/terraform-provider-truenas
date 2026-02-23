@@ -2,7 +2,6 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	truenas "github.com/deevus/truenas-go"
@@ -45,59 +44,16 @@ type DatasetResourceModel struct {
 	SnapshotID   types.String                   `tfsdk:"snapshot_id"`
 }
 
-// datasetCreateResponse represents the JSON response from pool.dataset.create.
-type datasetCreateResponse struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Mountpoint string `json:"mountpoint"`
-}
-
-// datasetQueryResponse represents the JSON response from pool.dataset.query.
-type datasetQueryResponse struct {
-	ID          string             `json:"id"`
-	Name        string             `json:"name"`
-	Mountpoint  string             `json:"mountpoint"`
-	Compression propertyValueField `json:"compression"`
-	Quota       sizePropertyField  `json:"quota"`
-	RefQuota    sizePropertyField  `json:"refquota"`
-	Atime       propertyValueField `json:"atime"`
-}
-
-// datasetStatResponse represents the JSON response from filesystem.stat.
-type datasetStatResponse struct {
-	Mode int64 `json:"mode"`
-	UID  int64 `json:"uid"`
-	GID  int64 `json:"gid"`
-}
-
-// queryDataset queries a dataset by ID and returns the response.
-// Returns nil if the dataset is not found.
-func (r *DatasetResource) queryDataset(ctx context.Context, datasetID string) (*datasetQueryResponse, error) {
-	raw, err := queryPoolDataset(ctx, r.client, datasetID)
-	if err != nil {
-		return nil, err
-	}
-	if raw == nil {
-		return nil, nil
-	}
-
-	var ds datasetQueryResponse
-	if err := json.Unmarshal(raw, &ds); err != nil {
-		return nil, fmt.Errorf("parse dataset: %w", err)
-	}
-	return &ds, nil
-}
-
 // mapDatasetToModel maps API response fields to the Terraform model.
-func mapDatasetToModel(ds *datasetQueryResponse, data *DatasetResourceModel) {
+func mapDatasetToModel(ds *truenas.Dataset, data *DatasetResourceModel) {
 	data.ID = types.StringValue(ds.ID)
 	data.MountPath = types.StringValue(ds.Mountpoint)
 	data.FullPath = types.StringValue(ds.Mountpoint)
-	data.Compression = types.StringValue(ds.Compression.Value)
+	data.Compression = types.StringValue(ds.Compression)
 	// Store quota/refquota as bytes string - semantic equality handles comparison
-	data.Quota = customtypes.NewSizeStringValue(fmt.Sprintf("%d", ds.Quota.Parsed))
-	data.RefQuota = customtypes.NewSizeStringValue(fmt.Sprintf("%d", ds.RefQuota.Parsed))
-	data.Atime = types.StringValue(ds.Atime.Value)
+	data.Quota = customtypes.NewSizeStringValue(fmt.Sprintf("%d", ds.Quota))
+	data.RefQuota = customtypes.NewSizeStringValue(fmt.Sprintf("%d", ds.RefQuota))
+	data.Atime = types.StringValue(ds.Atime)
 }
 
 // NewDatasetResource creates a new DatasetResource.
@@ -273,12 +229,7 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 
 	// If snapshot_id is set, use clone instead of create
 	if !data.SnapshotID.IsNull() && data.SnapshotID.ValueString() != "" {
-		cloneParams := map[string]any{
-			"snapshot":    data.SnapshotID.ValueString(),
-			"dataset_dst": fullName,
-		}
-
-		_, err := r.client.Call(ctx, "pool.snapshot.clone", cloneParams)
+		err := r.services.Snapshot.Clone(ctx, data.SnapshotID.ValueString(), fullName)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Clone Snapshot",
@@ -288,7 +239,7 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 		}
 
 		// Query the cloned dataset to get all computed attributes
-		ds, err := r.queryDataset(ctx, fullName)
+		ds, err := r.services.Dataset.GetDataset(ctx, fullName)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Read Dataset After Clone",
@@ -310,9 +261,8 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 
 		// Set permissions on the mountpoint if mode/uid/gid are specified
 		if r.hasPermissions(&data) {
-			permParams := r.buildPermParams(&data, ds.Mountpoint)
-			_, err := r.client.CallAndWait(ctx, "filesystem.setperm", permParams)
-			if err != nil {
+			permOpts := r.buildPermOpts(&data, ds.Mountpoint)
+			if err := r.services.Filesystem.SetPermissions(ctx, permOpts); err != nil {
 				resp.Diagnostics.AddError(
 					"Unable to Set Dataset Permissions",
 					fmt.Sprintf("Dataset was cloned but unable to set permissions on mountpoint %q: %s", ds.Mountpoint, err.Error()),
@@ -326,13 +276,13 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	// Build create params
-	params := map[string]any{
-		"name": fullName,
+	// Build create opts
+	opts := truenas.CreateDatasetOpts{
+		Name: fullName,
 	}
 
 	if !data.Compression.IsNull() && !data.Compression.IsUnknown() {
-		params["compression"] = data.Compression.ValueString()
+		opts.Compression = data.Compression.ValueString()
 	}
 
 	if !data.Quota.IsNull() && !data.Quota.IsUnknown() {
@@ -344,7 +294,7 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 			)
 			return
 		}
-		params["quota"] = quotaBytes
+		opts.Quota = quotaBytes
 	}
 
 	if !data.RefQuota.IsNull() && !data.RefQuota.IsUnknown() {
@@ -356,15 +306,15 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 			)
 			return
 		}
-		params["refquota"] = refquotaBytes
+		opts.RefQuota = refquotaBytes
 	}
 
 	if !data.Atime.IsNull() && !data.Atime.IsUnknown() {
-		params["atime"] = data.Atime.ValueString()
+		opts.Atime = data.Atime.ValueString()
 	}
 
 	// Call the TrueNAS API
-	result, err := r.client.Call(ctx, "pool.dataset.create", params)
+	ds, err := r.services.Dataset.CreateDataset(ctx, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Dataset",
@@ -373,43 +323,22 @@ func (r *DatasetResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	// Parse the response
-	var createResp datasetCreateResponse
-	if err := json.Unmarshal(result, &createResp); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Dataset Response",
-			fmt.Sprintf("Unable to parse dataset create response: %s", err.Error()),
-		)
-		return
-	}
-
-	// Query the created dataset to get all computed attributes
-	ds, err := r.queryDataset(ctx, createResp.ID)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read Dataset After Create",
-			fmt.Sprintf("Dataset was created but unable to read it: %s", err.Error()),
-		)
-		return
-	}
-
 	if ds == nil {
 		resp.Diagnostics.AddError(
 			"Dataset Not Found After Create",
-			fmt.Sprintf("Dataset %q was created but could not be found", createResp.ID),
+			fmt.Sprintf("Dataset %q was created but could not be found", fullName),
 		)
 		return
 	}
 
-	// Map all attributes from query response
+	// Map all attributes from response
 	mapDatasetToModel(ds, &data)
 
 	// Set permissions on the mountpoint if mode/uid/gid are specified
 	// This allows SFTP operations (like host_path creation) to work with NFSv4 ACLs
 	if r.hasPermissions(&data) {
-		permParams := r.buildPermParams(&data, ds.Mountpoint)
-		_, err := r.client.CallAndWait(ctx, "filesystem.setperm", permParams)
-		if err != nil {
+		permOpts := r.buildPermOpts(&data, ds.Mountpoint)
+		if err := r.services.Filesystem.SetPermissions(ctx, permOpts); err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Set Dataset Permissions",
 				fmt.Sprintf("Dataset was created but unable to set permissions on mountpoint %q: %s", ds.Mountpoint, err.Error()),
@@ -433,7 +362,7 @@ func (r *DatasetResource) Read(ctx context.Context, req resource.ReadRequest, re
 
 	datasetID := data.ID.ValueString()
 
-	ds, err := r.queryDataset(ctx, datasetID)
+	ds, err := r.services.Dataset.GetDataset(ctx, datasetID)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Dataset",
@@ -488,11 +417,13 @@ func (r *DatasetResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
-	// Build update params - only include changed dataset properties
-	updateParams := map[string]any{}
+	// Build update opts - only include changed dataset properties
+	updateOpts := truenas.UpdateDatasetOpts{}
+	hasChanges := false
 
 	if !data.Compression.Equal(state.Compression) && !data.Compression.IsNull() {
-		updateParams["compression"] = data.Compression.ValueString()
+		updateOpts.Compression = data.Compression.ValueString()
+		hasChanges = true
 	}
 
 	if !data.Quota.Equal(state.Quota) && !data.Quota.IsNull() {
@@ -504,7 +435,8 @@ func (r *DatasetResource) Update(ctx context.Context, req resource.UpdateRequest
 			)
 			return
 		}
-		updateParams["quota"] = quotaBytes
+		updateOpts.Quota = truenas.Int64Ptr(quotaBytes)
+		hasChanges = true
 	}
 
 	if !data.RefQuota.Equal(state.RefQuota) && !data.RefQuota.IsNull() {
@@ -516,11 +448,13 @@ func (r *DatasetResource) Update(ctx context.Context, req resource.UpdateRequest
 			)
 			return
 		}
-		updateParams["refquota"] = refquotaBytes
+		updateOpts.RefQuota = truenas.Int64Ptr(refquotaBytes)
+		hasChanges = true
 	}
 
 	if !data.Atime.Equal(state.Atime) && !data.Atime.IsNull() {
-		updateParams["atime"] = data.Atime.ValueString()
+		updateOpts.Atime = data.Atime.ValueString()
+		hasChanges = true
 	}
 
 	// Check if permissions changed
@@ -532,10 +466,8 @@ func (r *DatasetResource) Update(ctx context.Context, req resource.UpdateRequest
 	mountPath := state.MountPath.ValueString()
 
 	// Update dataset properties if changed
-	if len(updateParams) > 0 {
-		params := []any{datasetID, updateParams}
-
-		result, err := r.client.Call(ctx, "pool.dataset.update", params)
+	if hasChanges {
+		ds, err := r.services.Dataset.UpdateDataset(ctx, datasetID, updateOpts)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Update Dataset",
@@ -544,19 +476,9 @@ func (r *DatasetResource) Update(ctx context.Context, req resource.UpdateRequest
 			return
 		}
 
-		// Parse the response
-		var updateResp datasetQueryResponse
-		if err := json.Unmarshal(result, &updateResp); err != nil {
-			resp.Diagnostics.AddError(
-				"Unable to Parse Dataset Response",
-				fmt.Sprintf("Unable to parse dataset update response: %s", err.Error()),
-			)
-			return
-		}
-
 		// Map response to model
-		mapDatasetToModel(&updateResp, &data)
-		mountPath = updateResp.Mountpoint
+		mapDatasetToModel(ds, &data)
+		mountPath = ds.Mountpoint
 	} else {
 		// Copy computed values from state
 		data.MountPath = state.MountPath
@@ -564,9 +486,8 @@ func (r *DatasetResource) Update(ctx context.Context, req resource.UpdateRequest
 
 	// Update permissions if changed
 	if permChanged && r.hasPermissions(&data) {
-		permParams := r.buildPermParams(&data, mountPath)
-		_, err := r.client.CallAndWait(ctx, "filesystem.setperm", permParams)
-		if err != nil {
+		permOpts := r.buildPermOpts(&data, mountPath)
+		if err := r.services.Filesystem.SetPermissions(ctx, permOpts); err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Update Dataset Permissions",
 				fmt.Sprintf("Unable to set permissions on mountpoint %q: %s", mountPath, err.Error()),
@@ -591,7 +512,7 @@ func (r *DatasetResource) Delete(ctx context.Context, req resource.DeleteRequest
 	datasetID := data.ID.ValueString()
 	recursive := !data.ForceDestroy.IsNull() && data.ForceDestroy.ValueBool()
 
-	if err := deletePoolDataset(ctx, r.client, datasetID, recursive); err != nil {
+	if err := r.services.Dataset.DeleteDataset(ctx, datasetID, recursive); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete Dataset",
 			fmt.Sprintf("Unable to delete dataset %q: %s", datasetID, err.Error()),
@@ -611,25 +532,27 @@ func (r *DatasetResource) hasPermissions(data *DatasetResourceModel) bool {
 		(!data.GID.IsNull() && !data.GID.IsUnknown())
 }
 
-// buildPermParams builds the parameters for filesystem.setperm.
-func (r *DatasetResource) buildPermParams(data *DatasetResourceModel, mountPath string) map[string]any {
-	params := map[string]any{
-		"path": mountPath,
+// buildPermOpts builds the options for filesystem.SetPermissions.
+func (r *DatasetResource) buildPermOpts(data *DatasetResourceModel, mountPath string) truenas.SetPermOpts {
+	opts := truenas.SetPermOpts{
+		Path: mountPath,
 	}
 
 	if !data.Mode.IsNull() && !data.Mode.IsUnknown() {
-		params["mode"] = data.Mode.ValueString()
+		opts.Mode = data.Mode.ValueString()
 	}
 
 	if !data.UID.IsNull() && !data.UID.IsUnknown() {
-		params["uid"] = data.UID.ValueInt64()
+		uid := data.UID.ValueInt64()
+		opts.UID = &uid
 	}
 
 	if !data.GID.IsNull() && !data.GID.IsUnknown() {
-		params["gid"] = data.GID.ValueInt64()
+		gid := data.GID.ValueInt64()
+		opts.GID = &gid
 	}
 
-	return params
+	return opts
 }
 
 // readMountpointPermissions reads the current permissions from the mountpoint
@@ -640,25 +563,21 @@ func (r *DatasetResource) readMountpointPermissions(ctx context.Context, mountPa
 		return nil
 	}
 
-	result, err := r.client.Call(ctx, "filesystem.stat", mountPath)
+	stat, err := r.services.Filesystem.Stat(ctx, mountPath)
 	if err != nil {
 		return fmt.Errorf("unable to stat mountpoint %q: %w", mountPath, err)
 	}
 
-	var statResp datasetStatResponse
-	if err := json.Unmarshal(result, &statResp); err != nil {
-		return fmt.Errorf("unable to parse stat response: %w", err)
-	}
-
 	// Only update attributes that were configured (preserve user intent)
+	// StatResult.Mode is already masked with 0o777 in truenas-go
 	if !data.Mode.IsNull() {
-		data.Mode = types.StringValue(fmt.Sprintf("%o", statResp.Mode&0777))
+		data.Mode = types.StringValue(fmt.Sprintf("%o", stat.Mode))
 	}
 	if !data.UID.IsNull() {
-		data.UID = types.Int64Value(statResp.UID)
+		data.UID = types.Int64Value(stat.UID)
 	}
 	if !data.GID.IsNull() {
-		data.GID = types.Int64Value(statResp.GID)
+		data.GID = types.Int64Value(stat.GID)
 	}
 
 	return nil

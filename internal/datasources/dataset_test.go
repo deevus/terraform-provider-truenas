@@ -2,11 +2,11 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -118,10 +118,10 @@ func TestDatasetDataSource_Schema(t *testing.T) {
 func TestDatasetDataSource_Configure_Success(t *testing.T) {
 	ds := NewDatasetDataSource().(*DatasetDataSource)
 
-	mockClient := &client.MockClient{}
+	svc := &services.TrueNASServices{}
 
 	req := datasource.ConfigureRequest{
-		ProviderData: mockClient,
+		ProviderData: svc,
 	}
 	resp := &datasource.ConfigureResponse{}
 
@@ -152,7 +152,7 @@ func TestDatasetDataSource_Configure_WrongType(t *testing.T) {
 	ds := NewDatasetDataSource().(*DatasetDataSource)
 
 	req := datasource.ConfigureRequest{
-		ProviderData: "not a client",
+		ProviderData: "not a services",
 	}
 	resp := &datasource.ConfigureResponse{}
 
@@ -206,21 +206,22 @@ func createDatasetTestReadRequest(t *testing.T, pool, path string) datasource.Re
 
 func TestDatasetDataSource_Read_Success(t *testing.T) {
 	ds := &DatasetDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "pool.dataset.query" {
-					t.Errorf("expected method 'pool.dataset.query', got %q", method)
-				}
-				// Return a dataset response
-				return json.RawMessage(`[{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"pool": "storage",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "lz4"},
-					"used": {"parsed": 1000000},
-					"available": {"parsed": 9000000}
-				}]`), nil
+		services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					if id != "storage/apps" {
+						t.Errorf("expected id 'storage/apps', got %q", id)
+					}
+					return &truenas.Dataset{
+						ID:          "storage/apps",
+						Name:        "storage/apps",
+						Pool:        "storage",
+						Mountpoint:  "/mnt/storage/apps",
+						Compression: "lz4",
+						Used:        1000000,
+						Available:   9000000,
+					}, nil
+				},
 			},
 		},
 	}
@@ -276,10 +277,11 @@ func TestDatasetDataSource_Read_Success(t *testing.T) {
 
 func TestDatasetDataSource_Read_DatasetNotFound(t *testing.T) {
 	ds := &DatasetDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return empty array - dataset not found
-				return json.RawMessage(`[]`), nil
+		services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return nil, nil
+				},
 			},
 		},
 	}
@@ -306,9 +308,11 @@ func TestDatasetDataSource_Read_DatasetNotFound(t *testing.T) {
 
 func TestDatasetDataSource_Read_APIError(t *testing.T) {
 	ds := &DatasetDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection failed")
+		services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					return nil, errors.New("connection failed")
+				},
 			},
 		},
 	}
@@ -333,38 +337,11 @@ func TestDatasetDataSource_Read_APIError(t *testing.T) {
 	}
 }
 
-func TestDatasetDataSource_Read_InvalidJSON(t *testing.T) {
-	ds := &DatasetDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		},
-	}
-
-	req := createDatasetTestReadRequest(t, "storage", "apps")
-
-	// Get the schema for the state
-	schemaReq := datasource.SchemaRequest{}
-	schemaResp := &datasource.SchemaResponse{}
-	ds.Schema(context.Background(), schemaReq, schemaResp)
-
-	resp := &datasource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	ds.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON")
-	}
-}
-
 func TestDatasetDataSource_Read_ConfigError(t *testing.T) {
 	ds := &DatasetDataSource{
-		client: &client.MockClient{},
+		services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{},
+		},
 	}
 
 	// Get the schema
@@ -415,79 +392,24 @@ func TestDatasetDataSource_Read_ConfigError(t *testing.T) {
 	}
 }
 
-func TestDatasetDataSource_Read_VerifyFilterParams(t *testing.T) {
-	var capturedParams any
-
-	ds := &DatasetDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedParams = params
-				return json.RawMessage(`[{
-					"id": "storage/apps",
-					"name": "storage/apps",
-					"pool": "storage",
-					"mountpoint": "/mnt/storage/apps",
-					"compression": {"value": "lz4"},
-					"used": {"parsed": 1000000},
-					"available": {"parsed": 9000000}
-				}]`), nil
-			},
-		},
-	}
-
-	req := createDatasetTestReadRequest(t, "storage", "apps")
-
-	schemaReq := datasource.SchemaRequest{}
-	schemaResp := &datasource.SchemaResponse{}
-	ds.Schema(context.Background(), schemaReq, schemaResp)
-
-	resp := &datasource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	ds.Read(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-
-	// Verify the filter params were passed correctly
-	// Expected format: [["id", "=", "storage/apps"]]
-	filters, ok := capturedParams.([][]any)
-	if !ok {
-		t.Fatalf("expected params to be [][]any, got %T", capturedParams)
-	}
-
-	if len(filters) != 1 {
-		t.Fatalf("expected 1 filter, got %d", len(filters))
-	}
-
-	filter := filters[0]
-	if len(filter) != 3 {
-		t.Fatalf("expected 3 filter parts, got %d", len(filter))
-	}
-
-	if filter[0] != "id" || filter[1] != "=" || filter[2] != "storage/apps" {
-		t.Errorf("expected filter ['id', '=', 'storage/apps'], got %v", filter)
-	}
-}
-
 func TestDatasetDataSource_Read_NestedPath(t *testing.T) {
 	ds := &DatasetDataSource{
-		client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return a dataset with nested path
-				return json.RawMessage(`[{
-					"id": "tank/data/apps/myapp",
-					"name": "tank/data/apps/myapp",
-					"pool": "tank",
-					"mountpoint": "/mnt/tank/data/apps/myapp",
-					"compression": {"value": "zstd"},
-					"used": {"parsed": 5000000},
-					"available": {"parsed": 50000000}
-				}]`), nil
+		services: &services.TrueNASServices{
+			Dataset: &truenas.MockDatasetService{
+				GetDatasetFunc: func(ctx context.Context, id string) (*truenas.Dataset, error) {
+					if id != "tank/data/apps/myapp" {
+						t.Errorf("expected id 'tank/data/apps/myapp', got %q", id)
+					}
+					return &truenas.Dataset{
+						ID:          "tank/data/apps/myapp",
+						Name:        "tank/data/apps/myapp",
+						Pool:        "tank",
+						Mountpoint:  "/mnt/tank/data/apps/myapp",
+						Compression: "zstd",
+						Used:        5000000,
+						Available:   50000000,
+					}, nil
+				},
 			},
 		},
 	}

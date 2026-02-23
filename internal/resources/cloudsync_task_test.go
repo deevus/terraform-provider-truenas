@@ -2,12 +2,12 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"math/big"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -48,10 +48,10 @@ func TestCloudSyncTaskResource_Metadata(t *testing.T) {
 func TestCloudSyncTaskResource_Configure_Success(t *testing.T) {
 	r := NewCloudSyncTaskResource().(*CloudSyncTaskResource)
 
-	mockClient := &client.MockClient{}
+	svc := &services.TrueNASServices{}
 
 	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
+		ProviderData: svc,
 	}
 	resp := &resource.ConfigureResponse{}
 
@@ -59,10 +59,6 @@ func TestCloudSyncTaskResource_Configure_Success(t *testing.T) {
 
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-
-	if r.client == nil {
-		t.Error("expected client to be set")
 	}
 }
 
@@ -399,37 +395,44 @@ func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 	return tftypes.NewValue(objectType, values)
 }
 
+// testCloudSyncTask returns a standard test task for S3.
+func testCloudSyncTask(id int64, description string) *truenas.CloudSyncTask {
+	return &truenas.CloudSyncTask{
+		ID:           id,
+		Description:  description,
+		Path:         "/mnt/tank/data",
+		CredentialID: 5,
+		Direction:    "PUSH",
+		TransferMode: "SYNC",
+		Snapshot:     false,
+		Transfers:    4,
+		Attributes: map[string]any{
+			"bucket": "my-bucket",
+			"folder": "/backups/",
+		},
+		Schedule: truenas.Schedule{
+			Minute: "0",
+			Hour:   "3",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		FollowSymlinks:     false,
+		CreateEmptySrcDirs: false,
+		Enabled:            true,
+	}
+}
+
 func TestCloudSyncTaskResource_Create_S3_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.CreateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.create" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`{"id": 10}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 10,
-						"description": "Daily Backup",
-						"path": "/mnt/tank/data",
-						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-						"attributes": {"bucket": "my-bucket", "folder": "/backups/"},
-						"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": false,
-						"snapshot": false,
-						"transfers": 4,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedOpts = opts
+					return testCloudSyncTask(10, "Daily Backup"), nil
+				},
 			},
 		}},
 	}
@@ -475,51 +478,37 @@ func TestCloudSyncTaskResource_Create_S3_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cloudsync.create" {
-		t.Errorf("expected method 'cloudsync.create', got %q", capturedMethod)
+	// Verify opts sent to service
+	if capturedOpts.Description != "Daily Backup" {
+		t.Errorf("expected description 'Daily Backup', got %q", capturedOpts.Description)
 	}
-
-	// Verify params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.Path != "/mnt/tank/data" {
+		t.Errorf("expected path '/mnt/tank/data', got %q", capturedOpts.Path)
 	}
-
-	if params["description"] != "Daily Backup" {
-		t.Errorf("expected description 'Daily Backup', got %v", params["description"])
+	if capturedOpts.Direction != "PUSH" {
+		t.Errorf("expected direction 'PUSH', got %q", capturedOpts.Direction)
 	}
-	if params["path"] != "/mnt/tank/data" {
-		t.Errorf("expected path '/mnt/tank/data', got %v", params["path"])
+	if capturedOpts.TransferMode != "SYNC" {
+		t.Errorf("expected transfer_mode 'SYNC', got %q", capturedOpts.TransferMode)
 	}
-	if params["direction"] != "PUSH" {
-		t.Errorf("expected direction 'PUSH', got %v", params["direction"])
-	}
-	if params["transfer_mode"] != "SYNC" {
-		t.Errorf("expected transfer_mode 'SYNC', got %v", params["transfer_mode"])
+	if capturedOpts.CredentialID != 5 {
+		t.Errorf("expected credential ID 5, got %d", capturedOpts.CredentialID)
 	}
 
 	// Verify schedule
-	schedule, ok := params["schedule"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
+	if capturedOpts.Schedule.Minute != "0" {
+		t.Errorf("expected schedule minute '0', got %q", capturedOpts.Schedule.Minute)
 	}
-	if schedule["minute"] != "0" {
-		t.Errorf("expected schedule minute '0', got %v", schedule["minute"])
-	}
-	if schedule["hour"] != "3" {
-		t.Errorf("expected schedule hour '3', got %v", schedule["hour"])
+	if capturedOpts.Schedule.Hour != "3" {
+		t.Errorf("expected schedule hour '3', got %q", capturedOpts.Schedule.Hour)
 	}
 
 	// Verify attributes (bucket/folder)
-	attributes, ok := params["attributes"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected attributes to be map[string]any, got %T", params["attributes"])
+	if capturedOpts.Attributes["bucket"] != "my-bucket" {
+		t.Errorf("expected attributes bucket 'my-bucket', got %v", capturedOpts.Attributes["bucket"])
 	}
-	if attributes["bucket"] != "my-bucket" {
-		t.Errorf("expected attributes bucket 'my-bucket', got %v", attributes["bucket"])
-	}
-	if attributes["folder"] != "/backups/" {
-		t.Errorf("expected attributes folder '/backups/', got %v", attributes["folder"])
+	if capturedOpts.Attributes["folder"] != "/backups/" {
+		t.Errorf("expected attributes folder '/backups/', got %v", capturedOpts.Attributes["folder"])
 	}
 
 	// Verify state was set
@@ -531,36 +520,26 @@ func TestCloudSyncTaskResource_Create_S3_Success(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Create_B2_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.CreateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.create" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`{"id": 11}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 11,
-						"description": "B2 Backup",
-						"path": "/mnt/tank/b2data",
-						"credentials": {"id": 6, "name": "Test B2", "provider": {"type": "B2"}},
-						"attributes": {"bucket": "b2-bucket", "folder": "/b2-backups/"},
-						"schedule": {"minute": "30", "hour": "2", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PUSH",
-						"transfer_mode": "COPY",
-						"encryption": false,
-						"snapshot": false,
-						"transfers": 8,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:           11,
+						Description:  "B2 Backup",
+						Path:         "/mnt/tank/b2data",
+						CredentialID: 6,
+						Direction:    "PUSH",
+						TransferMode: "COPY",
+						Transfers:    8,
+						Enabled:      true,
+						Attributes:   map[string]any{"bucket": "b2-bucket", "folder": "/b2-backups/"},
+						Schedule:     truenas.Schedule{Minute: "30", Hour: "2", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -606,51 +585,34 @@ func TestCloudSyncTaskResource_Create_B2_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cloudsync.create" {
-		t.Errorf("expected method 'cloudsync.create', got %q", capturedMethod)
+	// Verify opts
+	if capturedOpts.Description != "B2 Backup" {
+		t.Errorf("expected description 'B2 Backup', got %q", capturedOpts.Description)
 	}
-
-	// Verify params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.Path != "/mnt/tank/b2data" {
+		t.Errorf("expected path '/mnt/tank/b2data', got %q", capturedOpts.Path)
 	}
-
-	if params["description"] != "B2 Backup" {
-		t.Errorf("expected description 'B2 Backup', got %v", params["description"])
+	if capturedOpts.Direction != "PUSH" {
+		t.Errorf("expected direction 'PUSH', got %q", capturedOpts.Direction)
 	}
-	if params["path"] != "/mnt/tank/b2data" {
-		t.Errorf("expected path '/mnt/tank/b2data', got %v", params["path"])
-	}
-	if params["direction"] != "PUSH" {
-		t.Errorf("expected direction 'PUSH', got %v", params["direction"])
-	}
-	if params["transfer_mode"] != "COPY" {
-		t.Errorf("expected transfer_mode 'COPY', got %v", params["transfer_mode"])
+	if capturedOpts.TransferMode != "COPY" {
+		t.Errorf("expected transfer_mode 'COPY', got %q", capturedOpts.TransferMode)
 	}
 
 	// Verify schedule
-	schedule, ok := params["schedule"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
+	if capturedOpts.Schedule.Minute != "30" {
+		t.Errorf("expected schedule minute '30', got %q", capturedOpts.Schedule.Minute)
 	}
-	if schedule["minute"] != "30" {
-		t.Errorf("expected schedule minute '30', got %v", schedule["minute"])
-	}
-	if schedule["hour"] != "2" {
-		t.Errorf("expected schedule hour '2', got %v", schedule["hour"])
+	if capturedOpts.Schedule.Hour != "2" {
+		t.Errorf("expected schedule hour '2', got %q", capturedOpts.Schedule.Hour)
 	}
 
 	// Verify attributes (bucket/folder for B2)
-	attributes, ok := params["attributes"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected attributes to be map[string]any, got %T", params["attributes"])
+	if capturedOpts.Attributes["bucket"] != "b2-bucket" {
+		t.Errorf("expected attributes bucket 'b2-bucket', got %v", capturedOpts.Attributes["bucket"])
 	}
-	if attributes["bucket"] != "b2-bucket" {
-		t.Errorf("expected attributes bucket 'b2-bucket', got %v", attributes["bucket"])
-	}
-	if attributes["folder"] != "/b2-backups/" {
-		t.Errorf("expected attributes folder '/b2-backups/', got %v", attributes["folder"])
+	if capturedOpts.Attributes["folder"] != "/b2-backups/" {
+		t.Errorf("expected attributes folder '/b2-backups/', got %v", capturedOpts.Attributes["folder"])
 	}
 
 	// Verify state was set
@@ -662,36 +624,26 @@ func TestCloudSyncTaskResource_Create_B2_Success(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Create_GCS_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.CreateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.create" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`{"id": 12}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 12,
-						"description": "GCS Backup",
-						"path": "/mnt/tank/gcsdata",
-						"credentials": {"id": 7, "name": "Test GCS", "provider": {"type": "GOOGLE_CLOUD_STORAGE"}},
-						"attributes": {"bucket": "gcs-bucket", "folder": "/gcs-backups/"},
-						"schedule": {"minute": "15", "hour": "4", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PULL",
-						"transfer_mode": "MOVE",
-						"encryption": false,
-						"snapshot": false,
-						"transfers": 2,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:           12,
+						Description:  "GCS Backup",
+						Path:         "/mnt/tank/gcsdata",
+						CredentialID: 7,
+						Direction:    "PULL",
+						TransferMode: "MOVE",
+						Transfers:    2,
+						Enabled:      true,
+						Attributes:   map[string]any{"bucket": "gcs-bucket", "folder": "/gcs-backups/"},
+						Schedule:     truenas.Schedule{Minute: "15", Hour: "4", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -737,51 +689,34 @@ func TestCloudSyncTaskResource_Create_GCS_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cloudsync.create" {
-		t.Errorf("expected method 'cloudsync.create', got %q", capturedMethod)
+	// Verify opts
+	if capturedOpts.Description != "GCS Backup" {
+		t.Errorf("expected description 'GCS Backup', got %q", capturedOpts.Description)
 	}
-
-	// Verify params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.Path != "/mnt/tank/gcsdata" {
+		t.Errorf("expected path '/mnt/tank/gcsdata', got %q", capturedOpts.Path)
 	}
-
-	if params["description"] != "GCS Backup" {
-		t.Errorf("expected description 'GCS Backup', got %v", params["description"])
+	if capturedOpts.Direction != "PULL" {
+		t.Errorf("expected direction 'PULL', got %q", capturedOpts.Direction)
 	}
-	if params["path"] != "/mnt/tank/gcsdata" {
-		t.Errorf("expected path '/mnt/tank/gcsdata', got %v", params["path"])
-	}
-	if params["direction"] != "PULL" {
-		t.Errorf("expected direction 'PULL', got %v", params["direction"])
-	}
-	if params["transfer_mode"] != "MOVE" {
-		t.Errorf("expected transfer_mode 'MOVE', got %v", params["transfer_mode"])
+	if capturedOpts.TransferMode != "MOVE" {
+		t.Errorf("expected transfer_mode 'MOVE', got %q", capturedOpts.TransferMode)
 	}
 
 	// Verify schedule
-	schedule, ok := params["schedule"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
+	if capturedOpts.Schedule.Minute != "15" {
+		t.Errorf("expected schedule minute '15', got %q", capturedOpts.Schedule.Minute)
 	}
-	if schedule["minute"] != "15" {
-		t.Errorf("expected schedule minute '15', got %v", schedule["minute"])
-	}
-	if schedule["hour"] != "4" {
-		t.Errorf("expected schedule hour '4', got %v", schedule["hour"])
+	if capturedOpts.Schedule.Hour != "4" {
+		t.Errorf("expected schedule hour '4', got %q", capturedOpts.Schedule.Hour)
 	}
 
 	// Verify attributes (bucket/folder for GCS)
-	attributes, ok := params["attributes"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected attributes to be map[string]any, got %T", params["attributes"])
+	if capturedOpts.Attributes["bucket"] != "gcs-bucket" {
+		t.Errorf("expected attributes bucket 'gcs-bucket', got %v", capturedOpts.Attributes["bucket"])
 	}
-	if attributes["bucket"] != "gcs-bucket" {
-		t.Errorf("expected attributes bucket 'gcs-bucket', got %v", attributes["bucket"])
-	}
-	if attributes["folder"] != "/gcs-backups/" {
-		t.Errorf("expected attributes folder '/gcs-backups/', got %v", attributes["folder"])
+	if capturedOpts.Attributes["folder"] != "/gcs-backups/" {
+		t.Errorf("expected attributes folder '/gcs-backups/', got %v", capturedOpts.Attributes["folder"])
 	}
 
 	// Verify state was set
@@ -793,36 +728,27 @@ func TestCloudSyncTaskResource_Create_GCS_Success(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Create_Azure_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.CreateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.create" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`{"id": 13}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 13,
-						"description": "Azure Backup",
-						"path": "/mnt/tank/azuredata",
-						"credentials": {"id": 8, "name": "Test Azure", "provider": {"type": "AZUREBLOB"}},
-						"attributes": {"container": "azure-container", "folder": "/azure-backups/"},
-						"schedule": {"minute": "45", "hour": "6", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": false,
-						"snapshot": true,
-						"transfers": 6,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:           13,
+						Description:  "Azure Backup",
+						Path:         "/mnt/tank/azuredata",
+						CredentialID: 8,
+						Direction:    "PUSH",
+						TransferMode: "SYNC",
+						Snapshot:     true,
+						Transfers:    6,
+						Enabled:      true,
+						Attributes:   map[string]any{"container": "azure-container", "folder": "/azure-backups/"},
+						Schedule:     truenas.Schedule{Minute: "45", Hour: "6", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -869,54 +795,37 @@ func TestCloudSyncTaskResource_Create_Azure_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cloudsync.create" {
-		t.Errorf("expected method 'cloudsync.create', got %q", capturedMethod)
+	// Verify opts
+	if capturedOpts.Description != "Azure Backup" {
+		t.Errorf("expected description 'Azure Backup', got %q", capturedOpts.Description)
 	}
-
-	// Verify params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.Path != "/mnt/tank/azuredata" {
+		t.Errorf("expected path '/mnt/tank/azuredata', got %q", capturedOpts.Path)
 	}
-
-	if params["description"] != "Azure Backup" {
-		t.Errorf("expected description 'Azure Backup', got %v", params["description"])
+	if capturedOpts.Direction != "PUSH" {
+		t.Errorf("expected direction 'PUSH', got %q", capturedOpts.Direction)
 	}
-	if params["path"] != "/mnt/tank/azuredata" {
-		t.Errorf("expected path '/mnt/tank/azuredata', got %v", params["path"])
+	if capturedOpts.TransferMode != "SYNC" {
+		t.Errorf("expected transfer_mode 'SYNC', got %q", capturedOpts.TransferMode)
 	}
-	if params["direction"] != "PUSH" {
-		t.Errorf("expected direction 'PUSH', got %v", params["direction"])
-	}
-	if params["transfer_mode"] != "SYNC" {
-		t.Errorf("expected transfer_mode 'SYNC', got %v", params["transfer_mode"])
-	}
-	if params["snapshot"] != true {
-		t.Errorf("expected snapshot true, got %v", params["snapshot"])
+	if capturedOpts.Snapshot != true {
+		t.Errorf("expected snapshot true, got %v", capturedOpts.Snapshot)
 	}
 
 	// Verify schedule
-	schedule, ok := params["schedule"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
+	if capturedOpts.Schedule.Minute != "45" {
+		t.Errorf("expected schedule minute '45', got %q", capturedOpts.Schedule.Minute)
 	}
-	if schedule["minute"] != "45" {
-		t.Errorf("expected schedule minute '45', got %v", schedule["minute"])
-	}
-	if schedule["hour"] != "6" {
-		t.Errorf("expected schedule hour '6', got %v", schedule["hour"])
+	if capturedOpts.Schedule.Hour != "6" {
+		t.Errorf("expected schedule hour '6', got %q", capturedOpts.Schedule.Hour)
 	}
 
 	// Verify attributes (container/folder for Azure)
-	attributes, ok := params["attributes"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected attributes to be map[string]any, got %T", params["attributes"])
+	if capturedOpts.Attributes["container"] != "azure-container" {
+		t.Errorf("expected attributes container 'azure-container', got %v", capturedOpts.Attributes["container"])
 	}
-	if attributes["container"] != "azure-container" {
-		t.Errorf("expected attributes container 'azure-container', got %v", attributes["container"])
-	}
-	if attributes["folder"] != "/azure-backups/" {
-		t.Errorf("expected attributes folder '/azure-backups/', got %v", attributes["folder"])
+	if capturedOpts.Attributes["folder"] != "/azure-backups/" {
+		t.Errorf("expected attributes folder '/azure-backups/', got %v", capturedOpts.Attributes["folder"])
 	}
 
 	// Verify state was set
@@ -929,26 +838,11 @@ func TestCloudSyncTaskResource_Create_Azure_Success(t *testing.T) {
 
 func TestCloudSyncTaskResource_Read_Success(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": 10,
-					"description": "Daily Backup",
-					"path": "/mnt/tank/data",
-					"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-					"attributes": {"bucket": "my-bucket", "folder": "/backups/"},
-					"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"},
-					"direction": "PUSH",
-					"transfer_mode": "SYNC",
-					"encryption": false,
-					"snapshot": false,
-					"transfers": 4,
-					"bwlimit": [],
-					"exclude": [],
-					"follow_symlinks": false,
-					"create_empty_src_dirs": false,
-					"enabled": true
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				GetTaskFunc: func(ctx context.Context, id int64) (*truenas.CloudSyncTask, error) {
+					return testCloudSyncTask(10, "Daily Backup"), nil
+				},
 			},
 		}},
 	}
@@ -995,9 +889,11 @@ func TestCloudSyncTaskResource_Read_Success(t *testing.T) {
 
 func TestCloudSyncTaskResource_Read_NotFound(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				GetTaskFunc: func(ctx context.Context, id int64) (*truenas.CloudSyncTask, error) {
+					return nil, nil
+				},
 			},
 		}},
 	}
@@ -1041,39 +937,28 @@ func TestCloudSyncTaskResource_Read_NotFound(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Update_Success(t *testing.T) {
-	var capturedMethod string
 	var capturedID int64
-	var capturedUpdateData map[string]any
+	var capturedOpts truenas.UpdateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.update" {
-					capturedMethod = method
-					args := params.([]any)
-					capturedID = args[0].(int64)
-					capturedUpdateData = args[1].(map[string]any)
-					return json.RawMessage(`{"id": 10}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 10,
-						"description": "Updated Backup",
-						"path": "/mnt/tank/data",
-						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-						"attributes": {"bucket": "my-bucket", "folder": "/new-folder/"},
-						"schedule": {"minute": "30", "hour": "4", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": false,
-						"snapshot": false,
-						"transfers": 4,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				UpdateTaskFunc: func(ctx context.Context, id int64, opts truenas.UpdateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedID = id
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:           10,
+						Description:  "Updated Backup",
+						Path:         "/mnt/tank/data",
+						CredentialID: 5,
+						Direction:    "PUSH",
+						TransferMode: "SYNC",
+						Transfers:    4,
+						Enabled:      true,
+						Attributes:   map[string]any{"bucket": "my-bucket", "folder": "/new-folder/"},
+						Schedule:     truenas.Schedule{Minute: "30", Hour: "4", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1143,16 +1028,12 @@ func TestCloudSyncTaskResource_Update_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cloudsync.update" {
-		t.Errorf("expected method 'cloudsync.update', got %q", capturedMethod)
-	}
-
 	if capturedID != 10 {
 		t.Errorf("expected ID 10, got %d", capturedID)
 	}
 
-	if capturedUpdateData["description"] != "Updated Backup" {
-		t.Errorf("expected description 'Updated Backup', got %v", capturedUpdateData["description"])
+	if capturedOpts.Description != "Updated Backup" {
+		t.Errorf("expected description 'Updated Backup', got %q", capturedOpts.Description)
 	}
 
 	// Verify state was set
@@ -1168,35 +1049,27 @@ func TestCloudSyncTaskResource_Update_SyncOnChange(t *testing.T) {
 	var syncID int64
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.update" {
-					return json.RawMessage(`{"id": 10}`), nil
-				}
-				if method == "cloudsync.sync" {
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				UpdateTaskFunc: func(ctx context.Context, id int64, opts truenas.UpdateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					return &truenas.CloudSyncTask{
+						ID:           10,
+						Description:  "Updated Backup",
+						Path:         "/mnt/tank/data",
+						CredentialID: 5,
+						Direction:    "PUSH",
+						TransferMode: "SYNC",
+						Transfers:    4,
+						Enabled:      true,
+						Attributes:   map[string]any{"bucket": "my-bucket", "folder": "/backups/"},
+						Schedule:     truenas.Schedule{Minute: "0", Hour: "3", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
+				SyncFunc: func(ctx context.Context, id int64) error {
 					syncCalled = true
-					syncID = params.(int64)
-					return json.RawMessage(`1`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 10,
-						"description": "Updated Backup",
-						"path": "/mnt/tank/data",
-						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-						"attributes": {"bucket": "my-bucket", "folder": "/backups/"},
-						"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": false,
-						"snapshot": false,
-						"transfers": 4,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+					syncID = id
+					return nil
+				},
 			},
 		}},
 	}
@@ -1267,7 +1140,7 @@ func TestCloudSyncTaskResource_Update_SyncOnChange(t *testing.T) {
 	}
 
 	if !syncCalled {
-		t.Error("expected cloudsync.sync to be called when sync_on_change is true")
+		t.Error("expected Sync to be called when sync_on_change is true")
 	}
 
 	if syncID != 10 {
@@ -1276,15 +1149,15 @@ func TestCloudSyncTaskResource_Update_SyncOnChange(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Delete_Success(t *testing.T) {
-	var capturedMethod string
 	var capturedID int64
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedID = params.(int64)
-				return json.RawMessage(`true`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				DeleteTaskFunc: func(ctx context.Context, id int64) error {
+					capturedID = id
+					return nil
+				},
 			},
 		}},
 	}
@@ -1317,10 +1190,6 @@ func TestCloudSyncTaskResource_Delete_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cloudsync.delete" {
-		t.Errorf("expected method 'cloudsync.delete', got %q", capturedMethod)
-	}
-
 	if capturedID != 10 {
 		t.Errorf("expected ID 10, got %d", capturedID)
 	}
@@ -1328,9 +1197,11 @@ func TestCloudSyncTaskResource_Delete_Success(t *testing.T) {
 
 func TestCloudSyncTaskResource_Create_APIError(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
 	}
@@ -1369,7 +1240,9 @@ func TestCloudSyncTaskResource_Create_APIError(t *testing.T) {
 
 func TestCloudSyncTaskResource_Create_NoProviderBlock(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1403,9 +1276,11 @@ func TestCloudSyncTaskResource_Create_NoProviderBlock(t *testing.T) {
 
 func TestCloudSyncTaskResource_Read_APIError(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				GetTaskFunc: func(ctx context.Context, id int64) (*truenas.CloudSyncTask, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
 	}
@@ -1445,9 +1320,11 @@ func TestCloudSyncTaskResource_Read_APIError(t *testing.T) {
 
 func TestCloudSyncTaskResource_Update_APIError(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				UpdateTaskFunc: func(ctx context.Context, id int64, opts truenas.UpdateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
 	}
@@ -1503,9 +1380,11 @@ func TestCloudSyncTaskResource_Update_APIError(t *testing.T) {
 
 func TestCloudSyncTaskResource_Delete_APIError(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("task in use by active job")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				DeleteTaskFunc: func(ctx context.Context, id int64) error {
+					return errors.New("task in use by active job")
+				},
 			},
 		}},
 	}
@@ -1541,7 +1420,9 @@ func TestCloudSyncTaskResource_Delete_APIError(t *testing.T) {
 
 func TestCloudSyncTaskResource_Create_MultipleProviderBlocks(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{},
+		}},
 	}
 
 	schemaResp := getCloudSyncTaskResourceSchema(t)
@@ -1581,34 +1462,26 @@ func TestCloudSyncTaskResource_Create_MultipleProviderBlocks(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Create_ScheduleWithWildcards(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.create" {
-					capturedParams = params
-					return json.RawMessage(`{"id": 20}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 20,
-						"description": "Schedule Wildcards Test",
-						"path": "/mnt/tank/data",
-						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-						"attributes": {"bucket": "test-bucket", "folder": "/"},
-						"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": false,
-						"snapshot": false,
-						"transfers": 4,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:           20,
+						Description:  "Schedule Wildcards Test",
+						Path:         "/mnt/tank/data",
+						CredentialID: 5,
+						Direction:    "PUSH",
+						TransferMode: "SYNC",
+						Transfers:    4,
+						Enabled:      true,
+						Attributes:   map[string]any{"bucket": "test-bucket", "folder": "/"},
+						Schedule:     truenas.Schedule{Minute: "0", Hour: "3", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1656,34 +1529,23 @@ func TestCloudSyncTaskResource_Create_ScheduleWithWildcards(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify schedule params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	// Verify schedule opts
+	if capturedOpts.Schedule.Minute != "0" {
+		t.Errorf("expected schedule minute '0', got %q", capturedOpts.Schedule.Minute)
+	}
+	if capturedOpts.Schedule.Hour != "3" {
+		t.Errorf("expected schedule hour '3', got %q", capturedOpts.Schedule.Hour)
 	}
 
-	schedule, ok := params["schedule"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
+	// Verify wildcard fields are passed correctly
+	if capturedOpts.Schedule.Dom != "*" {
+		t.Errorf("expected schedule dom '*', got %q", capturedOpts.Schedule.Dom)
 	}
-
-	// Verify required fields are passed correctly
-	if schedule["minute"] != "0" {
-		t.Errorf("expected schedule minute '0', got %v", schedule["minute"])
+	if capturedOpts.Schedule.Month != "*" {
+		t.Errorf("expected schedule month '*', got %q", capturedOpts.Schedule.Month)
 	}
-	if schedule["hour"] != "3" {
-		t.Errorf("expected schedule hour '3', got %v", schedule["hour"])
-	}
-
-	// Verify wildcard fields are passed correctly to the API
-	if schedule["dom"] != "*" {
-		t.Errorf("expected schedule dom '*', got %v", schedule["dom"])
-	}
-	if schedule["month"] != "*" {
-		t.Errorf("expected schedule month '*', got %v", schedule["month"])
-	}
-	if schedule["dow"] != "*" {
-		t.Errorf("expected schedule dow '*', got %v", schedule["dow"])
+	if capturedOpts.Schedule.Dow != "*" {
+		t.Errorf("expected schedule dow '*', got %q", capturedOpts.Schedule.Dow)
 	}
 
 	// Verify state was set correctly
@@ -1701,34 +1563,26 @@ func TestCloudSyncTaskResource_Create_ScheduleWithWildcards(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Create_CustomSchedule(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.create" {
-					capturedParams = params
-					return json.RawMessage(`{"id": 21}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 21,
-						"description": "Custom Schedule Test",
-						"path": "/mnt/tank/data",
-						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-						"attributes": {"bucket": "test-bucket", "folder": "/"},
-						"schedule": {"minute": "*/5", "hour": "9-17", "dom": "1,15", "month": "1-6", "dow": "1-5"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": false,
-						"snapshot": false,
-						"transfers": 4,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:           21,
+						Description:  "Custom Schedule Test",
+						Path:         "/mnt/tank/data",
+						CredentialID: 5,
+						Direction:    "PUSH",
+						TransferMode: "SYNC",
+						Transfers:    4,
+						Enabled:      true,
+						Attributes:   map[string]any{"bucket": "test-bucket", "folder": "/"},
+						Schedule:     truenas.Schedule{Minute: "*/5", Hour: "9-17", Dom: "1,15", Month: "1-6", Dow: "1-5"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1745,11 +1599,11 @@ func TestCloudSyncTaskResource_Create_CustomSchedule(t *testing.T) {
 		Transfers:    4,
 		Enabled:      true,
 		Schedule: &scheduleBlockParams{
-			Minute: "*/5",    // Every 5 minutes
-			Hour:   "9-17",   // Business hours (9am-5pm)
-			Dom:    "1,15",   // 1st and 15th of month
-			Month:  "1-6",    // January through June
-			Dow:    "1-5",    // Monday through Friday
+			Minute: "*/5",  // Every 5 minutes
+			Hour:   "9-17", // Business hours (9am-5pm)
+			Dom:    "1,15", // 1st and 15th of month
+			Month:  "1-6",  // January through June
+			Dow:    "1-5",  // Monday through Friday
 		},
 		S3: &taskS3BlockParams{
 			Bucket: "test-bucket",
@@ -1776,32 +1630,21 @@ func TestCloudSyncTaskResource_Create_CustomSchedule(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify schedule params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
-	}
-
-	schedule, ok := params["schedule"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected schedule to be map[string]any, got %T", params["schedule"])
-	}
-
 	// Verify all custom cron expressions are passed correctly
-	if schedule["minute"] != "*/5" {
-		t.Errorf("expected schedule minute '*/5', got %v", schedule["minute"])
+	if capturedOpts.Schedule.Minute != "*/5" {
+		t.Errorf("expected schedule minute '*/5', got %q", capturedOpts.Schedule.Minute)
 	}
-	if schedule["hour"] != "9-17" {
-		t.Errorf("expected schedule hour '9-17', got %v", schedule["hour"])
+	if capturedOpts.Schedule.Hour != "9-17" {
+		t.Errorf("expected schedule hour '9-17', got %q", capturedOpts.Schedule.Hour)
 	}
-	if schedule["dom"] != "1,15" {
-		t.Errorf("expected schedule dom '1,15', got %v", schedule["dom"])
+	if capturedOpts.Schedule.Dom != "1,15" {
+		t.Errorf("expected schedule dom '1,15', got %q", capturedOpts.Schedule.Dom)
 	}
-	if schedule["month"] != "1-6" {
-		t.Errorf("expected schedule month '1-6', got %v", schedule["month"])
+	if capturedOpts.Schedule.Month != "1-6" {
+		t.Errorf("expected schedule month '1-6', got %q", capturedOpts.Schedule.Month)
 	}
-	if schedule["dow"] != "1-5" {
-		t.Errorf("expected schedule dow '1-5', got %v", schedule["dow"])
+	if capturedOpts.Schedule.Dow != "1-5" {
+		t.Errorf("expected schedule dow '1-5', got %q", capturedOpts.Schedule.Dow)
 	}
 
 	// Verify state was set correctly
@@ -1831,39 +1674,28 @@ func TestCloudSyncTaskResource_Create_CustomSchedule(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Update_ScheduleOnly(t *testing.T) {
-	var capturedMethod string
 	var capturedID int64
-	var capturedUpdateData map[string]any
+	var capturedOpts truenas.UpdateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.update" {
-					capturedMethod = method
-					args := params.([]any)
-					capturedID = args[0].(int64)
-					capturedUpdateData = args[1].(map[string]any)
-					return json.RawMessage(`{"id": 22}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 22,
-						"description": "Schedule Update Test",
-						"path": "/mnt/tank/data",
-						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-						"attributes": {"bucket": "test-bucket", "folder": "/backups/"},
-						"schedule": {"minute": "*/15", "hour": "0", "dom": "*", "month": "*", "dow": "0,6"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": false,
-						"snapshot": false,
-						"transfers": 4,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				UpdateTaskFunc: func(ctx context.Context, id int64, opts truenas.UpdateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedID = id
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:           22,
+						Description:  "Schedule Update Test",
+						Path:         "/mnt/tank/data",
+						CredentialID: 5,
+						Direction:    "PUSH",
+						TransferMode: "SYNC",
+						Transfers:    4,
+						Enabled:      true,
+						Attributes:   map[string]any{"bucket": "test-bucket", "folder": "/backups/"},
+						Schedule:     truenas.Schedule{Minute: "*/15", Hour: "0", Dom: "*", Month: "*", Dow: "0,6"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1904,11 +1736,11 @@ func TestCloudSyncTaskResource_Update_ScheduleOnly(t *testing.T) {
 		Transfers:    4,
 		Enabled:      true,
 		Schedule: &scheduleBlockParams{
-			Minute: "*/15",   // Every 15 minutes
-			Hour:   "0",      // Midnight
+			Minute: "*/15", // Every 15 minutes
+			Hour:   "0",    // Midnight
 			Dom:    "*",
 			Month:  "*",
-			Dow:    "0,6",    // Saturday and Sunday
+			Dow:    "0,6", // Saturday and Sunday
 		},
 		S3: &taskS3BlockParams{
 			Bucket: "test-bucket",
@@ -1939,32 +1771,24 @@ func TestCloudSyncTaskResource_Update_ScheduleOnly(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cloudsync.update" {
-		t.Errorf("expected method 'cloudsync.update', got %q", capturedMethod)
-	}
-
 	if capturedID != 22 {
 		t.Errorf("expected ID 22, got %d", capturedID)
 	}
 
 	// Verify that description remains unchanged
-	if capturedUpdateData["description"] != "Schedule Update Test" {
-		t.Errorf("expected description 'Schedule Update Test', got %v", capturedUpdateData["description"])
+	if capturedOpts.Description != "Schedule Update Test" {
+		t.Errorf("expected description 'Schedule Update Test', got %q", capturedOpts.Description)
 	}
 
 	// Verify schedule was updated
-	schedule, ok := capturedUpdateData["schedule"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected schedule to be map[string]any, got %T", capturedUpdateData["schedule"])
+	if capturedOpts.Schedule.Minute != "*/15" {
+		t.Errorf("expected schedule minute '*/15', got %q", capturedOpts.Schedule.Minute)
 	}
-	if schedule["minute"] != "*/15" {
-		t.Errorf("expected schedule minute '*/15', got %v", schedule["minute"])
+	if capturedOpts.Schedule.Hour != "0" {
+		t.Errorf("expected schedule hour '0', got %q", capturedOpts.Schedule.Hour)
 	}
-	if schedule["hour"] != "0" {
-		t.Errorf("expected schedule hour '0', got %v", schedule["hour"])
-	}
-	if schedule["dow"] != "0,6" {
-		t.Errorf("expected schedule dow '0,6', got %v", schedule["dow"])
+	if capturedOpts.Schedule.Dow != "0,6" {
+		t.Errorf("expected schedule dow '0,6', got %q", capturedOpts.Schedule.Dow)
 	}
 
 	// Verify state was updated correctly
@@ -1985,38 +1809,29 @@ func TestCloudSyncTaskResource_Update_ScheduleOnly(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Create_WithEncryption(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.CreateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.create" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`{"id": 30}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 30,
-						"description": "Encrypted Backup",
-						"path": "/mnt/tank/secure",
-						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-						"attributes": {"bucket": "secure-bucket", "folder": "/encrypted/"},
-						"schedule": {"minute": "0", "hour": "2", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": true,
-						"encryption_password": "my-secret-password",
-						"encryption_salt": "random-salt-value",
-						"snapshot": false,
-						"transfers": 4,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:                 30,
+						Description:        "Encrypted Backup",
+						Path:               "/mnt/tank/secure",
+						CredentialID:       5,
+						Direction:          "PUSH",
+						TransferMode:       "SYNC",
+						Transfers:          4,
+						Enabled:            true,
+						Encryption:         true,
+						EncryptionPassword: "my-secret-password",
+						EncryptionSalt:     "random-salt-value",
+						Attributes:         map[string]any{"bucket": "secure-bucket", "folder": "/encrypted/"},
+						Schedule:           truenas.Schedule{Minute: "0", Hour: "2", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -2066,25 +1881,15 @@ func TestCloudSyncTaskResource_Create_WithEncryption(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cloudsync.create" {
-		t.Errorf("expected method 'cloudsync.create', got %q", capturedMethod)
+	// Verify encryption opts are passed to service
+	if capturedOpts.Encryption != true {
+		t.Errorf("expected encryption true, got %v", capturedOpts.Encryption)
 	}
-
-	// Verify params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.EncryptionPassword != "my-secret-password" {
+		t.Errorf("expected encryption_password 'my-secret-password', got %q", capturedOpts.EncryptionPassword)
 	}
-
-	// Verify encryption params are passed to API
-	if params["encryption"] != true {
-		t.Errorf("expected encryption true, got %v", params["encryption"])
-	}
-	if params["encryption_password"] != "my-secret-password" {
-		t.Errorf("expected encryption_password 'my-secret-password', got %v", params["encryption_password"])
-	}
-	if params["encryption_salt"] != "random-salt-value" {
-		t.Errorf("expected encryption_salt 'random-salt-value', got %v", params["encryption_salt"])
+	if capturedOpts.EncryptionSalt != "random-salt-value" {
+		t.Errorf("expected encryption_salt 'random-salt-value', got %q", capturedOpts.EncryptionSalt)
 	}
 
 	// Verify state was set
@@ -2106,35 +1911,28 @@ func TestCloudSyncTaskResource_Create_WithEncryption(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Create_WithEncryption_NoSalt(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.create" {
-					capturedParams = params
-					return json.RawMessage(`{"id": 31}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 31,
-						"description": "Encrypted No Salt",
-						"path": "/mnt/tank/secure",
-						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-						"attributes": {"bucket": "secure-bucket", "folder": "/encrypted/"},
-						"schedule": {"minute": "0", "hour": "2", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": true,
-						"encryption_password": "password-only",
-						"snapshot": false,
-						"transfers": 4,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:                 31,
+						Description:        "Encrypted No Salt",
+						Path:               "/mnt/tank/secure",
+						CredentialID:       5,
+						Direction:          "PUSH",
+						TransferMode:       "SYNC",
+						Transfers:          4,
+						Enabled:            true,
+						Encryption:         true,
+						EncryptionPassword: "password-only",
+						Attributes:         map[string]any{"bucket": "secure-bucket", "folder": "/encrypted/"},
+						Schedule:           truenas.Schedule{Minute: "0", Hour: "2", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -2185,22 +1983,16 @@ func TestCloudSyncTaskResource_Create_WithEncryption_NoSalt(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
-	}
-
 	// Verify encryption is enabled
-	if params["encryption"] != true {
-		t.Errorf("expected encryption true, got %v", params["encryption"])
+	if capturedOpts.Encryption != true {
+		t.Errorf("expected encryption true, got %v", capturedOpts.Encryption)
 	}
-	if params["encryption_password"] != "password-only" {
-		t.Errorf("expected encryption_password 'password-only', got %v", params["encryption_password"])
+	if capturedOpts.EncryptionPassword != "password-only" {
+		t.Errorf("expected encryption_password 'password-only', got %q", capturedOpts.EncryptionPassword)
 	}
-	// Salt should not be in params when not provided
-	if _, exists := params["encryption_salt"]; exists {
-		t.Errorf("expected encryption_salt to not be in params when not provided, but found %v", params["encryption_salt"])
+	// Salt should be empty when not provided
+	if capturedOpts.EncryptionSalt != "" {
+		t.Errorf("expected encryption_salt to be empty when not provided, but got %q", capturedOpts.EncryptionSalt)
 	}
 
 	// Verify state
@@ -2215,41 +2007,31 @@ func TestCloudSyncTaskResource_Create_WithEncryption_NoSalt(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Update_EnableEncryption(t *testing.T) {
-	var capturedMethod string
 	var capturedID int64
-	var capturedUpdateData map[string]any
+	var capturedOpts truenas.UpdateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.update" {
-					capturedMethod = method
-					args := params.([]any)
-					capturedID = args[0].(int64)
-					capturedUpdateData = args[1].(map[string]any)
-					return json.RawMessage(`{"id": 32}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 32,
-						"description": "Now Encrypted",
-						"path": "/mnt/tank/data",
-						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-						"attributes": {"bucket": "my-bucket", "folder": "/backups/"},
-						"schedule": {"minute": "0", "hour": "3", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": true,
-						"encryption_password": "new-encryption-pass",
-						"encryption_salt": "new-salt",
-						"snapshot": false,
-						"transfers": 4,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				UpdateTaskFunc: func(ctx context.Context, id int64, opts truenas.UpdateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedID = id
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:                 32,
+						Description:        "Now Encrypted",
+						Path:               "/mnt/tank/data",
+						CredentialID:       5,
+						Direction:          "PUSH",
+						TransferMode:       "SYNC",
+						Transfers:          4,
+						Enabled:            true,
+						Encryption:         true,
+						EncryptionPassword: "new-encryption-pass",
+						EncryptionSalt:     "new-salt",
+						Attributes:         map[string]any{"bucket": "my-bucket", "folder": "/backups/"},
+						Schedule:           truenas.Schedule{Minute: "0", Hour: "3", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -2330,23 +2112,19 @@ func TestCloudSyncTaskResource_Update_EnableEncryption(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "cloudsync.update" {
-		t.Errorf("expected method 'cloudsync.update', got %q", capturedMethod)
-	}
-
 	if capturedID != 32 {
 		t.Errorf("expected ID 32, got %d", capturedID)
 	}
 
 	// Verify encryption was added
-	if capturedUpdateData["encryption"] != true {
-		t.Errorf("expected encryption true, got %v", capturedUpdateData["encryption"])
+	if capturedOpts.Encryption != true {
+		t.Errorf("expected encryption true, got %v", capturedOpts.Encryption)
 	}
-	if capturedUpdateData["encryption_password"] != "new-encryption-pass" {
-		t.Errorf("expected encryption_password 'new-encryption-pass', got %v", capturedUpdateData["encryption_password"])
+	if capturedOpts.EncryptionPassword != "new-encryption-pass" {
+		t.Errorf("expected encryption_password 'new-encryption-pass', got %q", capturedOpts.EncryptionPassword)
 	}
-	if capturedUpdateData["encryption_salt"] != "new-salt" {
-		t.Errorf("expected encryption_salt 'new-salt', got %v", capturedUpdateData["encryption_salt"])
+	if capturedOpts.EncryptionSalt != "new-salt" {
+		t.Errorf("expected encryption_salt 'new-salt', got %q", capturedOpts.EncryptionSalt)
 	}
 
 	// Verify state was updated
@@ -2365,28 +2143,25 @@ func TestCloudSyncTaskResource_Update_EnableEncryption(t *testing.T) {
 
 func TestCloudSyncTaskResource_Read_WithEncryption(t *testing.T) {
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": 33,
-					"description": "Encrypted Task",
-					"path": "/mnt/tank/encrypted",
-					"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-					"attributes": {"bucket": "encrypted-bucket", "folder": "/secure/"},
-					"schedule": {"minute": "0", "hour": "4", "dom": "*", "month": "*", "dow": "*"},
-					"direction": "PUSH",
-					"transfer_mode": "SYNC",
-					"encryption": true,
-					"encryption_password": "stored-password",
-					"encryption_salt": "stored-salt",
-					"snapshot": false,
-					"transfers": 4,
-					"bwlimit": [],
-					"exclude": [],
-					"follow_symlinks": false,
-					"create_empty_src_dirs": false,
-					"enabled": true
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				GetTaskFunc: func(ctx context.Context, id int64) (*truenas.CloudSyncTask, error) {
+					return &truenas.CloudSyncTask{
+						ID:                 33,
+						Description:        "Encrypted Task",
+						Path:               "/mnt/tank/encrypted",
+						CredentialID:       5,
+						Direction:          "PUSH",
+						TransferMode:       "SYNC",
+						Transfers:          4,
+						Enabled:            true,
+						Encryption:         true,
+						EncryptionPassword: "stored-password",
+						EncryptionSalt:     "stored-salt",
+						Attributes:         map[string]any{"bucket": "encrypted-bucket", "folder": "/secure/"},
+						Schedule:           truenas.Schedule{Minute: "0", Hour: "4", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -2456,36 +2231,27 @@ func TestCloudSyncTaskResource_Read_WithEncryption(t *testing.T) {
 }
 
 func TestCloudSyncTaskResource_Create_WithIncludePatterns(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.create" {
-					capturedParams = params
-					return json.RawMessage(`{"id": 40}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 40,
-						"description": "Include Test",
-						"path": "/mnt/tank/data",
-						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-						"attributes": {"bucket": "test-bucket", "folder": "/"},
-						"schedule": {"minute": "0", "hour": "2", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": false,
-						"snapshot": false,
-						"transfers": 4,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true,
-						"include": ["/photos/**", "/docs/**"],
-						"exclude": []
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:           40,
+						Description:  "Include Test",
+						Path:         "/mnt/tank/data",
+						CredentialID: 5,
+						Direction:    "PUSH",
+						TransferMode: "SYNC",
+						Transfers:    4,
+						Enabled:      true,
+						Include:      []string{"/photos/**", "/docs/**"},
+						Attributes:   map[string]any{"bucket": "test-bucket", "folder": "/"},
+						Schedule:     truenas.Schedule{Minute: "0", Hour: "2", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -2532,58 +2298,40 @@ func TestCloudSyncTaskResource_Create_WithIncludePatterns(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if len(capturedOpts.Include) != 2 {
+		t.Errorf("expected 2 include patterns, got %d", len(capturedOpts.Include))
 	}
-
-	include, ok := params["include"].([]string)
-	if !ok {
-		t.Fatalf("expected include to be []string, got %T", params["include"])
+	if capturedOpts.Include[0] != "/photos/**" {
+		t.Errorf("expected first include pattern '/photos/**', got %q", capturedOpts.Include[0])
 	}
-
-	if len(include) != 2 {
-		t.Errorf("expected 2 include patterns, got %d", len(include))
-	}
-	if include[0] != "/photos/**" {
-		t.Errorf("expected first include pattern '/photos/**', got %q", include[0])
-	}
-	if include[1] != "/docs/**" {
-		t.Errorf("expected second include pattern '/docs/**', got %q", include[1])
+	if capturedOpts.Include[1] != "/docs/**" {
+		t.Errorf("expected second include pattern '/docs/**', got %q", capturedOpts.Include[1])
 	}
 }
 
 func TestCloudSyncTaskResource_Create_WithIncludeAndExclude(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateCloudSyncTaskOpts
 
 	r := &CloudSyncTaskResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "cloudsync.create" {
-					capturedParams = params
-					return json.RawMessage(`{"id": 41}`), nil
-				}
-				if method == "cloudsync.query" {
-					return json.RawMessage(`[{
-						"id": 41,
-						"description": "Include and Exclude Test",
-						"path": "/mnt/tank/data",
-						"credentials": {"id": 5, "name": "Test", "provider": {"type": "S3"}},
-						"attributes": {"bucket": "test-bucket", "folder": "/"},
-						"schedule": {"minute": "0", "hour": "2", "dom": "*", "month": "*", "dow": "*"},
-						"direction": "PUSH",
-						"transfer_mode": "SYNC",
-						"encryption": false,
-						"snapshot": false,
-						"transfers": 4,
-						"follow_symlinks": false,
-						"create_empty_src_dirs": false,
-						"enabled": true,
-						"include": ["/photos/**"],
-						"exclude": ["*.tmp", "thumbs.db"]
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:           41,
+						Description:  "Include and Exclude Test",
+						Path:         "/mnt/tank/data",
+						CredentialID: 5,
+						Direction:    "PUSH",
+						TransferMode: "SYNC",
+						Transfers:    4,
+						Enabled:      true,
+						Include:      []string{"/photos/**"},
+						Exclude:      []string{"*.tmp", "thumbs.db"},
+						Attributes:   map[string]any{"bucket": "test-bucket", "folder": "/"},
+						Schedule:     truenas.Schedule{Minute: "0", Hour: "2", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
 			},
 		}},
 	}
@@ -2631,26 +2379,13 @@ func TestCloudSyncTaskResource_Create_WithIncludeAndExclude(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
-	}
-
 	// Verify include
-	include, ok := params["include"].([]string)
-	if !ok {
-		t.Fatalf("expected include to be []string, got %T", params["include"])
-	}
-	if len(include) != 1 || include[0] != "/photos/**" {
-		t.Errorf("expected include ['/photos/**'], got %v", include)
+	if len(capturedOpts.Include) != 1 || capturedOpts.Include[0] != "/photos/**" {
+		t.Errorf("expected include ['/photos/**'], got %v", capturedOpts.Include)
 	}
 
 	// Verify exclude
-	exclude, ok := params["exclude"].([]string)
-	if !ok {
-		t.Fatalf("expected exclude to be []string, got %T", params["exclude"])
-	}
-	if len(exclude) != 2 {
-		t.Errorf("expected 2 exclude patterns, got %d", len(exclude))
+	if len(capturedOpts.Exclude) != 2 {
+		t.Errorf("expected 2 exclude patterns, got %d", len(capturedOpts.Exclude))
 	}
 }

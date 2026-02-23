@@ -2,11 +2,10 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
 	customtypes "github.com/deevus/terraform-provider-truenas/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -33,29 +32,15 @@ type AppResource struct {
 // AppResourceModel describes the resource data model.
 // Simplified for custom Docker Compose apps only.
 type AppResourceModel struct {
-	ID              types.String                `tfsdk:"id"`
-	Name            types.String                `tfsdk:"name"`
-	CustomApp       types.Bool                  `tfsdk:"custom_app"`
-	ComposeConfig   customtypes.YAMLStringValue `tfsdk:"compose_config"`
-	DesiredState    customtypes.CaseInsensitiveStringValue `tfsdk:"desired_state"`
-	StateTimeout    types.Int64                 `tfsdk:"state_timeout"`
-	State           types.String                `tfsdk:"state"`
-	RestartTriggers types.Map                   `tfsdk:"restart_triggers"`
+	ID              types.String                            `tfsdk:"id"`
+	Name            types.String                            `tfsdk:"name"`
+	CustomApp       types.Bool                              `tfsdk:"custom_app"`
+	ComposeConfig   customtypes.YAMLStringValue             `tfsdk:"compose_config"`
+	DesiredState    customtypes.CaseInsensitiveStringValue  `tfsdk:"desired_state"`
+	StateTimeout    types.Int64                             `tfsdk:"state_timeout"`
+	State           types.String                            `tfsdk:"state"`
+	RestartTriggers types.Map                               `tfsdk:"restart_triggers"`
 }
-
-// appAPIResponse represents the JSON response from app API calls.
-// Simplified to only parse fields needed for custom Docker Compose apps.
-type appAPIResponse struct {
-	Name      string            `json:"name"`
-	State     string            `json:"state"`
-	CustomApp bool              `json:"custom_app"`
-	Config    appConfigResponse `json:"config"`
-	// active_workloads is ignored - it's runtime info, not configuration
-}
-
-// appConfigResponse contains config fields from the API.
-// When retrieve_config is true, the API returns the parsed compose config as a map.
-type appConfigResponse map[string]any
 
 // NewAppResource creates a new AppResource.
 func NewAppResource() resource.Resource {
@@ -142,13 +127,12 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
-	// Build create params
-	params := r.buildCreateParams(ctx, &data)
+	// Build create opts
+	opts := r.buildCreateOpts(ctx, &data)
 	appName := data.Name.ValueString()
 
-	// Call the TrueNAS API (app.create returns a job, use CallAndWait)
-	// Ignore the response as it contains unparseable progress output mixed with JSON
-	_, err := r.client.CallAndWait(ctx, "app.create", params)
+	// Call the TrueNAS API (CreateApp handles CallAndWait + GetApp internally)
+	app, err := r.services.App.CreateApp(ctx, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create App",
@@ -157,36 +141,7 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
-	// Query the app to get current state
-	filter := [][]any{{"name", "=", appName}}
-	result, err := r.client.Call(ctx, "app.query", filter)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Query App After Create",
-			fmt.Sprintf("Unable to query app %q after create: %s", appName, err.Error()),
-		)
-		return
-	}
-
-	var apps []appAPIResponse
-	if err := json.Unmarshal(result, &apps); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse App Response",
-			fmt.Sprintf("Unable to parse app query response: %s", err.Error()),
-		)
-		return
-	}
-
-	if len(apps) == 0 {
-		resp.Diagnostics.AddError(
-			"App Not Found After Create",
-			fmt.Sprintf("App %q was not found after create", appName),
-		)
-		return
-	}
-
 	// Map response to model
-	app := apps[0]
 	data.ID = types.StringValue(app.Name)
 	data.State = types.StringValue(app.State)
 
@@ -204,18 +159,19 @@ func (r *AppResource) Create(ctx context.Context, req resource.CreateRequest, re
 		}
 
 		// For Create, we don't warn about drift - it's expected that we may need to stop
-		var method string
 		if normalizedDesired == AppStateRunning {
-			method = "app.start"
+			err = r.services.App.StartApp(ctx, appName)
 		} else {
-			method = "app.stop"
+			err = r.services.App.StopApp(ctx, appName)
 		}
-
-		_, err := r.client.CallAndWait(ctx, method, appName)
 		if err != nil {
+			action := "start"
+			if normalizedDesired != AppStateRunning {
+				action = "stop"
+			}
 			resp.Diagnostics.AddError(
 				"Unable to Set App State",
-				fmt.Sprintf("Unable to %s app %q: %s", method, appName, err.Error()),
+				fmt.Sprintf("Unable to %s app %q: %s", action, appName, err.Error()),
 			)
 			return
 		}
@@ -264,19 +220,8 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	// Use the name to query the app
 	appName := data.Name.ValueString()
 
-	// Build query params: [filter, options]
-	// Filter: [["name", "=", "appName"]]
-	// Options: {"extra": {"retrieve_config": true}} to get compose config
-	filter := [][]any{{"name", "=", appName}}
-	options := map[string]any{
-		"extra": map[string]any{
-			"retrieve_config": true,
-		},
-	}
-	queryParams := []any{filter, options}
-
-	// Call the TrueNAS API
-	result, err := r.client.Call(ctx, "app.query", queryParams)
+	// Call the TrueNAS API with config retrieval
+	app, err := r.services.App.GetAppWithConfig(ctx, appName)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read App",
@@ -285,24 +230,12 @@ func (r *AppResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		return
 	}
 
-	// Parse the response
-	var apps []appAPIResponse
-	if err := json.Unmarshal(result, &apps); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse App Response",
-			fmt.Sprintf("Unable to parse app response: %s", err.Error()),
-		)
-		return
-	}
-
 	// Check if app was found
-	if len(apps) == 0 {
+	if app == nil {
 		// App was deleted outside of Terraform - remove from state
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	app := apps[0]
 
 	// Map response to model - sync all fields from API
 	data.ID = types.StringValue(app.Name)
@@ -366,11 +299,10 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	// Check if compose_config changed by comparing old and new values
 	composeConfigChanged := !data.ComposeConfig.Equal(stateData.ComposeConfig)
 	if composeConfigChanged {
-		updateParams := r.buildUpdateParams(ctx, &data)
-		params := []any{appName, updateParams}
+		updateOpts := r.buildUpdateOpts(ctx, &data)
 
 		// Call app.update and wait for completion
-		_, err := r.client.CallAndWait(ctx, "app.update", params)
+		_, err := r.services.App.UpdateApp(ctx, appName, updateOpts)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Update App",
@@ -420,7 +352,7 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	// Handle restart_triggers: if triggers changed and app is running, restart it
 	if needsRestart && currentState == AppStateRunning {
 		// Restart by stopping then starting the app
-		_, err := r.client.CallAndWait(ctx, "app.stop", appName)
+		err := r.services.App.StopApp(ctx, appName)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Stop App for Restart",
@@ -429,7 +361,7 @@ func (r *AppResource) Update(ctx context.Context, req resource.UpdateRequest, re
 			return
 		}
 
-		_, err = r.client.CallAndWait(ctx, "app.start", appName)
+		err = r.services.App.StartApp(ctx, appName)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Unable to Start App for Restart",
@@ -501,7 +433,7 @@ func (r *AppResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 
 	// Call the TrueNAS API
 	appName := data.Name.ValueString()
-	_, err := r.client.CallAndWait(ctx, "app.delete", appName)
+	err := r.services.App.DeleteApp(ctx, appName)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete App",
@@ -517,55 +449,49 @@ func (r *AppResource) ImportState(ctx context.Context, req resource.ImportStateR
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), req.ID)...)
 }
 
-// buildCreateParams builds the AppCreateParams from the model.
-func (r *AppResource) buildCreateParams(_ context.Context, data *AppResourceModel) client.AppCreateParams {
-	params := client.AppCreateParams{
-		AppName:   data.Name.ValueString(),
+// buildCreateOpts builds the CreateAppOpts from the model.
+func (r *AppResource) buildCreateOpts(_ context.Context, data *AppResourceModel) truenas.CreateAppOpts {
+	opts := truenas.CreateAppOpts{
+		Name:      data.Name.ValueString(),
 		CustomApp: data.CustomApp.ValueBool(),
 	}
 
 	// Add compose config if set
 	if !data.ComposeConfig.IsNull() && !data.ComposeConfig.IsUnknown() {
-		params.CustomComposeConfigString = data.ComposeConfig.ValueString()
+		opts.CustomComposeConfig = data.ComposeConfig.ValueString()
 	}
 
-	return params
+	return opts
 }
 
-// buildUpdateParams builds the update parameters from the model.
-func (r *AppResource) buildUpdateParams(_ context.Context, data *AppResourceModel) map[string]any {
-	params := map[string]any{}
+// buildUpdateOpts builds the UpdateAppOpts from the model.
+func (r *AppResource) buildUpdateOpts(_ context.Context, data *AppResourceModel) truenas.UpdateAppOpts {
+	opts := truenas.UpdateAppOpts{}
 
 	// Add compose config if set
 	if !data.ComposeConfig.IsNull() && !data.ComposeConfig.IsUnknown() {
-		params["custom_compose_config_string"] = data.ComposeConfig.ValueString()
+		opts.CustomComposeConfig = data.ComposeConfig.ValueString()
 	}
 
-	return params
+	return opts
 }
 
 // queryAppState queries the TrueNAS API for the current state of an app.
 func (r *AppResource) queryAppState(ctx context.Context, name string) (string, error) {
-	filter := [][]any{{"name", "=", name}}
-	result, err := r.client.Call(ctx, "app.query", filter)
+	app, err := r.services.App.GetApp(ctx, name)
 	if err != nil {
 		return "", err
 	}
 
-	var apps []appAPIResponse
-	if err := json.Unmarshal(result, &apps); err != nil {
-		return "", err
-	}
-
-	if len(apps) == 0 {
+	if app == nil {
 		return "", fmt.Errorf("app %q not found", name)
 	}
 
-	return apps[0].State, nil
+	return app.State, nil
 }
 
 // reconcileDesiredState ensures the app is in the desired state.
-// It calls app.start or app.stop as needed and waits for the state to stabilize.
+// It calls StartApp or StopApp as needed and waits for the state to stabilize.
 // Returns an error if the reconciliation fails.
 func (r *AppResource) reconcileDesiredState(
 	ctx context.Context,
@@ -597,18 +523,15 @@ func (r *AppResource) reconcileDesiredState(
 		),
 	)
 
-	// Determine which action to take
-	var method string
+	// Determine which action to take and call the API
 	if normalizedDesired == AppStateRunning {
-		method = "app.start"
+		if err := r.services.App.StartApp(ctx, name); err != nil {
+			return fmt.Errorf("failed to start app %q: %w", name, err)
+		}
 	} else {
-		method = "app.stop"
-	}
-
-	// Call the API
-	_, err := r.client.CallAndWait(ctx, method, name)
-	if err != nil {
-		return fmt.Errorf("failed to %s app %q: %w", method, name, err)
+		if err := r.services.App.StopApp(ctx, name); err != nil {
+			return fmt.Errorf("failed to stop app %q: %w", name, err)
+		}
 	}
 
 	// Wait for stable state
@@ -628,4 +551,3 @@ func (r *AppResource) reconcileDesiredState(
 
 	return nil
 }
-
