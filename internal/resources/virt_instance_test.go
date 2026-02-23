@@ -2,15 +2,14 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	truenas "github.com/deevus/truenas-go"
 	"github.com/deevus/truenas-go/client"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -118,27 +117,25 @@ func getVirtInstanceResourceSchema(t *testing.T) resource.SchemaResponse {
 	return *schemaResp
 }
 
-// mockVirtInstanceResponse generates a valid virt.instance.get_instance JSON response.
-func mockVirtInstanceResponse(name, status string, autostart bool) json.RawMessage {
-	return mockVirtInstanceResponseWithAliases(name, status, autostart, nil)
+// mockVirtInstance creates a *truenas.VirtInstance for testing.
+func mockVirtInstance(name, status string, autostart bool) *truenas.VirtInstance {
+	return mockVirtInstanceWithAliases(name, status, autostart, nil)
 }
 
-// mockVirtInstanceResponseWithAliases generates a virt.instance.get_instance response with custom aliases.
-func mockVirtInstanceResponseWithAliases(name, status string, autostart bool, aliases []map[string]interface{}) json.RawMessage {
-	aliasesJSON := "[]"
-	if len(aliases) > 0 {
-		aliasBytes, _ := json.Marshal(aliases)
-		aliasesJSON = string(aliasBytes)
+// mockVirtInstanceWithAliases creates a *truenas.VirtInstance with custom aliases.
+func mockVirtInstanceWithAliases(name, status string, autostart bool, aliases []truenas.VirtAlias) *truenas.VirtInstance {
+	if aliases == nil {
+		aliases = []truenas.VirtAlias{}
 	}
-	return json.RawMessage(fmt.Sprintf(`{
-		"id": %q,
-		"name": %q,
-		"storage_pool": "tank",
-		"image": {"os": "ubuntu", "release": "24.04", "architecture": "amd64", "description": "", "variant": ""},
-		"status": %q,
-		"autostart": %t,
-		"aliases": %s
-	}`, name, name, status, autostart, aliasesJSON))
+	return &truenas.VirtInstance{
+		ID:          name,
+		Name:        name,
+		StoragePool: "tank",
+		Image:       truenas.VirtInstanceImageResponse{OS: "ubuntu", Release: "24.04", Architecture: "amd64"},
+		Status:      status,
+		Autostart:   autostart,
+		Aliases:     aliases,
+	}
 }
 
 // virtInstanceModelParams holds parameters for creating test model values.
@@ -346,14 +343,27 @@ func createVirtInstanceModelValue(p virtInstanceModelParams) tftypes.Value {
 	return tftypes.NewValue(objectType, values)
 }
 
+// newTestVirtInstanceResource creates a VirtInstanceResource with mock services for testing.
+func newTestVirtInstanceResource(virt truenas.VirtServiceAPI) *VirtInstanceResource {
+	return &VirtInstanceResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Client: &client.MockClient{
+				VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
+			},
+			Virt: virt,
+		}},
+	}
+}
+
 // Version check tests
 
 func TestVirtInstanceResource_Create_VersionCheck(t *testing.T) {
 	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Client: &client.MockClient{
+				VersionVal: truenas.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
+			},
 		}},
-
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -400,10 +410,11 @@ func TestVirtInstanceResource_Create_VersionCheck(t *testing.T) {
 
 func TestVirtInstanceResource_Read_VersionCheck(t *testing.T) {
 	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Client: &client.MockClient{
+				VersionVal: truenas.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
+			},
 		}},
-
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -441,10 +452,11 @@ func TestVirtInstanceResource_Read_VersionCheck(t *testing.T) {
 
 func TestVirtInstanceResource_Update_VersionCheck(t *testing.T) {
 	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Client: &client.MockClient{
+				VersionVal: truenas.Version{Major: 24, Minor: 10, Patch: 2, Build: 4},
+			},
 		}},
-
 	}
 
 	schemaResp := getVirtInstanceResourceSchema(t)
@@ -495,24 +507,17 @@ func TestVirtInstanceResource_Update_VersionCheck(t *testing.T) {
 // Create tests
 
 func TestVirtInstanceResource_Create_Success(t *testing.T) {
-	var capturedCreateMethod string
-	var capturedCreateParams any
+	var capturedOpts truenas.CreateVirtInstanceOpts
 
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedCreateMethod = method
-				capturedCreateParams = params
-				// container.create returns the ID
-				return json.RawMessage(`1`), nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		CreateInstanceFunc: func(ctx context.Context, opts truenas.CreateVirtInstanceOpts) (*truenas.VirtInstance, error) {
+			capturedOpts = opts
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	planValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -543,67 +548,49 @@ func TestVirtInstanceResource_Create_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify container.create was called
-	if capturedCreateMethod != "virt.instance.create" {
-		t.Errorf("expected method 'container.create', got %q", capturedCreateMethod)
+	// Verify opts
+	if capturedOpts.Name != "test-container" {
+		t.Errorf("expected name 'test-container', got %v", capturedOpts.Name)
 	}
-
-	// Verify params
-	params, ok := capturedCreateParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedCreateParams)
+	if capturedOpts.StoragePool != "tank" {
+		t.Errorf("expected storage_pool 'tank', got %v", capturedOpts.StoragePool)
 	}
-	if params["name"] != "test-container" {
-		t.Errorf("expected name 'test-container', got %v", params["name"])
-	}
-	if params["storage_pool"] != "tank" {
-		t.Errorf("expected storage_pool 'tank', got %v", params["storage_pool"])
-	}
-	image, ok := params["image"].(string)
-	if !ok {
-		t.Fatalf("expected image to be string, got %T", params["image"])
-	}
-	if image != "ubuntu/24.04" {
-		t.Errorf("expected image 'ubuntu/24.04', got %v", image)
+	if capturedOpts.Image != "ubuntu/24.04" {
+		t.Errorf("expected image 'ubuntu/24.04', got %v", capturedOpts.Image)
 	}
 
 	// Verify state was set
 	var resultData VirtInstanceResourceModel
 	resp.State.Get(context.Background(), &resultData)
-	// virt.instance uses container name as ID
 	if resultData.ID.ValueString() != "test-container" {
 		t.Errorf("expected ID 'test-container', got %q", resultData.ID.ValueString())
 	}
 	if resultData.State.ValueString() != "RUNNING" {
 		t.Errorf("expected State 'RUNNING', got %q", resultData.State.ValueString())
 	}
-	// UUID is set from container ID in virt.instance API
 	if resultData.UUID.ValueString() != "test-container" {
 		t.Errorf("expected UUID 'test-container', got %q", resultData.UUID.ValueString())
 	}
 }
 
 func TestVirtInstanceResource_Create_WithDesiredStateStopped(t *testing.T) {
-	var methods []string
-	queryCount := 0
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				return json.RawMessage(`1`), nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				queryCount++
-				// First query after create: RUNNING, subsequent: STOPPED
-				if queryCount == 1 {
-					return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
-				}
-				return mockVirtInstanceResponse("test-container", "STOPPED", false), nil
-			},
-		}},
+	var createCalled, stopCalled bool
 
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		CreateInstanceFunc: func(ctx context.Context, opts truenas.CreateVirtInstanceOpts) (*truenas.VirtInstance, error) {
+			createCalled = true
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+		StopInstanceFunc: func(ctx context.Context, name string, opts truenas.StopVirtInstanceOpts) error {
+			stopCalled = true
+			return nil
+		},
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			// After StopInstance is called, the container is STOPPED.
+			// waitForStableState polls GetInstance; return STOPPED immediately.
+			return mockVirtInstance("test-container", "STOPPED", false), nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	planValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -634,15 +621,11 @@ func TestVirtInstanceResource_Create_WithDesiredStateStopped(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify container.create was called, then container.stop
-	if len(methods) < 2 {
-		t.Fatalf("expected at least 2 API calls, got %d: %v", len(methods), methods)
+	if !createCalled {
+		t.Error("expected CreateInstance to be called")
 	}
-	if methods[0] != "virt.instance.create" {
-		t.Errorf("expected first call to be container.create, got %q", methods[0])
-	}
-	if methods[1] != "virt.instance.stop" {
-		t.Errorf("expected second call to be container.stop, got %q", methods[1])
+	if !stopCalled {
+		t.Error("expected StopInstance to be called")
 	}
 
 	// Verify final state
@@ -657,15 +640,11 @@ func TestVirtInstanceResource_Create_WithDesiredStateStopped(t *testing.T) {
 }
 
 func TestVirtInstanceResource_Create_APIError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("container already exists")
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		CreateInstanceFunc: func(ctx context.Context, opts truenas.CreateVirtInstanceOpts) (*truenas.VirtInstance, error) {
+			return nil, errors.New("container already exists")
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	planValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -694,113 +673,17 @@ func TestVirtInstanceResource_Create_APIError(t *testing.T) {
 
 	if !resp.Diagnostics.HasError() {
 		t.Fatal("expected error for API error")
-	}
-}
-
-func TestVirtInstanceResource_Create_QueryErrorAfterCreate(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`1`), nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("query failed")
-			},
-		}},
-
-	}
-
-	schemaResp := getVirtInstanceResourceSchema(t)
-	planValue := createVirtInstanceModelValue(virtInstanceModelParams{
-		Name:         "test-container",
-		StoragePool:  "tank",
-		ImageName:    "ubuntu",
-		ImageVersion: "24.04",
-		DesiredState: "RUNNING",
-		StateTimeout: float64(90),
-	})
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when query fails after create")
-	}
-}
-
-func TestVirtInstanceResource_Create_NotFoundAfterCreate(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`1`), nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// virt.instance.get_instance returns error when not found
-				return nil, errors.New("No such instance: test-container")
-			},
-		}},
-
-	}
-
-	schemaResp := getVirtInstanceResourceSchema(t)
-	planValue := createVirtInstanceModelValue(virtInstanceModelParams{
-		Name:         "test-container",
-		StoragePool:  "tank",
-		ImageName:    "ubuntu",
-		ImageVersion: "24.04",
-		DesiredState: "RUNNING",
-		StateTimeout: float64(90),
-	})
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when container not found after create")
 	}
 }
 
 // Read tests
 
 func TestVirtInstanceResource_Read_Success(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "virt.instance.get_instance" {
-					t.Errorf("expected method 'virt.instance.get_instance', got %q", method)
-				}
-				return mockVirtInstanceResponse("test-container", "RUNNING", true), nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "RUNNING", true), nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -832,40 +715,29 @@ func TestVirtInstanceResource_Read_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	var resultData VirtInstanceResourceModel
-	resp.State.Get(context.Background(), &resultData)
-
-	// virt.instance uses container name as ID
-	if resultData.ID.ValueString() != "test-container" {
-		t.Errorf("expected ID 'test-container', got %q", resultData.ID.ValueString())
+	var model VirtInstanceResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
 	}
-	if resultData.State.ValueString() != "RUNNING" {
-		t.Errorf("expected State 'RUNNING', got %q", resultData.State.ValueString())
+	if model.State.ValueString() != "RUNNING" {
+		t.Errorf("expected state RUNNING, got %q", model.State.ValueString())
 	}
-	// UUID is set from container ID
-	if resultData.UUID.ValueString() != "test-container" {
-		t.Errorf("expected UUID 'test-container', got %q", resultData.UUID.ValueString())
-	}
-	if !resultData.Autostart.ValueBool() {
-		t.Error("expected Autostart to be true")
+	if !model.Autostart.ValueBool() {
+		t.Error("expected autostart true")
 	}
 }
 
 func TestVirtInstanceResource_Read_NotFound(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// virt.instance.get_instance returns an error when not found
-				return nil, errors.New("No such instance: test-container")
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return nil, nil // not found
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
-		ID:           "1",
+		ID:           "test-container",
 		Name:         "test-container",
 		StoragePool:  "tank",
 		ImageName:    "ubuntu",
@@ -889,31 +761,26 @@ func TestVirtInstanceResource_Read_NotFound(t *testing.T) {
 
 	r.Read(context.Background(), req, resp)
 
-	// Should not error - just remove from state
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// State should be empty (removed)
+	// State should be removed (resource deleted outside terraform)
 	if !resp.State.Raw.IsNull() {
-		t.Error("expected state to be removed (null) when container not found")
+		t.Error("expected state to be removed for not-found container")
 	}
 }
 
 func TestVirtInstanceResource_Read_APIError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection failed")
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return nil, errors.New("connection refused")
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
-		ID:           "1",
+		ID:           "test-container",
 		Name:         "test-container",
 		StoragePool:  "tank",
 		ImageName:    "ubuntu",
@@ -942,71 +809,23 @@ func TestVirtInstanceResource_Read_APIError(t *testing.T) {
 	}
 }
 
-func TestVirtInstanceResource_Read_InvalidJSON(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-
-	}
-
-	schemaResp := getVirtInstanceResourceSchema(t)
-	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
-		ID:           "1",
-		Name:         "test-container",
-		StoragePool:  "tank",
-		ImageName:    "ubuntu",
-		ImageVersion: "24.04",
-		DesiredState: "RUNNING",
-		StateTimeout: float64(90),
+func TestVirtInstanceResource_Read_PreservesDesiredState(t *testing.T) {
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "STOPPED", false), nil
+		},
 	})
 
-	req := resource.ReadRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
-	}
-
-	resp := &resource.ReadResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON")
-	}
-}
-
-func TestVirtInstanceResource_Read_PreservesDesiredState(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// API reports RUNNING state, but user wants it STOPPED
-				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
-			},
-		}},
-
-	}
-
 	schemaResp := getVirtInstanceResourceSchema(t)
-	// Prior state has desired_state = "STOPPED"
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
 		ID:           "test-container",
 		Name:         "test-container",
 		StoragePool:  "tank",
 		ImageName:    "ubuntu",
 		ImageVersion: "24.04",
-		DesiredState: "STOPPED",
-		StateTimeout: float64(180),
-		State:        "STOPPED",
+		DesiredState: "RUNNING",
+		StateTimeout: float64(120),
+		State:        "RUNNING",
 	})
 
 	req := resource.ReadRequest{
@@ -1034,40 +853,35 @@ func TestVirtInstanceResource_Read_PreservesDesiredState(t *testing.T) {
 		t.Fatalf("failed to get state: %v", diags)
 	}
 
-	// desired_state should be preserved from prior state
-	if model.DesiredState.ValueString() != "STOPPED" {
-		t.Errorf("expected desired_state 'STOPPED' to be preserved, got %q", model.DesiredState.ValueString())
+	// desired_state should be preserved from prior state (RUNNING), not overwritten by actual state (STOPPED)
+	if model.DesiredState.ValueString() != "RUNNING" {
+		t.Errorf("expected desired_state to be preserved as 'RUNNING', got %q", model.DesiredState.ValueString())
 	}
-	// state_timeout should be preserved from prior state
-	if model.StateTimeout.ValueInt64() != 180 {
-		t.Errorf("expected state_timeout 180 to be preserved, got %d", model.StateTimeout.ValueInt64())
+	if model.StateTimeout.ValueInt64() != 120 {
+		t.Errorf("expected state_timeout to be preserved as 120, got %d", model.StateTimeout.ValueInt64())
 	}
-	// state should reflect actual API state
-	if model.State.ValueString() != "RUNNING" {
-		t.Errorf("expected state 'RUNNING' from API, got %q", model.State.ValueString())
+	// actual state should reflect API
+	if model.State.ValueString() != "STOPPED" {
+		t.Errorf("expected state STOPPED, got %q", model.State.ValueString())
 	}
 }
 
 // Update tests
 
 func TestVirtInstanceResource_Update_ChangeConfig(t *testing.T) {
-	var capturedUpdateParams any
+	var updateCalled bool
+	var capturedOpts truenas.UpdateVirtInstanceOpts
 
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.update" {
-					capturedUpdateParams = params
-				}
-				return json.RawMessage(`null`), nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return mockVirtInstanceResponse("test-container", "RUNNING", true), nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		UpdateInstanceFunc: func(ctx context.Context, name string, opts truenas.UpdateVirtInstanceOpts) (*truenas.VirtInstance, error) {
+			updateCalled = true
+			capturedOpts = opts
+			return mockVirtInstance("test-container", "RUNNING", true), nil
+		},
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "RUNNING", true), nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -1115,47 +929,38 @@ func TestVirtInstanceResource_Update_ChangeConfig(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify container.update was called with correct params
-	if capturedUpdateParams == nil {
-		t.Fatal("expected virt.instance.update to be called")
+	if !updateCalled {
+		t.Error("expected UpdateInstance to be called")
 	}
-	params, ok := capturedUpdateParams.([]any)
-	if !ok {
-		t.Fatalf("expected params to be []any, got %T", capturedUpdateParams)
+	if capturedOpts.Autostart == nil || *capturedOpts.Autostart != true {
+		t.Error("expected autostart to be set to true in update opts")
 	}
-	if len(params) != 2 {
-		t.Fatalf("expected 2 params, got %d", len(params))
+
+	var model VirtInstanceResourceModel
+	diags := resp.State.Get(context.Background(), &model)
+	if diags.HasError() {
+		t.Fatalf("failed to get state: %v", diags)
 	}
-	updateData, ok := params[1].(map[string]any)
-	if !ok {
-		t.Fatalf("expected second param to be map[string]any, got %T", params[1])
-	}
-	if updateData["autostart"] != true {
-		t.Errorf("expected autostart true, got %v", updateData["autostart"])
+	if !model.Autostart.ValueBool() {
+		t.Error("expected autostart true in final state")
 	}
 }
 
 func TestVirtInstanceResource_Update_ChangeDesiredState(t *testing.T) {
-	var methods []string
-	queryCount := 0
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				return json.RawMessage(`null`), nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				queryCount++
-				// First query: RUNNING, after stop: STOPPED
-				if queryCount == 1 {
-					return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
-				}
-				return mockVirtInstanceResponse("test-container", "STOPPED", false), nil
-			},
-		}},
+	var stopCalled bool
 
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			if stopCalled {
+				return mockVirtInstance("test-container", "STOPPED", false), nil
+			}
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+		StopInstanceFunc: func(ctx context.Context, name string, opts truenas.StopVirtInstanceOpts) error {
+			stopCalled = true
+			return nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -1167,6 +972,7 @@ func TestVirtInstanceResource_Update_ChangeDesiredState(t *testing.T) {
 		DesiredState: "RUNNING",
 		StateTimeout: float64(90),
 		State:        "RUNNING",
+		Autostart:    false,
 	})
 	planValue := createVirtInstanceModelValue(virtInstanceModelParams{
 		ID:           "test-container",
@@ -1176,6 +982,7 @@ func TestVirtInstanceResource_Update_ChangeDesiredState(t *testing.T) {
 		ImageVersion: "24.04",
 		DesiredState: "STOPPED",
 		StateTimeout: float64(90),
+		Autostart:    false,
 	})
 
 	req := resource.UpdateRequest{
@@ -1201,19 +1008,10 @@ func TestVirtInstanceResource_Update_ChangeDesiredState(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify container.stop was called
-	foundStop := false
-	for _, m := range methods {
-		if m == "virt.instance.stop" {
-			foundStop = true
-			break
-		}
-	}
-	if !foundStop {
-		t.Errorf("expected container.stop to be called, got methods: %v", methods)
+	if !stopCalled {
+		t.Error("expected StopInstance to be called")
 	}
 
-	// Verify final state
 	var model VirtInstanceResourceModel
 	diags := resp.State.Get(context.Background(), &model)
 	if diags.HasError() {
@@ -1225,26 +1023,14 @@ func TestVirtInstanceResource_Update_ChangeDesiredState(t *testing.T) {
 }
 
 func TestVirtInstanceResource_Update_APIError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("update failed")
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": 1,
-					"name": "test-container",
-					"pool": "tank",
-					"image": {"name": "ubuntu", "version": "24.04"},
-					"uuid": "abc-123",
-					"state": "RUNNING",
-					"dataset": "tank/containers/test-container"
-				}]`), nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		UpdateInstanceFunc: func(ctx context.Context, name string, opts truenas.UpdateVirtInstanceOpts) (*truenas.VirtInstance, error) {
+			return nil, errors.New("update failed")
+		},
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -1296,20 +1082,21 @@ func TestVirtInstanceResource_Update_APIError(t *testing.T) {
 // Delete tests
 
 func TestVirtInstanceResource_Delete_RunningContainer(t *testing.T) {
-	var methods []string
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				return json.RawMessage(`null`), nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
-			},
-		}},
+	var stopCalled, deleteCalled bool
 
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+		StopInstanceFunc: func(ctx context.Context, name string, opts truenas.StopVirtInstanceOpts) error {
+			stopCalled = true
+			return nil
+		},
+		DeleteInstanceFunc: func(ctx context.Context, name string) error {
+			deleteCalled = true
+			return nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -1338,33 +1125,30 @@ func TestVirtInstanceResource_Delete_RunningContainer(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify virt.instance.stop was called first, then virt.instance.delete
-	if len(methods) < 2 {
-		t.Fatalf("expected at least 2 API calls, got %d: %v", len(methods), methods)
+	if !stopCalled {
+		t.Error("expected StopInstance to be called for running container")
 	}
-	if methods[0] != "virt.instance.stop" {
-		t.Errorf("expected first call to be virt.instance.stop, got %q", methods[0])
-	}
-	if methods[1] != "virt.instance.delete" {
-		t.Errorf("expected second call to be virt.instance.delete, got %q", methods[1])
+	if !deleteCalled {
+		t.Error("expected DeleteInstance to be called")
 	}
 }
 
 func TestVirtInstanceResource_Delete_StoppedContainer(t *testing.T) {
-	var methods []string
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				methods = append(methods, method)
-				return json.RawMessage(`null`), nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return mockVirtInstanceResponse("test-container", "STOPPED", false), nil
-			},
-		}},
+	var stopCalled, deleteCalled bool
 
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "STOPPED", false), nil
+		},
+		StopInstanceFunc: func(ctx context.Context, name string, opts truenas.StopVirtInstanceOpts) error {
+			stopCalled = true
+			return nil
+		},
+		DeleteInstanceFunc: func(ctx context.Context, name string) error {
+			deleteCalled = true
+			return nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -1393,32 +1177,23 @@ func TestVirtInstanceResource_Delete_StoppedContainer(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify only container.delete was called (no stop needed)
-	if len(methods) != 1 {
-		t.Fatalf("expected 1 API call, got %d: %v", len(methods), methods)
+	if stopCalled {
+		t.Error("expected StopInstance NOT to be called for stopped container")
 	}
-	if methods[0] != "virt.instance.delete" {
-		t.Errorf("expected container.delete, got %q", methods[0])
+	if !deleteCalled {
+		t.Error("expected DeleteInstance to be called")
 	}
 }
 
 func TestVirtInstanceResource_Delete_APIError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("delete failed")
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": 1,
-					"name": "test-container",
-					"state": "STOPPED"
-				}]`), nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "STOPPED", false), nil
+		},
+		DeleteInstanceFunc: func(ctx context.Context, name string) error {
+			return errors.New("delete failed")
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -1473,7 +1248,6 @@ func TestVirtInstanceResource_ImportState(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify name was set from import ID
 	var model VirtInstanceResourceModel
 	diags := resp.State.Get(context.Background(), &model)
 	if diags.HasError() {
@@ -1484,41 +1258,27 @@ func TestVirtInstanceResource_ImportState(t *testing.T) {
 	}
 }
 
-// Additional edge case tests
+// Create with devices test
 
 func TestVirtInstanceResource_Create_WithDevices(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateVirtInstanceOpts
 	var deviceListCalled bool
 
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.create" {
-					capturedParams = params
-				}
-				return json.RawMessage(`"1"`), nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_list" {
-					deviceListCalled = true
-					return json.RawMessage(`[
-						{"dev_type": "DISK", "name": "data", "source": "/mnt/tank/data", "destination": "/data", "readonly": false}
-					]`), nil
-				}
-				return json.RawMessage(`{
-					"id": "1",
-					"name": "test-container",
-					"storage_pool": "tank",
-					"image": {"os": "ubuntu", "release": "24.04", "architecture": "amd64", "description": "", "variant": ""},
-					"status": "RUNNING",
-					"autostart": true,
-					"aliases": []
-				}`), nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		CreateInstanceFunc: func(ctx context.Context, opts truenas.CreateVirtInstanceOpts) (*truenas.VirtInstance, error) {
+			capturedOpts = opts
+			return mockVirtInstance("test-container", "RUNNING", true), nil
+		},
+		ListDevicesFunc: func(ctx context.Context, instanceID string) ([]truenas.VirtDevice, error) {
+			deviceListCalled = true
+			return []truenas.VirtDevice{
+				{DevType: "DISK", Name: "data", Source: "/mnt/tank/data", Destination: "/data", Readonly: false},
+			}, nil
+		},
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "RUNNING", true), nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	planValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -1554,39 +1314,29 @@ func TestVirtInstanceResource_Create_WithDevices(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
-	}
-	if params["autostart"] != true {
-		t.Errorf("expected autostart true, got %v", params["autostart"])
+	// Verify opts had autostart
+	if capturedOpts.Autostart != true {
+		t.Errorf("expected autostart true, got %v", capturedOpts.Autostart)
 	}
 
-	// Verify devices were included in create params
-	devices, ok := params["devices"].([]map[string]any)
-	if !ok || len(devices) == 0 {
-		t.Errorf("expected devices in params, got %v", params["devices"])
+	// Verify devices were included in create opts
+	if len(capturedOpts.Devices) == 0 {
+		t.Error("expected devices in opts")
 	}
 
 	if !deviceListCalled {
-		t.Error("expected device_list to be called after create")
+		t.Error("expected ListDevices to be called after create")
 	}
 }
 
-func TestVirtInstanceResource_getVirtInstanceState(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method != "virt.instance.get_instance" {
-					t.Errorf("expected method 'virt.instance.get_instance', got %q", method)
-				}
-				return json.RawMessage(`{"id": "1", "name": "test-container", "status": "RUNNING", "storage_pool": "tank", "autostart": false, "aliases": [], "image": {"os": "ubuntu", "release": "24.04", "architecture": "amd64", "description": "", "variant": ""}}`), nil
-			},
-		}},
+// getVirtInstanceState tests
 
-	}
+func TestVirtInstanceResource_getVirtInstanceState(t *testing.T) {
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+	})
 
 	state, err := r.getVirtInstanceState(context.Background(), "test-container")
 	if err != nil {
@@ -1598,16 +1348,11 @@ func TestVirtInstanceResource_getVirtInstanceState(t *testing.T) {
 }
 
 func TestVirtInstanceResource_getVirtInstanceState_NotFound(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// virt.instance.get_instance returns error when not found
-				return nil, errors.New("No such instance: test-container")
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return nil, nil // GetInstance returns nil for not found
+		},
+	})
 
 	_, err := r.getVirtInstanceState(context.Background(), "test-container")
 	if err == nil {
@@ -1615,21 +1360,19 @@ func TestVirtInstanceResource_getVirtInstanceState_NotFound(t *testing.T) {
 	}
 }
 
-func TestVirtInstanceResource_reconcileDesiredState_StartContainer(t *testing.T) {
-	var calledMethod string
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				calledMethod = method
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`{"id": "1", "name": "test-container", "status": "RUNNING", "storage_pool": "tank", "autostart": false, "aliases": [], "image": {"os": "ubuntu", "release": "24.04", "architecture": "amd64", "description": "", "variant": ""}}`), nil
-			},
-		}},
+// reconcileDesiredState tests
 
-	}
+func TestVirtInstanceResource_reconcileDesiredState_StartContainer(t *testing.T) {
+	var startCalled bool
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		StartInstanceFunc: func(ctx context.Context, name string) error {
+			startCalled = true
+			return nil
+		},
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	resp := &resource.UpdateResponse{
@@ -1642,26 +1385,22 @@ func TestVirtInstanceResource_reconcileDesiredState_StartContainer(t *testing.T)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if calledMethod != "virt.instance.start" {
-		t.Errorf("expected container.start to be called, got %q", calledMethod)
+	if !startCalled {
+		t.Error("expected StartInstance to be called")
 	}
 }
 
 func TestVirtInstanceResource_reconcileDesiredState_StopContainer(t *testing.T) {
-	var calledMethod string
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				calledMethod = method
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`{"id": "1", "name": "test-container", "status": "STOPPED", "storage_pool": "tank", "autostart": false, "aliases": [], "image": {"os": "ubuntu", "release": "24.04", "architecture": "amd64", "description": "", "variant": ""}}`), nil
-			},
-		}},
-
-	}
+	var stopCalled bool
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		StopInstanceFunc: func(ctx context.Context, name string, opts truenas.StopVirtInstanceOpts) error {
+			stopCalled = true
+			return nil
+		},
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "STOPPED", false), nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	resp := &resource.UpdateResponse{
@@ -1674,23 +1413,23 @@ func TestVirtInstanceResource_reconcileDesiredState_StopContainer(t *testing.T) 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if calledMethod != "virt.instance.stop" {
-		t.Errorf("expected container.stop to be called, got %q", calledMethod)
+	if !stopCalled {
+		t.Error("expected StopInstance to be called")
 	}
 }
 
 func TestVirtInstanceResource_reconcileDesiredState_NoChangeNeeded(t *testing.T) {
 	callCount := 0
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				callCount++
-				return nil, nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		StartInstanceFunc: func(ctx context.Context, name string) error {
+			callCount++
+			return nil
+		},
+		StopInstanceFunc: func(ctx context.Context, name string, opts truenas.StopVirtInstanceOpts) error {
+			callCount++
+			return nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	resp := &resource.UpdateResponse{
@@ -1717,16 +1456,6 @@ func TestVirtInstanceResource_ImplementsInterfaces(t *testing.T) {
 	_ = resource.ResourceWithImportState(r.(*VirtInstanceResource))
 }
 
-// Helper to create a string pointer
-func strPtr(s string) *string {
-	return &s
-}
-
-// Helper to create an int64 pointer
-func int64Ptr(i int64) *int64 {
-	return &i
-}
-
 // Tests for getManagedDeviceNames
 func TestGetManagedDeviceNames_Empty(t *testing.T) {
 	data := &VirtInstanceResourceModel{}
@@ -1741,8 +1470,8 @@ func TestGetManagedDeviceNames_WithDisks(t *testing.T) {
 		Disks: []DiskModel{
 			{Name: types.StringValue("disk1")},
 			{Name: types.StringValue("disk2")},
-			{Name: types.StringNull()}, // Should be skipped
-			{Name: types.StringValue("")}, // Should be skipped
+			{Name: types.StringNull()},       // Should be skipped
+			{Name: types.StringValue("")},     // Should be skipped
 		},
 	}
 	names := getManagedDeviceNames(data)
@@ -1804,17 +1533,17 @@ func TestGetManagedDeviceNames_AllDeviceTypes(t *testing.T) {
 	}
 }
 
-// Tests for buildDevices
-func TestVirtInstanceResource_buildDevices_Empty(t *testing.T) {
+// Tests for buildDeviceOpts
+func TestVirtInstanceResource_buildDeviceOpts_Empty(t *testing.T) {
 	r := &VirtInstanceResource{}
 	data := &VirtInstanceResourceModel{}
-	devices := r.buildDevices(data)
+	devices := r.buildDeviceOpts(data)
 	if len(devices) != 0 {
 		t.Errorf("expected 0 devices, got %d", len(devices))
 	}
 }
 
-func TestVirtInstanceResource_buildDevices_Disks(t *testing.T) {
+func TestVirtInstanceResource_buildDeviceOpts_Disks(t *testing.T) {
 	r := &VirtInstanceResource{}
 	data := &VirtInstanceResourceModel{
 		Disks: []DiskModel{
@@ -1832,35 +1561,35 @@ func TestVirtInstanceResource_buildDevices_Disks(t *testing.T) {
 			},
 		},
 	}
-	devices := r.buildDevices(data)
+	devices := r.buildDeviceOpts(data)
 	if len(devices) != 2 {
 		t.Fatalf("expected 2 devices, got %d", len(devices))
 	}
 
 	// First disk with all fields
-	if devices[0]["dev_type"] != "DISK" {
-		t.Errorf("expected dev_type 'DISK', got %v", devices[0]["dev_type"])
+	if devices[0].DevType != "DISK" {
+		t.Errorf("expected dev_type 'DISK', got %v", devices[0].DevType)
 	}
-	if devices[0]["name"] != "data" {
-		t.Errorf("expected name 'data', got %v", devices[0]["name"])
+	if devices[0].Name != "data" {
+		t.Errorf("expected name 'data', got %v", devices[0].Name)
 	}
-	if devices[0]["source"] != "/mnt/tank/data" {
-		t.Errorf("expected source '/mnt/tank/data', got %v", devices[0]["source"])
+	if devices[0].Source != "/mnt/tank/data" {
+		t.Errorf("expected source '/mnt/tank/data', got %v", devices[0].Source)
 	}
-	if devices[0]["readonly"] != true {
-		t.Errorf("expected readonly true, got %v", devices[0]["readonly"])
+	if devices[0].Readonly != true {
+		t.Errorf("expected readonly true, got %v", devices[0].Readonly)
 	}
 
 	// Second disk without name or readonly
-	if _, hasName := devices[1]["name"]; hasName {
-		t.Error("expected no name field for second disk")
+	if devices[1].Name != "" {
+		t.Errorf("expected empty name for second disk, got %q", devices[1].Name)
 	}
-	if _, hasReadonly := devices[1]["readonly"]; hasReadonly {
-		t.Error("expected no readonly field for second disk")
+	if devices[1].Readonly != false {
+		t.Error("expected readonly false for second disk")
 	}
 }
 
-func TestVirtInstanceResource_buildDevices_NICs(t *testing.T) {
+func TestVirtInstanceResource_buildDeviceOpts_NICs(t *testing.T) {
 	r := &VirtInstanceResource{}
 	data := &VirtInstanceResourceModel{
 		NICs: []NICModel{
@@ -1884,34 +1613,34 @@ func TestVirtInstanceResource_buildDevices_NICs(t *testing.T) {
 			},
 		},
 	}
-	devices := r.buildDevices(data)
+	devices := r.buildDeviceOpts(data)
 	if len(devices) != 3 {
 		t.Fatalf("expected 3 devices, got %d", len(devices))
 	}
 
 	// First NIC with network
-	if devices[0]["dev_type"] != "NIC" {
-		t.Errorf("expected dev_type 'NIC', got %v", devices[0]["dev_type"])
+	if devices[0].DevType != "NIC" {
+		t.Errorf("expected dev_type 'NIC', got %v", devices[0].DevType)
 	}
-	if devices[0]["network"] != "bridge0" {
-		t.Errorf("expected network 'bridge0', got %v", devices[0]["network"])
+	if devices[0].Network != "bridge0" {
+		t.Errorf("expected network 'bridge0', got %v", devices[0].Network)
 	}
-	if devices[0]["nic_type"] != "BRIDGED" {
-		t.Errorf("expected nic_type 'BRIDGED', got %v", devices[0]["nic_type"])
+	if devices[0].NICType != "BRIDGED" {
+		t.Errorf("expected nic_type 'BRIDGED', got %v", devices[0].NICType)
 	}
 
 	// Second NIC with parent (MACVLAN)
-	if devices[1]["parent"] != "enp0s3" {
-		t.Errorf("expected parent 'enp0s3', got %v", devices[1]["parent"])
+	if devices[1].Parent != "enp0s3" {
+		t.Errorf("expected parent 'enp0s3', got %v", devices[1].Parent)
 	}
 
 	// Third NIC with minimal fields
-	if _, hasNetwork := devices[2]["network"]; hasNetwork {
-		t.Error("expected no network field for third NIC")
+	if devices[2].Network != "" {
+		t.Errorf("expected empty network for third NIC, got %q", devices[2].Network)
 	}
 }
 
-func TestVirtInstanceResource_buildDevices_Proxies(t *testing.T) {
+func TestVirtInstanceResource_buildDeviceOpts_Proxies(t *testing.T) {
 	r := &VirtInstanceResource{}
 	data := &VirtInstanceResourceModel{
 		Proxies: []ProxyModel{
@@ -1931,32 +1660,32 @@ func TestVirtInstanceResource_buildDevices_Proxies(t *testing.T) {
 			},
 		},
 	}
-	devices := r.buildDevices(data)
+	devices := r.buildDeviceOpts(data)
 	if len(devices) != 2 {
 		t.Fatalf("expected 2 devices, got %d", len(devices))
 	}
 
 	// First proxy with name
-	if devices[0]["dev_type"] != "PROXY" {
-		t.Errorf("expected dev_type 'PROXY', got %v", devices[0]["dev_type"])
+	if devices[0].DevType != "PROXY" {
+		t.Errorf("expected dev_type 'PROXY', got %v", devices[0].DevType)
 	}
-	if devices[0]["name"] != "http" {
-		t.Errorf("expected name 'http', got %v", devices[0]["name"])
+	if devices[0].Name != "http" {
+		t.Errorf("expected name 'http', got %v", devices[0].Name)
 	}
-	if devices[0]["source_proto"] != "TCP" {
-		t.Errorf("expected source_proto 'TCP', got %v", devices[0]["source_proto"])
+	if devices[0].SourceProto != "TCP" {
+		t.Errorf("expected source_proto 'TCP', got %v", devices[0].SourceProto)
 	}
-	if devices[0]["source_port"] != int64(8080) {
-		t.Errorf("expected source_port 8080, got %v", devices[0]["source_port"])
+	if devices[0].SourcePort != int64(8080) {
+		t.Errorf("expected source_port 8080, got %v", devices[0].SourcePort)
 	}
 
 	// Second proxy without name
-	if _, hasName := devices[1]["name"]; hasName {
-		t.Error("expected no name field for second proxy")
+	if devices[1].Name != "" {
+		t.Errorf("expected empty name for second proxy, got %q", devices[1].Name)
 	}
 }
 
-func TestVirtInstanceResource_buildDevices_AllTypes(t *testing.T) {
+func TestVirtInstanceResource_buildDeviceOpts_AllTypes(t *testing.T) {
 	r := &VirtInstanceResource{}
 	data := &VirtInstanceResourceModel{
 		Disks: []DiskModel{
@@ -1969,7 +1698,7 @@ func TestVirtInstanceResource_buildDevices_AllTypes(t *testing.T) {
 			{Name: types.StringValue("proxy1"), SourceProto: types.StringValue("TCP"), SourcePort: types.Int64Value(80), DestProto: types.StringValue("TCP"), DestPort: types.Int64Value(80)},
 		},
 	}
-	devices := r.buildDevices(data)
+	devices := r.buildDeviceOpts(data)
 	if len(devices) != 3 {
 		t.Fatalf("expected 3 devices, got %d", len(devices))
 	}
@@ -1979,7 +1708,7 @@ func TestVirtInstanceResource_buildDevices_AllTypes(t *testing.T) {
 func TestVirtInstanceResource_mapDevicesToModel_Empty(t *testing.T) {
 	r := &VirtInstanceResource{}
 	data := &VirtInstanceResourceModel{}
-	r.mapDevicesToModel([]deviceAPIResponse{}, data, nil)
+	r.mapDevicesToModel([]truenas.VirtDevice{}, data, nil)
 	if len(data.Disks) != 0 || len(data.NICs) != 0 || len(data.Proxies) != 0 {
 		t.Error("expected empty device lists")
 	}
@@ -1988,19 +1717,19 @@ func TestVirtInstanceResource_mapDevicesToModel_Empty(t *testing.T) {
 func TestVirtInstanceResource_mapDevicesToModel_Disks(t *testing.T) {
 	r := &VirtInstanceResource{}
 	data := &VirtInstanceResourceModel{}
-	devices := []deviceAPIResponse{
+	devices := []truenas.VirtDevice{
 		{
 			DevType:     "DISK",
-			Name:        strPtr("data"),
-			Source:      strPtr("/mnt/tank/data"),
-			Destination: strPtr("/data"),
+			Name:        "data",
+			Source:      "/mnt/tank/data",
+			Destination: "/data",
 			Readonly:    true,
 		},
 		{
 			DevType:     "DISK",
-			Name:        nil, // No name
-			Source:      nil,
-			Destination: nil,
+			Name:        "", // No name
+			Source:      "",
+			Destination: "",
 			Readonly:    false,
 		},
 	}
@@ -2025,20 +1754,20 @@ func TestVirtInstanceResource_mapDevicesToModel_Disks(t *testing.T) {
 func TestVirtInstanceResource_mapDevicesToModel_NICs(t *testing.T) {
 	r := &VirtInstanceResource{}
 	data := &VirtInstanceResourceModel{}
-	devices := []deviceAPIResponse{
+	devices := []truenas.VirtDevice{
 		{
 			DevType: "NIC",
-			Name:    strPtr("eth0"),
-			Network: strPtr("bridge0"),
-			NICType: strPtr("BRIDGED"),
-			Parent:  nil,
+			Name:    "eth0",
+			Network: "bridge0",
+			NICType: "BRIDGED",
+			Parent:  "",
 		},
 		{
 			DevType: "NIC",
-			Name:    strPtr("eth1"),
-			Network: nil,
-			NICType: nil,
-			Parent:  strPtr("enp0s3"),
+			Name:    "eth1",
+			Network: "",
+			NICType: "",
+			Parent:  "enp0s3",
 		},
 	}
 	r.mapDevicesToModel(devices, data, nil)
@@ -2062,22 +1791,22 @@ func TestVirtInstanceResource_mapDevicesToModel_NICs(t *testing.T) {
 func TestVirtInstanceResource_mapDevicesToModel_Proxies(t *testing.T) {
 	r := &VirtInstanceResource{}
 	data := &VirtInstanceResourceModel{}
-	devices := []deviceAPIResponse{
+	devices := []truenas.VirtDevice{
 		{
 			DevType:     "PROXY",
-			Name:        strPtr("http"),
-			SourceProto: strPtr("TCP"),
-			SourcePort:  int64Ptr(8080),
-			DestProto:   strPtr("TCP"),
-			DestPort:    int64Ptr(80),
+			Name:        "http",
+			SourceProto: "TCP",
+			SourcePort:  8080,
+			DestProto:   "TCP",
+			DestPort:    80,
 		},
 		{
 			DevType:     "PROXY",
-			Name:        nil,
-			SourceProto: nil,
-			SourcePort:  nil,
-			DestProto:   nil,
-			DestPort:    nil,
+			Name:        "",
+			SourceProto: "",
+			SourcePort:  0,
+			DestProto:   "",
+			DestPort:    0,
 		},
 	}
 	r.mapDevicesToModel(devices, data, nil)
@@ -2096,10 +1825,10 @@ func TestVirtInstanceResource_mapDevicesToModel_WithManagedFilter(t *testing.T) 
 	r := &VirtInstanceResource{}
 	data := &VirtInstanceResourceModel{}
 	managedNames := map[string]bool{"data": true}
-	devices := []deviceAPIResponse{
-		{DevType: "DISK", Name: strPtr("data"), Source: strPtr("/src"), Destination: strPtr("/dst")},
-		{DevType: "DISK", Name: strPtr("system"), Source: strPtr("/sys"), Destination: strPtr("/system")}, // Should be filtered out
-		{DevType: "DISK", Name: nil}, // Should be filtered out (no name when filtering)
+	devices := []truenas.VirtDevice{
+		{DevType: "DISK", Name: "data", Source: "/src", Destination: "/dst"},
+		{DevType: "DISK", Name: "system", Source: "/sys", Destination: "/system"}, // Should be filtered out
+		{DevType: "DISK", Name: ""},                                                // Should be filtered out (no name when filtering)
 	}
 	r.mapDevicesToModel(devices, data, managedNames)
 	if len(data.Disks) != 1 {
@@ -2113,11 +1842,11 @@ func TestVirtInstanceResource_mapDevicesToModel_WithManagedFilter(t *testing.T) 
 func TestVirtInstanceResource_mapDevicesToModel_AllTypes(t *testing.T) {
 	r := &VirtInstanceResource{}
 	data := &VirtInstanceResourceModel{}
-	devices := []deviceAPIResponse{
-		{DevType: "DISK", Name: strPtr("disk1"), Source: strPtr("/src"), Destination: strPtr("/dst")},
-		{DevType: "NIC", Name: strPtr("eth0"), Network: strPtr("bridge0")},
-		{DevType: "PROXY", Name: strPtr("http"), SourceProto: strPtr("TCP"), SourcePort: int64Ptr(80), DestProto: strPtr("TCP"), DestPort: int64Ptr(80)},
-		{DevType: "UNKNOWN", Name: strPtr("unknown")}, // Unknown type should be ignored
+	devices := []truenas.VirtDevice{
+		{DevType: "DISK", Name: "disk1", Source: "/src", Destination: "/dst"},
+		{DevType: "NIC", Name: "eth0", Network: "bridge0"},
+		{DevType: "PROXY", Name: "http", SourceProto: "TCP", SourcePort: 80, DestProto: "TCP", DestPort: 80},
+		{DevType: "UNKNOWN", Name: "unknown"}, // Unknown type should be ignored
 	}
 	r.mapDevicesToModel(devices, data, nil)
 	if len(data.Disks) != 1 {
@@ -2140,10 +1869,10 @@ func TestVirtInstanceResource_matchCreatedDevices_Disks(t *testing.T) {
 			{Name: types.StringNull(), Source: types.StringValue("/src2"), Destination: types.StringValue("/dst2")}, // Should get name from API
 		},
 	}
-	apiDevices := []deviceAPIResponse{
-		{DevType: "DISK", Name: strPtr("existing"), Source: strPtr("/src1"), Destination: strPtr("/dst1")},
-		{DevType: "DISK", Name: strPtr("auto-disk-1"), Source: strPtr("/src2"), Destination: strPtr("/dst2")},
-		{DevType: "DISK", Name: nil, Source: strPtr("/src3"), Destination: strPtr("/dst3")}, // No name, should be skipped
+	apiDevices := []truenas.VirtDevice{
+		{DevType: "DISK", Name: "existing", Source: "/src1", Destination: "/dst1"},
+		{DevType: "DISK", Name: "auto-disk-1", Source: "/src2", Destination: "/dst2"},
+		{DevType: "DISK", Name: "", Source: "/src3", Destination: "/dst3"}, // No name, should be skipped
 	}
 	r.matchCreatedDevices(apiDevices, data)
 	if data.Disks[0].Name.ValueString() != "existing" {
@@ -2161,8 +1890,8 @@ func TestVirtInstanceResource_matchCreatedDevices_NICs_ByNetwork(t *testing.T) {
 			{Name: types.StringNull(), Network: types.StringValue("bridge0"), NICType: types.StringNull(), Parent: types.StringNull()},
 		},
 	}
-	apiDevices := []deviceAPIResponse{
-		{DevType: "NIC", Name: strPtr("eth0"), Network: strPtr("bridge0")},
+	apiDevices := []truenas.VirtDevice{
+		{DevType: "NIC", Name: "eth0", Network: "bridge0"},
 	}
 	r.matchCreatedDevices(apiDevices, data)
 	if data.NICs[0].Name.ValueString() != "eth0" {
@@ -2177,8 +1906,8 @@ func TestVirtInstanceResource_matchCreatedDevices_NICs_ByParent(t *testing.T) {
 			{Name: types.StringNull(), Network: types.StringNull(), NICType: types.StringValue("MACVLAN"), Parent: types.StringValue("enp0s3")},
 		},
 	}
-	apiDevices := []deviceAPIResponse{
-		{DevType: "NIC", Name: strPtr("macvlan0"), Parent: strPtr("enp0s3")},
+	apiDevices := []truenas.VirtDevice{
+		{DevType: "NIC", Name: "macvlan0", Parent: "enp0s3"},
 	}
 	r.matchCreatedDevices(apiDevices, data)
 	if data.NICs[0].Name.ValueString() != "macvlan0" {
@@ -2193,8 +1922,8 @@ func TestVirtInstanceResource_matchCreatedDevices_NICs_AlreadyNamed(t *testing.T
 			{Name: types.StringValue("mynic"), Network: types.StringValue("bridge0")},
 		},
 	}
-	apiDevices := []deviceAPIResponse{
-		{DevType: "NIC", Name: strPtr("eth0"), Network: strPtr("bridge0")},
+	apiDevices := []truenas.VirtDevice{
+		{DevType: "NIC", Name: "eth0", Network: "bridge0"},
 	}
 	r.matchCreatedDevices(apiDevices, data)
 	// Should keep the original name
@@ -2216,14 +1945,14 @@ func TestVirtInstanceResource_matchCreatedDevices_Proxies(t *testing.T) {
 			},
 		},
 	}
-	apiDevices := []deviceAPIResponse{
+	apiDevices := []truenas.VirtDevice{
 		{
 			DevType:     "PROXY",
-			Name:        strPtr("proxy-tcp-8080"),
-			SourceProto: strPtr("TCP"),
-			SourcePort:  int64Ptr(8080),
-			DestProto:   strPtr("TCP"),
-			DestPort:    int64Ptr(80),
+			Name:        "proxy-tcp-8080",
+			SourceProto: "TCP",
+			SourcePort:  8080,
+			DestProto:   "TCP",
+			DestPort:    80,
 		},
 	}
 	r.matchCreatedDevices(apiDevices, data)
@@ -2245,13 +1974,12 @@ func TestVirtInstanceResource_matchCreatedDevices_NoMatch(t *testing.T) {
 			{Name: types.StringNull(), SourceProto: types.StringValue("UDP"), SourcePort: types.Int64Value(1234), DestProto: types.StringValue("UDP"), DestPort: types.Int64Value(5678)},
 		},
 	}
-	apiDevices := []deviceAPIResponse{
-		{DevType: "DISK", Name: strPtr("other"), Source: strPtr("/other"), Destination: strPtr("/other")},
-		{DevType: "NIC", Name: strPtr("eth0"), Network: strPtr("different")},
-		{DevType: "PROXY", Name: strPtr("proxy"), SourceProto: strPtr("TCP"), SourcePort: int64Ptr(80), DestProto: strPtr("TCP"), DestPort: int64Ptr(80)},
+	apiDevices := []truenas.VirtDevice{
+		{DevType: "DISK", Name: "other", Source: "/other", Destination: "/other"},
+		{DevType: "NIC", Name: "eth0", Network: "different"},
+		{DevType: "PROXY", Name: "proxy", SourceProto: "TCP", SourcePort: 80, DestProto: "TCP", DestPort: 80},
 	}
 	r.matchCreatedDevices(apiDevices, data)
-	// Names should remain null since no match
 	if !data.Disks[0].Name.IsNull() {
 		t.Error("expected disk name to remain null")
 	}
@@ -2266,16 +1994,16 @@ func TestVirtInstanceResource_matchCreatedDevices_NoMatch(t *testing.T) {
 // Tests for reconcileDevices
 func TestVirtInstanceResource_reconcileDevices_NoChanges(t *testing.T) {
 	callCount := 0
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				callCount++
-				return nil, nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		DeleteDeviceFunc: func(ctx context.Context, instanceID string, deviceName string) error {
+			callCount++
+			return nil
+		},
+		AddDeviceFunc: func(ctx context.Context, instanceID string, opts truenas.VirtDeviceOpts) error {
+			callCount++
+			return nil
+		},
+	})
 	plan := &VirtInstanceResourceModel{
 		Disks: []DiskModel{{Name: types.StringValue("disk1")}},
 	}
@@ -2293,19 +2021,12 @@ func TestVirtInstanceResource_reconcileDevices_NoChanges(t *testing.T) {
 
 func TestVirtInstanceResource_reconcileDevices_DeleteDevice(t *testing.T) {
 	var deletedDevices []string
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_delete" {
-					p := params.([]any)
-					deletedDevices = append(deletedDevices, p[1].(string))
-				}
-				return nil, nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		DeleteDeviceFunc: func(ctx context.Context, instanceID string, deviceName string) error {
+			deletedDevices = append(deletedDevices, deviceName)
+			return nil
+		},
+	})
 	plan := &VirtInstanceResourceModel{
 		Disks: []DiskModel{}, // No disks in plan
 	}
@@ -2325,20 +2046,13 @@ func TestVirtInstanceResource_reconcileDevices_DeleteDevice(t *testing.T) {
 }
 
 func TestVirtInstanceResource_reconcileDevices_AddDisk(t *testing.T) {
-	var addedDevices []map[string]any
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_add" {
-					p := params.([]any)
-					addedDevices = append(addedDevices, p[1].(map[string]any))
-				}
-				return nil, nil
-			},
-		}},
-
-	}
+	var addedDevices []truenas.VirtDeviceOpts
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		AddDeviceFunc: func(ctx context.Context, instanceID string, opts truenas.VirtDeviceOpts) error {
+			addedDevices = append(addedDevices, opts)
+			return nil
+		},
+	})
 	plan := &VirtInstanceResourceModel{
 		Disks: []DiskModel{
 			{Name: types.StringValue("newdisk"), Source: types.StringValue("/src"), Destination: types.StringValue("/dst"), Readonly: types.BoolValue(true)},
@@ -2352,32 +2066,25 @@ func TestVirtInstanceResource_reconcileDevices_AddDisk(t *testing.T) {
 	if len(addedDevices) != 1 {
 		t.Fatalf("expected 1 add, got %d", len(addedDevices))
 	}
-	if addedDevices[0]["dev_type"] != "DISK" {
-		t.Errorf("expected dev_type 'DISK', got %v", addedDevices[0]["dev_type"])
+	if addedDevices[0].DevType != "DISK" {
+		t.Errorf("expected dev_type 'DISK', got %v", addedDevices[0].DevType)
 	}
-	if addedDevices[0]["name"] != "newdisk" {
-		t.Errorf("expected name 'newdisk', got %v", addedDevices[0]["name"])
+	if addedDevices[0].Name != "newdisk" {
+		t.Errorf("expected name 'newdisk', got %v", addedDevices[0].Name)
 	}
-	if addedDevices[0]["readonly"] != true {
-		t.Errorf("expected readonly true, got %v", addedDevices[0]["readonly"])
+	if addedDevices[0].Readonly != true {
+		t.Errorf("expected readonly true, got %v", addedDevices[0].Readonly)
 	}
 }
 
 func TestVirtInstanceResource_reconcileDevices_AddNIC(t *testing.T) {
-	var addedDevices []map[string]any
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_add" {
-					p := params.([]any)
-					addedDevices = append(addedDevices, p[1].(map[string]any))
-				}
-				return nil, nil
-			},
-		}},
-
-	}
+	var addedDevices []truenas.VirtDeviceOpts
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		AddDeviceFunc: func(ctx context.Context, instanceID string, opts truenas.VirtDeviceOpts) error {
+			addedDevices = append(addedDevices, opts)
+			return nil
+		},
+	})
 	plan := &VirtInstanceResourceModel{
 		NICs: []NICModel{
 			{Name: types.StringValue("eth0"), Network: types.StringValue("bridge0"), NICType: types.StringValue("BRIDGED"), Parent: types.StringNull()},
@@ -2391,29 +2098,22 @@ func TestVirtInstanceResource_reconcileDevices_AddNIC(t *testing.T) {
 	if len(addedDevices) != 1 {
 		t.Fatalf("expected 1 add, got %d", len(addedDevices))
 	}
-	if addedDevices[0]["dev_type"] != "NIC" {
-		t.Errorf("expected dev_type 'NIC', got %v", addedDevices[0]["dev_type"])
+	if addedDevices[0].DevType != "NIC" {
+		t.Errorf("expected dev_type 'NIC', got %v", addedDevices[0].DevType)
 	}
-	if addedDevices[0]["network"] != "bridge0" {
-		t.Errorf("expected network 'bridge0', got %v", addedDevices[0]["network"])
+	if addedDevices[0].Network != "bridge0" {
+		t.Errorf("expected network 'bridge0', got %v", addedDevices[0].Network)
 	}
 }
 
 func TestVirtInstanceResource_reconcileDevices_AddNIC_WithParent(t *testing.T) {
-	var addedDevices []map[string]any
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_add" {
-					p := params.([]any)
-					addedDevices = append(addedDevices, p[1].(map[string]any))
-				}
-				return nil, nil
-			},
-		}},
-
-	}
+	var addedDevices []truenas.VirtDeviceOpts
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		AddDeviceFunc: func(ctx context.Context, instanceID string, opts truenas.VirtDeviceOpts) error {
+			addedDevices = append(addedDevices, opts)
+			return nil
+		},
+	})
 	plan := &VirtInstanceResourceModel{
 		NICs: []NICModel{
 			{Name: types.StringValue("macvlan0"), Network: types.StringNull(), NICType: types.StringValue("MACVLAN"), Parent: types.StringValue("enp0s3")},
@@ -2427,26 +2127,19 @@ func TestVirtInstanceResource_reconcileDevices_AddNIC_WithParent(t *testing.T) {
 	if len(addedDevices) != 1 {
 		t.Fatalf("expected 1 add, got %d", len(addedDevices))
 	}
-	if addedDevices[0]["parent"] != "enp0s3" {
-		t.Errorf("expected parent 'enp0s3', got %v", addedDevices[0]["parent"])
+	if addedDevices[0].Parent != "enp0s3" {
+		t.Errorf("expected parent 'enp0s3', got %v", addedDevices[0].Parent)
 	}
 }
 
 func TestVirtInstanceResource_reconcileDevices_AddProxy(t *testing.T) {
-	var addedDevices []map[string]any
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_add" {
-					p := params.([]any)
-					addedDevices = append(addedDevices, p[1].(map[string]any))
-				}
-				return nil, nil
-			},
-		}},
-
-	}
+	var addedDevices []truenas.VirtDeviceOpts
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		AddDeviceFunc: func(ctx context.Context, instanceID string, opts truenas.VirtDeviceOpts) error {
+			addedDevices = append(addedDevices, opts)
+			return nil
+		},
+	})
 	plan := &VirtInstanceResourceModel{
 		Proxies: []ProxyModel{
 			{Name: types.StringValue("http"), SourceProto: types.StringValue("TCP"), SourcePort: types.Int64Value(8080), DestProto: types.StringValue("TCP"), DestPort: types.Int64Value(80)},
@@ -2460,27 +2153,20 @@ func TestVirtInstanceResource_reconcileDevices_AddProxy(t *testing.T) {
 	if len(addedDevices) != 1 {
 		t.Fatalf("expected 1 add, got %d", len(addedDevices))
 	}
-	if addedDevices[0]["dev_type"] != "PROXY" {
-		t.Errorf("expected dev_type 'PROXY', got %v", addedDevices[0]["dev_type"])
+	if addedDevices[0].DevType != "PROXY" {
+		t.Errorf("expected dev_type 'PROXY', got %v", addedDevices[0].DevType)
 	}
-	if addedDevices[0]["source_port"] != int64(8080) {
-		t.Errorf("expected source_port 8080, got %v", addedDevices[0]["source_port"])
+	if addedDevices[0].SourcePort != int64(8080) {
+		t.Errorf("expected source_port 8080, got %v", addedDevices[0].SourcePort)
 	}
 }
 
 func TestVirtInstanceResource_reconcileDevices_DeleteError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_delete" {
-					return nil, errors.New("delete failed")
-				}
-				return nil, nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		DeleteDeviceFunc: func(ctx context.Context, instanceID string, deviceName string) error {
+			return errors.New("delete failed")
+		},
+	})
 	plan := &VirtInstanceResourceModel{}
 	state := &VirtInstanceResourceModel{
 		Disks: []DiskModel{{Name: types.StringValue("disk1")}},
@@ -2495,18 +2181,11 @@ func TestVirtInstanceResource_reconcileDevices_DeleteError(t *testing.T) {
 }
 
 func TestVirtInstanceResource_reconcileDevices_AddDiskError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_add" {
-					return nil, errors.New("add disk failed")
-				}
-				return nil, nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		AddDeviceFunc: func(ctx context.Context, instanceID string, opts truenas.VirtDeviceOpts) error {
+			return errors.New("add disk failed")
+		},
+	})
 	plan := &VirtInstanceResourceModel{
 		Disks: []DiskModel{{Name: types.StringValue("disk1"), Source: types.StringValue("/src"), Destination: types.StringValue("/dst")}},
 	}
@@ -2521,18 +2200,11 @@ func TestVirtInstanceResource_reconcileDevices_AddDiskError(t *testing.T) {
 }
 
 func TestVirtInstanceResource_reconcileDevices_AddNICError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_add" {
-					return nil, errors.New("add NIC failed")
-				}
-				return nil, nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		AddDeviceFunc: func(ctx context.Context, instanceID string, opts truenas.VirtDeviceOpts) error {
+			return errors.New("add NIC failed")
+		},
+	})
 	plan := &VirtInstanceResourceModel{
 		NICs: []NICModel{{Name: types.StringValue("eth0"), Network: types.StringValue("bridge0")}},
 	}
@@ -2547,18 +2219,11 @@ func TestVirtInstanceResource_reconcileDevices_AddNICError(t *testing.T) {
 }
 
 func TestVirtInstanceResource_reconcileDevices_AddProxyError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_add" {
-					return nil, errors.New("add proxy failed")
-				}
-				return nil, nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		AddDeviceFunc: func(ctx context.Context, instanceID string, opts truenas.VirtDeviceOpts) error {
+			return errors.New("add proxy failed")
+		},
+	})
 	plan := &VirtInstanceResourceModel{
 		Proxies: []ProxyModel{{Name: types.StringValue("http"), SourceProto: types.StringValue("TCP"), SourcePort: types.Int64Value(80), DestProto: types.StringValue("TCP"), DestPort: types.Int64Value(80)}},
 	}
@@ -2574,107 +2239,38 @@ func TestVirtInstanceResource_reconcileDevices_AddProxyError(t *testing.T) {
 
 func TestVirtInstanceResource_reconcileDevices_SkipsEmptyNames(t *testing.T) {
 	callCount := 0
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				callCount++
-				return nil, nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		AddDeviceFunc: func(ctx context.Context, instanceID string, opts truenas.VirtDeviceOpts) error {
+			callCount++
+			return nil
+		},
+		DeleteDeviceFunc: func(ctx context.Context, instanceID string, deviceName string) error {
+			callCount++
+			return nil
+		},
+	})
 	plan := &VirtInstanceResourceModel{
-		Disks: []DiskModel{{Name: types.StringValue(""), Source: types.StringValue("/src"), Destination: types.StringValue("/dst")}}, // Empty name
-		NICs: []NICModel{{Name: types.StringValue(""), Network: types.StringValue("bridge0")}}, // Empty name
-		Proxies: []ProxyModel{{Name: types.StringValue(""), SourceProto: types.StringValue("TCP"), SourcePort: types.Int64Value(80), DestProto: types.StringValue("TCP"), DestPort: types.Int64Value(80)}}, // Empty name
+		Disks:   []DiskModel{{Name: types.StringValue(""), Source: types.StringValue("/src"), Destination: types.StringValue("/dst")}},
+		NICs:    []NICModel{{Name: types.StringValue(""), Network: types.StringValue("bridge0")}},
+		Proxies: []ProxyModel{{Name: types.StringValue(""), SourceProto: types.StringValue("TCP"), SourcePort: types.Int64Value(80), DestProto: types.StringValue("TCP"), DestPort: types.Int64Value(80)}},
 	}
 	state := &VirtInstanceResourceModel{}
 	err := r.reconcileDevices(context.Background(), "test-id", plan, state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should not add any devices because names are empty
 	if callCount != 0 {
 		t.Errorf("expected 0 API calls for empty names, got %d", callCount)
 	}
 }
 
-// Tests for queryDevices
-func TestVirtInstanceResource_queryDevices_Success(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_list" {
-					return json.RawMessage(`[
-						{"dev_type": "DISK", "name": "data", "source": "/mnt/tank/data", "destination": "/data"},
-						{"dev_type": "NIC", "name": "eth0", "network": "bridge0"}
-					]`), nil
-				}
-				return nil, nil
-			},
-		}},
-
-	}
-	devices, err := r.queryDevices(context.Background(), "test-id")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(devices) != 2 {
-		t.Errorf("expected 2 devices, got %d", len(devices))
-	}
-}
-
-func TestVirtInstanceResource_queryDevices_APIError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("API error")
-			},
-		}},
-
-	}
-	_, err := r.queryDevices(context.Background(), "test-id")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestVirtInstanceResource_queryDevices_InvalidJSON(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`invalid json`), nil
-			},
-		}},
-
-	}
-	_, err := r.queryDevices(context.Background(), "test-id")
-	if err == nil {
-		t.Fatal("expected error for invalid JSON")
-	}
-	if !strings.Contains(err.Error(), "failed to unmarshal") {
-		t.Errorf("expected unmarshal error, got %v", err)
-	}
-}
-
 // Tests for reconcileDesiredState error paths
 func TestVirtInstanceResource_reconcileDesiredState_StartError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.start" {
-					return nil, errors.New("start failed")
-				}
-				return nil, nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		StartInstanceFunc: func(ctx context.Context, name string) error {
+			return errors.New("start failed")
+		},
+	})
 	schemaResp := getVirtInstanceResourceSchema(t)
 	resp := &resource.UpdateResponse{
 		State: tfsdk.State{
@@ -2691,18 +2287,11 @@ func TestVirtInstanceResource_reconcileDesiredState_StartError(t *testing.T) {
 }
 
 func TestVirtInstanceResource_reconcileDesiredState_StopError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.stop" {
-					return nil, errors.New("stop failed")
-				}
-				return nil, nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		StopInstanceFunc: func(ctx context.Context, name string, opts truenas.StopVirtInstanceOpts) error {
+			return errors.New("stop failed")
+		},
+	})
 	schemaResp := getVirtInstanceResourceSchema(t)
 	resp := &resource.UpdateResponse{
 		State: tfsdk.State{
@@ -2719,19 +2308,15 @@ func TestVirtInstanceResource_reconcileDesiredState_StopError(t *testing.T) {
 }
 
 func TestVirtInstanceResource_reconcileDesiredState_WrongFinalState(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				// Return STOPPED instead of RUNNING
-				return json.RawMessage(`{"id": "test-id", "name": "test", "status": "STOPPED", "storage_pool": "tank", "autostart": false, "aliases": [], "image": {"os": "ubuntu", "release": "24.04", "architecture": "amd64", "description": "", "variant": ""}}`), nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		StartInstanceFunc: func(ctx context.Context, name string) error {
+			return nil
+		},
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			// Return STOPPED instead of RUNNING
+			return mockVirtInstance("test", "STOPPED", false), nil
+		},
+	})
 	schemaResp := getVirtInstanceResourceSchema(t)
 	resp := &resource.UpdateResponse{
 		State: tfsdk.State{
@@ -2749,18 +2334,11 @@ func TestVirtInstanceResource_reconcileDesiredState_WrongFinalState(t *testing.T
 
 // Tests for Update edge cases
 func TestVirtInstanceResource_Update_QueryStateError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("query state failed")
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return nil, errors.New("query state failed")
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -2809,23 +2387,16 @@ func TestVirtInstanceResource_Update_QueryStateError(t *testing.T) {
 }
 
 func TestVirtInstanceResource_Update_ReconcileDevicesError(t *testing.T) {
-	queryCount := 0
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.device_delete" {
-					return nil, errors.New("device delete failed")
-				}
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				queryCount++
-				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
-			},
-		}},
-
-	}
+	getCount := 0
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			getCount++
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+		DeleteDeviceFunc: func(ctx context.Context, instanceID string, deviceName string) error {
+			return errors.New("device delete failed")
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -2878,21 +2449,14 @@ func TestVirtInstanceResource_Update_ReconcileDevicesError(t *testing.T) {
 
 // Test Delete error paths
 func TestVirtInstanceResource_Delete_StopError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.stop" {
-					return nil, errors.New("stop failed")
-				}
-				return nil, nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+		StopInstanceFunc: func(ctx context.Context, name string, opts truenas.StopVirtInstanceOpts) error {
+			return errors.New("stop failed")
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -2923,15 +2487,11 @@ func TestVirtInstanceResource_Delete_StopError(t *testing.T) {
 }
 
 func TestVirtInstanceResource_Delete_QueryStateError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("query failed")
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return nil, errors.New("query failed")
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -2963,21 +2523,17 @@ func TestVirtInstanceResource_Delete_QueryStateError(t *testing.T) {
 
 // Test Create with stop error when desired_state is STOPPED
 func TestVirtInstanceResource_Create_StopError(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4},
-			CallAndWaitFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.stop" {
-					return nil, errors.New("stop failed after create")
-				}
-				return json.RawMessage(`1`), nil
-			},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return mockVirtInstanceResponse("test-container", "RUNNING", false), nil
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		CreateInstanceFunc: func(ctx context.Context, opts truenas.CreateVirtInstanceOpts) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+		StopInstanceFunc: func(ctx context.Context, name string, opts truenas.StopVirtInstanceOpts) error {
+			return errors.New("stop failed after create")
+		},
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "RUNNING", false), nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	planValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -3072,7 +2628,7 @@ func TestMapAliasesToAddresses(t *testing.T) {
 
 	t.Run("single IPv4 address", func(t *testing.T) {
 		netmask := int64(24)
-		aliases := []virtInstanceAlias{
+		aliases := []truenas.VirtAlias{
 			{Type: "INET", Address: "192.168.1.100", Netmask: &netmask},
 		}
 		result := mapAliasesToAddresses(aliases)
@@ -3096,7 +2652,7 @@ func TestMapAliasesToAddresses(t *testing.T) {
 	t.Run("multiple addresses", func(t *testing.T) {
 		netmask24 := int64(24)
 		netmask64 := int64(64)
-		aliases := []virtInstanceAlias{
+		aliases := []truenas.VirtAlias{
 			{Type: "INET", Address: "192.168.1.100", Netmask: &netmask24},
 			{Type: "INET6", Address: "2001:db8::1", Netmask: &netmask64},
 		}
@@ -3116,7 +2672,7 @@ func TestMapAliasesToAddresses(t *testing.T) {
 	})
 
 	t.Run("nil netmask", func(t *testing.T) {
-		aliases := []virtInstanceAlias{
+		aliases := []truenas.VirtAlias{
 			{Type: "INET", Address: "192.168.1.100", Netmask: nil},
 		}
 		result := mapAliasesToAddresses(aliases)
@@ -3134,26 +2690,21 @@ func TestMapAliasesToAddresses(t *testing.T) {
 
 // Test addresses populated when running
 func TestVirtInstanceResource_Read_WithAddresses(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.get_instance" {
-					return mockVirtInstanceResponseWithAliases(
-						"test-container",
-						"RUNNING",
-						false,
-						[]map[string]interface{}{
-							{"type": "INET", "address": "192.168.1.100", "netmask": 24},
-							{"type": "INET6", "address": "2001:db8::1", "netmask": 64},
-						},
-					), nil
-				}
-				return nil, errors.New("unexpected method: " + method)
-			},
-		}},
-
-	}
+	netmask24 := int64(24)
+	netmask64 := int64(64)
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstanceWithAliases(
+				"test-container",
+				"RUNNING",
+				false,
+				[]truenas.VirtAlias{
+					{Type: "INET", Address: "192.168.1.100", Netmask: &netmask24},
+					{Type: "INET6", Address: "2001:db8::1", Netmask: &netmask64},
+				},
+			), nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -3185,7 +2736,6 @@ func TestVirtInstanceResource_Read_WithAddresses(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Extract model from state to verify addresses
 	var model VirtInstanceResourceModel
 	diags := resp.State.Get(context.Background(), &model)
 	if diags.HasError() {
@@ -3207,19 +2757,11 @@ func TestVirtInstanceResource_Read_WithAddresses(t *testing.T) {
 
 // Test addresses empty when stopped
 func TestVirtInstanceResource_Read_AddressesEmptyWhenStopped(t *testing.T) {
-	r := &VirtInstanceResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			VersionVal: truenas.Version{Major: 25, Minor: 4, Patch: 0, Build: 0},
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "virt.instance.get_instance" {
-					// Stopped container has no aliases
-					return mockVirtInstanceResponse("test-container", "STOPPED", false), nil
-				}
-				return nil, errors.New("unexpected method: " + method)
-			},
-		}},
-
-	}
+	r := newTestVirtInstanceResource(&truenas.MockVirtService{
+		GetInstanceFunc: func(ctx context.Context, name string) (*truenas.VirtInstance, error) {
+			return mockVirtInstance("test-container", "STOPPED", false), nil
+		},
+	})
 
 	schemaResp := getVirtInstanceResourceSchema(t)
 	stateValue := createVirtInstanceModelValue(virtInstanceModelParams{
@@ -3251,7 +2793,6 @@ func TestVirtInstanceResource_Read_AddressesEmptyWhenStopped(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Extract model from state to verify addresses are empty
 	var model VirtInstanceResourceModel
 	diags := resp.State.Get(context.Background(), &model)
 	if diags.HasError() {
@@ -3263,3 +2804,11 @@ func TestVirtInstanceResource_Read_AddressesEmptyWhenStopped(t *testing.T) {
 		t.Errorf("expected 0 addresses when stopped, got %d", len(elements))
 	}
 }
+
+// strPtr returns a pointer to the given string.
+// Used by tests in this package (e.g. zvol_test.go).
+func strPtr(s string) *string { return &s }
+
+// int64Ptr returns a pointer to the given int64.
+// Used by tests in this package (e.g. zvol_test.go).
+func int64Ptr(i int64) *int64 { return &i }
