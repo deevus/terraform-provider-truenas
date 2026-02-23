@@ -2,11 +2,11 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
+	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -47,10 +47,10 @@ func TestAppRegistryResource_Metadata(t *testing.T) {
 func TestAppRegistryResource_Configure_Success(t *testing.T) {
 	r := NewAppRegistryResource().(*AppRegistryResource)
 
-	mockClient := &client.MockClient{}
+	svc := &services.TrueNASServices{}
 
 	req := resource.ConfigureRequest{
-		ProviderData: mockClient,
+		ProviderData: svc,
 	}
 	resp := &resource.ConfigureResponse{}
 
@@ -60,8 +60,8 @@ func TestAppRegistryResource_Configure_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if r.client == nil {
-		t.Error("expected client to be set")
+	if r.services == nil {
+		t.Error("expected services to be set")
 	}
 }
 
@@ -181,28 +181,22 @@ func createAppRegistryModelValue(p appRegistryModelParams) tftypes.Value {
 }
 
 func TestAppRegistryResource_Create_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.CreateRegistryOpts
 
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "app.registry.create" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`{"id": 1}`), nil
-				}
-				if method == "app.registry.query" {
-					return json.RawMessage(`[{
-						"id": 1,
-						"name": "ghcr",
-						"description": "GitHub Container Registry",
-						"username": "github-user",
-						"password": "ghp_token123",
-						"uri": "https://ghcr.io"
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				CreateRegistryFunc: func(ctx context.Context, opts truenas.CreateRegistryOpts) (*truenas.Registry, error) {
+					capturedOpts = opts
+					return &truenas.Registry{
+						ID:          1,
+						Name:        "ghcr",
+						Description: "GitHub Container Registry",
+						Username:    "github-user",
+						Password:    "ghp_token123",
+						URI:         "https://ghcr.io",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -235,30 +229,21 @@ func TestAppRegistryResource_Create_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "app.registry.create" {
-		t.Errorf("expected method 'app.registry.create', got %q", capturedMethod)
+	// Verify captured opts
+	if capturedOpts.Name != "ghcr" {
+		t.Errorf("expected name 'ghcr', got %q", capturedOpts.Name)
 	}
-
-	// Verify params
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.Username != "github-user" {
+		t.Errorf("expected username 'github-user', got %q", capturedOpts.Username)
 	}
-
-	if params["name"] != "ghcr" {
-		t.Errorf("expected name 'ghcr', got %v", params["name"])
+	if capturedOpts.Password != "ghp_token123" {
+		t.Errorf("expected password 'ghp_token123', got %q", capturedOpts.Password)
 	}
-	if params["username"] != "github-user" {
-		t.Errorf("expected username 'github-user', got %v", params["username"])
+	if capturedOpts.URI != "https://ghcr.io" {
+		t.Errorf("expected uri 'https://ghcr.io', got %q", capturedOpts.URI)
 	}
-	if params["password"] != "ghp_token123" {
-		t.Errorf("expected password 'ghp_token123', got %v", params["password"])
-	}
-	if params["uri"] != "https://ghcr.io" {
-		t.Errorf("expected uri 'https://ghcr.io', got %v", params["uri"])
-	}
-	if params["description"] != "GitHub Container Registry" {
-		t.Errorf("expected description 'GitHub Container Registry', got %v", params["description"])
+	if capturedOpts.Description != "GitHub Container Registry" {
+		t.Errorf("expected description 'GitHub Container Registry', got %q", capturedOpts.Description)
 	}
 
 	// Verify state was set
@@ -285,26 +270,22 @@ func TestAppRegistryResource_Create_Success(t *testing.T) {
 }
 
 func TestAppRegistryResource_Create_MinimalFields(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateRegistryOpts
 
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "app.registry.create" {
-					capturedParams = params
-					return json.RawMessage(`{"id": 2}`), nil
-				}
-				if method == "app.registry.query" {
-					return json.RawMessage(`[{
-						"id": 2,
-						"name": "dockerhub",
-						"description": null,
-						"username": "docker-user",
-						"password": "docker-token",
-						"uri": "https://index.docker.io/v1/"
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				CreateRegistryFunc: func(ctx context.Context, opts truenas.CreateRegistryOpts) (*truenas.Registry, error) {
+					capturedOpts = opts
+					return &truenas.Registry{
+						ID:          2,
+						Name:        "dockerhub",
+						Description: "",
+						Username:    "docker-user",
+						Password:    "docker-token",
+						URI:         "https://index.docker.io/v1/",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -337,14 +318,9 @@ func TestAppRegistryResource_Create_MinimalFields(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify description is nil when empty
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
-	}
-
-	if params["description"] != nil {
-		t.Errorf("expected description nil for empty string, got %v", params["description"])
+	// Verify description is empty string (truenas-go handles nil conversion)
+	if capturedOpts.Description != "" {
+		t.Errorf("expected description empty for empty string, got %q", capturedOpts.Description)
 	}
 
 	// Verify state was set with empty description
@@ -357,9 +333,11 @@ func TestAppRegistryResource_Create_MinimalFields(t *testing.T) {
 
 func TestAppRegistryResource_Create_APIError(t *testing.T) {
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				CreateRegistryFunc: func(ctx context.Context, opts truenas.CreateRegistryOpts) (*truenas.Registry, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
 	}
@@ -398,106 +376,20 @@ func TestAppRegistryResource_Create_APIError(t *testing.T) {
 	}
 }
 
-func TestAppRegistryResource_Create_QueryError(t *testing.T) {
-	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "app.registry.create" {
-					return json.RawMessage(`{"id": 1}`), nil
-				}
-				if method == "app.registry.query" {
-					return nil, errors.New("query failed")
-				}
-				return nil, nil
-			},
-		}},
-	}
-
-	schemaResp := getAppRegistryResourceSchema(t)
-	planValue := createAppRegistryModelValue(appRegistryModelParams{
-		Name:        "test",
-		Description: "",
-		Username:    "user",
-		Password:    "pass",
-		URI:         "https://example.com",
-	})
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for query error after create")
-	}
-}
-
-func TestAppRegistryResource_Create_QueryNotFound(t *testing.T) {
-	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "app.registry.create" {
-					return json.RawMessage(`{"id": 1}`), nil
-				}
-				if method == "app.registry.query" {
-					return json.RawMessage(`[]`), nil
-				}
-				return nil, nil
-			},
-		}},
-	}
-
-	schemaResp := getAppRegistryResourceSchema(t)
-	planValue := createAppRegistryModelValue(appRegistryModelParams{
-		Name:        "test",
-		Description: "",
-		Username:    "user",
-		Password:    "pass",
-		URI:         "https://example.com",
-	})
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when registry not found after create")
-	}
-}
-
 func TestAppRegistryResource_Read_Success(t *testing.T) {
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": 1,
-					"name": "ghcr",
-					"description": "GitHub Container Registry",
-					"username": "github-user",
-					"password": "ghp_token123",
-					"uri": "https://ghcr.io"
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetRegistryFunc: func(ctx context.Context, id int64) (*truenas.Registry, error) {
+					return &truenas.Registry{
+						ID:          1,
+						Name:        "ghcr",
+						Description: "GitHub Container Registry",
+						Username:    "github-user",
+						Password:    "ghp_token123",
+						URI:         "https://ghcr.io",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -547,9 +439,11 @@ func TestAppRegistryResource_Read_Success(t *testing.T) {
 
 func TestAppRegistryResource_Read_NotFound(t *testing.T) {
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetRegistryFunc: func(ctx context.Context, id int64) (*truenas.Registry, error) {
+					return nil, nil
+				},
 			},
 		}},
 	}
@@ -591,9 +485,11 @@ func TestAppRegistryResource_Read_NotFound(t *testing.T) {
 
 func TestAppRegistryResource_Read_APIError(t *testing.T) {
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetRegistryFunc: func(ctx context.Context, id int64) (*truenas.Registry, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
 	}
@@ -630,7 +526,9 @@ func TestAppRegistryResource_Read_APIError(t *testing.T) {
 
 func TestAppRegistryResource_Read_InvalidID(t *testing.T) {
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -664,31 +562,24 @@ func TestAppRegistryResource_Read_InvalidID(t *testing.T) {
 }
 
 func TestAppRegistryResource_Update_Success(t *testing.T) {
-	var capturedMethod string
 	var capturedID int64
-	var capturedUpdateData map[string]any
+	var capturedOpts truenas.UpdateRegistryOpts
 
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "app.registry.update" {
-					capturedMethod = method
-					args := params.([]any)
-					capturedID = args[0].(int64)
-					capturedUpdateData = args[1].(map[string]any)
-					return json.RawMessage(`{"id": 1}`), nil
-				}
-				if method == "app.registry.query" {
-					return json.RawMessage(`[{
-						"id": 1,
-						"name": "ghcr-updated",
-						"description": "Updated Description",
-						"username": "new-user",
-						"password": "new-token",
-						"uri": "https://ghcr.io"
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				UpdateRegistryFunc: func(ctx context.Context, id int64, opts truenas.UpdateRegistryOpts) (*truenas.Registry, error) {
+					capturedID = id
+					capturedOpts = opts
+					return &truenas.Registry{
+						ID:          1,
+						Name:        "ghcr-updated",
+						Description: "Updated Description",
+						Username:    "new-user",
+						Password:    "new-token",
+						URI:         "https://ghcr.io",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -738,26 +629,22 @@ func TestAppRegistryResource_Update_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "app.registry.update" {
-		t.Errorf("expected method 'app.registry.update', got %q", capturedMethod)
-	}
-
 	if capturedID != 1 {
 		t.Errorf("expected ID 1, got %d", capturedID)
 	}
 
-	// Verify update params
-	if capturedUpdateData["name"] != "ghcr-updated" {
-		t.Errorf("expected name 'ghcr-updated', got %v", capturedUpdateData["name"])
+	// Verify update opts
+	if capturedOpts.Name != "ghcr-updated" {
+		t.Errorf("expected name 'ghcr-updated', got %q", capturedOpts.Name)
 	}
-	if capturedUpdateData["username"] != "new-user" {
-		t.Errorf("expected username 'new-user', got %v", capturedUpdateData["username"])
+	if capturedOpts.Username != "new-user" {
+		t.Errorf("expected username 'new-user', got %q", capturedOpts.Username)
 	}
-	if capturedUpdateData["password"] != "new-token" {
-		t.Errorf("expected password 'new-token', got %v", capturedUpdateData["password"])
+	if capturedOpts.Password != "new-token" {
+		t.Errorf("expected password 'new-token', got %q", capturedOpts.Password)
 	}
-	if capturedUpdateData["description"] != "Updated Description" {
-		t.Errorf("expected description 'Updated Description', got %v", capturedUpdateData["description"])
+	if capturedOpts.Description != "Updated Description" {
+		t.Errorf("expected description 'Updated Description', got %q", capturedOpts.Description)
 	}
 
 	// Verify state was set
@@ -776,9 +663,11 @@ func TestAppRegistryResource_Update_Success(t *testing.T) {
 
 func TestAppRegistryResource_Update_APIError(t *testing.T) {
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				UpdateRegistryFunc: func(ctx context.Context, id int64, opts truenas.UpdateRegistryOpts) (*truenas.Registry, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
 		}},
 	}
@@ -829,7 +718,9 @@ func TestAppRegistryResource_Update_APIError(t *testing.T) {
 
 func TestAppRegistryResource_Update_InvalidID(t *testing.T) {
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -876,134 +767,16 @@ func TestAppRegistryResource_Update_InvalidID(t *testing.T) {
 	}
 }
 
-func TestAppRegistryResource_Update_QueryError(t *testing.T) {
-	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "app.registry.update" {
-					return json.RawMessage(`{"id": 1}`), nil
-				}
-				if method == "app.registry.query" {
-					return nil, errors.New("query failed")
-				}
-				return nil, nil
-			},
-		}},
-	}
-
-	schemaResp := getAppRegistryResourceSchema(t)
-
-	stateValue := createAppRegistryModelValue(appRegistryModelParams{
-		ID:          "1",
-		Name:        "test",
-		Description: "",
-		Username:    "user",
-		Password:    "pass",
-		URI:         "https://example.com",
-	})
-
-	planValue := createAppRegistryModelValue(appRegistryModelParams{
-		ID:          "1",
-		Name:        "test-updated",
-		Description: "",
-		Username:    "user",
-		Password:    "pass",
-		URI:         "https://example.com",
-	})
-
-	req := resource.UpdateRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.UpdateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Update(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for query error after update")
-	}
-}
-
-func TestAppRegistryResource_Update_QueryNotFound(t *testing.T) {
-	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "app.registry.update" {
-					return json.RawMessage(`{"id": 1}`), nil
-				}
-				if method == "app.registry.query" {
-					return json.RawMessage(`[]`), nil
-				}
-				return nil, nil
-			},
-		}},
-	}
-
-	schemaResp := getAppRegistryResourceSchema(t)
-
-	stateValue := createAppRegistryModelValue(appRegistryModelParams{
-		ID:          "1",
-		Name:        "test",
-		Description: "",
-		Username:    "user",
-		Password:    "pass",
-		URI:         "https://example.com",
-	})
-
-	planValue := createAppRegistryModelValue(appRegistryModelParams{
-		ID:          "1",
-		Name:        "test-updated",
-		Description: "",
-		Username:    "user",
-		Password:    "pass",
-		URI:         "https://example.com",
-	})
-
-	req := resource.UpdateRequest{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-			Raw:    stateValue,
-		},
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.UpdateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Update(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when registry not found after update")
-	}
-}
-
 func TestAppRegistryResource_Delete_Success(t *testing.T) {
-	var capturedMethod string
 	var capturedID int64
 
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedID = params.(int64)
-				return json.RawMessage(`true`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				DeleteRegistryFunc: func(ctx context.Context, id int64) error {
+					capturedID = id
+					return nil
+				},
 			},
 		}},
 	}
@@ -1033,10 +806,6 @@ func TestAppRegistryResource_Delete_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "app.registry.delete" {
-		t.Errorf("expected method 'app.registry.delete', got %q", capturedMethod)
-	}
-
 	if capturedID != 1 {
 		t.Errorf("expected ID 1, got %d", capturedID)
 	}
@@ -1044,9 +813,11 @@ func TestAppRegistryResource_Delete_Success(t *testing.T) {
 
 func TestAppRegistryResource_Delete_APIError(t *testing.T) {
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("registry in use")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				DeleteRegistryFunc: func(ctx context.Context, id int64) error {
+					return errors.New("registry in use")
+				},
 			},
 		}},
 	}
@@ -1079,7 +850,9 @@ func TestAppRegistryResource_Delete_APIError(t *testing.T) {
 
 func TestAppRegistryResource_Delete_InvalidID(t *testing.T) {
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{}},
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{},
+		}},
 	}
 
 	schemaResp := getAppRegistryResourceSchema(t)
@@ -1108,59 +881,20 @@ func TestAppRegistryResource_Delete_InvalidID(t *testing.T) {
 	}
 }
 
-func TestAppRegistryResource_Create_ParseError(t *testing.T) {
-	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "app.registry.create" {
-					return json.RawMessage(`not valid json`), nil
-				}
-				return nil, nil
-			},
-		}},
-	}
-
-	schemaResp := getAppRegistryResourceSchema(t)
-	planValue := createAppRegistryModelValue(appRegistryModelParams{
-		Name:        "test",
-		Description: "",
-		Username:    "user",
-		Password:    "pass",
-		URI:         "https://example.com",
-	})
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{
-			Schema: schemaResp.Schema,
-			Raw:    planValue,
-		},
-	}
-
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{
-			Schema: schemaResp.Schema,
-		},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for parse error")
-	}
-}
-
 func TestAppRegistryResource_Read_NullDescription(t *testing.T) {
 	r := &AppRegistryResource{
-		BaseResource: BaseResource{client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": 1,
-					"name": "dockerhub",
-					"description": null,
-					"username": "docker-user",
-					"password": "docker-token",
-					"uri": "https://index.docker.io/v1/"
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			App: &truenas.MockAppService{
+				GetRegistryFunc: func(ctx context.Context, id int64) (*truenas.Registry, error) {
+					return &truenas.Registry{
+						ID:          1,
+						Name:        "dockerhub",
+						Description: "",
+						Username:    "docker-user",
+						Password:    "docker-token",
+						URI:         "https://index.docker.io/v1/",
+					}, nil
+				},
 			},
 		}},
 	}
@@ -1194,7 +928,7 @@ func TestAppRegistryResource_Read_NullDescription(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	// Verify description is empty string when API returns null
+	// Verify description is empty string when Registry has empty description (converted from null)
 	var resultData AppRegistryResourceModel
 	resp.State.Get(context.Background(), &resultData)
 	if resultData.Description.ValueString() != "" {
