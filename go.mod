@@ -3,7 +3,7 @@ module github.com/deevus/terraform-provider-truenas
 go 1.25.5
 
 require (
-	github.com/deevus/truenas-go v0.2.2
+	github.com/deevus/truenas-go v0.2.4
 	github.com/hashicorp/terraform-plugin-framework v1.17.0
 	github.com/hashicorp/terraform-plugin-framework-validators v0.19.0
 	github.com/hashicorp/terraform-plugin-go v0.29.0
