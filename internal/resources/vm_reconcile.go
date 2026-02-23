@@ -2,21 +2,11 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
-
-// setDeviceIDFromResult extracts the device ID from a vm.device.create response.
-func (r *VMResource) setDeviceIDFromResult(result json.RawMessage, target *types.Int64) {
-	var devResp struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.Unmarshal(result, &devResp); err == nil && devResp.ID != 0 {
-		*target = types.Int64Value(devResp.ID)
-	}
-}
 
 // reconcileDevices compares plan vs state devices and creates/updates/deletes as needed.
 func (r *VMResource) reconcileDevices(ctx context.Context, vmID int64, plan, state *VMResourceModel) error {
@@ -99,7 +89,7 @@ func collectDeviceIDs(ids map[int64]bool, data *VMResourceModel) {
 func (r *VMResource) deleteRemovedDevices(ctx context.Context, stateIDs, planIDs map[int64]bool) error {
 	for id := range stateIDs {
 		if !planIDs[id] {
-			_, err := r.client.Call(ctx, "vm.device.delete", id)
+			err := r.services.VM.DeleteDevice(ctx, id)
 			if err != nil {
 				return fmt.Errorf("failed to delete device %d: %w", id, err)
 			}
@@ -116,18 +106,18 @@ func (r *VMResource) reconcileDiskDevices(ctx context.Context, vmID int64, plan,
 		}
 	}
 
-	for _, p := range plan {
+	for i, p := range plan {
 		if p.DeviceID.IsNull() || p.DeviceID.IsUnknown() {
 			// New device - create
-			_, err := r.client.Call(ctx, "vm.device.create", buildDiskDeviceParams(&p, vmID))
+			dev, err := r.services.VM.CreateDevice(ctx, buildDiskDeviceOpts(&p, vmID))
 			if err != nil {
 				return fmt.Errorf("failed to create disk device: %w", err)
 			}
+			plan[i].DeviceID = types.Int64Value(dev.ID)
 		} else if s, ok := stateByID[p.DeviceID.ValueInt64()]; ok {
 			// Existing device - update if changed
 			if !diskEqual(p, s) {
-				params := buildDiskDeviceParams(&p, vmID)
-				_, err := r.client.Call(ctx, "vm.device.update", []any{p.DeviceID.ValueInt64(), params})
+				_, err := r.services.VM.UpdateDevice(ctx, p.DeviceID.ValueInt64(), buildDiskDeviceOpts(&p, vmID))
 				if err != nil {
 					return fmt.Errorf("failed to update disk device %d: %w", p.DeviceID.ValueInt64(), err)
 				}
@@ -151,15 +141,16 @@ func (r *VMResource) reconcileRawDevices(ctx context.Context, vmID int64, plan, 
 			stateByID[s.DeviceID.ValueInt64()] = s
 		}
 	}
-	for _, p := range plan {
+	for i, p := range plan {
 		if p.DeviceID.IsNull() || p.DeviceID.IsUnknown() {
-			_, err := r.client.Call(ctx, "vm.device.create", buildRawDeviceParams(&p, vmID))
+			dev, err := r.services.VM.CreateDevice(ctx, buildRawDeviceOpts(&p, vmID))
 			if err != nil {
 				return fmt.Errorf("failed to create raw device: %w", err)
 			}
+			plan[i].DeviceID = types.Int64Value(dev.ID)
 		} else if s, ok := stateByID[p.DeviceID.ValueInt64()]; ok {
 			if !rawEqual(p, s) {
-				_, err := r.client.Call(ctx, "vm.device.update", []any{p.DeviceID.ValueInt64(), buildRawDeviceParams(&p, vmID)})
+				_, err := r.services.VM.UpdateDevice(ctx, p.DeviceID.ValueInt64(), buildRawDeviceOpts(&p, vmID))
 				if err != nil {
 					return fmt.Errorf("failed to update raw device: %w", err)
 				}
@@ -180,15 +171,16 @@ func (r *VMResource) reconcileCDROMDevices(ctx context.Context, vmID int64, plan
 			stateByID[s.DeviceID.ValueInt64()] = s
 		}
 	}
-	for _, p := range plan {
+	for i, p := range plan {
 		if p.DeviceID.IsNull() || p.DeviceID.IsUnknown() {
-			_, err := r.client.Call(ctx, "vm.device.create", buildCDROMDeviceParams(&p, vmID))
+			dev, err := r.services.VM.CreateDevice(ctx, buildCDROMDeviceOpts(&p, vmID))
 			if err != nil {
 				return fmt.Errorf("failed to create cdrom device: %w", err)
 			}
+			plan[i].DeviceID = types.Int64Value(dev.ID)
 		} else if s, ok := stateByID[p.DeviceID.ValueInt64()]; ok {
 			if !p.Path.Equal(s.Path) {
-				_, err := r.client.Call(ctx, "vm.device.update", []any{p.DeviceID.ValueInt64(), buildCDROMDeviceParams(&p, vmID)})
+				_, err := r.services.VM.UpdateDevice(ctx, p.DeviceID.ValueInt64(), buildCDROMDeviceOpts(&p, vmID))
 				if err != nil {
 					return fmt.Errorf("failed to update cdrom device: %w", err)
 				}
@@ -205,15 +197,16 @@ func (r *VMResource) reconcileNICDevices(ctx context.Context, vmID int64, plan, 
 			stateByID[s.DeviceID.ValueInt64()] = s
 		}
 	}
-	for _, p := range plan {
+	for i, p := range plan {
 		if p.DeviceID.IsNull() || p.DeviceID.IsUnknown() {
-			_, err := r.client.Call(ctx, "vm.device.create", buildNICDeviceParams(&p, vmID))
+			dev, err := r.services.VM.CreateDevice(ctx, buildNICDeviceOpts(&p, vmID))
 			if err != nil {
 				return fmt.Errorf("failed to create nic device: %w", err)
 			}
+			plan[i].DeviceID = types.Int64Value(dev.ID)
 		} else if s, ok := stateByID[p.DeviceID.ValueInt64()]; ok {
 			if !nicEqual(p, s) {
-				_, err := r.client.Call(ctx, "vm.device.update", []any{p.DeviceID.ValueInt64(), buildNICDeviceParams(&p, vmID)})
+				_, err := r.services.VM.UpdateDevice(ctx, p.DeviceID.ValueInt64(), buildNICDeviceOpts(&p, vmID))
 				if err != nil {
 					return fmt.Errorf("failed to update nic device: %w", err)
 				}
@@ -234,15 +227,16 @@ func (r *VMResource) reconcileDisplayDevices(ctx context.Context, vmID int64, pl
 			stateByID[s.DeviceID.ValueInt64()] = s
 		}
 	}
-	for _, p := range plan {
+	for i, p := range plan {
 		if p.DeviceID.IsNull() || p.DeviceID.IsUnknown() {
-			_, err := r.client.Call(ctx, "vm.device.create", buildDisplayDeviceParams(&p, vmID))
+			dev, err := r.services.VM.CreateDevice(ctx, buildDisplayDeviceOpts(&p, vmID))
 			if err != nil {
 				return fmt.Errorf("failed to create display device: %w", err)
 			}
+			plan[i].DeviceID = types.Int64Value(dev.ID)
 		} else if s, ok := stateByID[p.DeviceID.ValueInt64()]; ok {
 			if !displayEqual(p, s) {
-				_, err := r.client.Call(ctx, "vm.device.update", []any{p.DeviceID.ValueInt64(), buildDisplayDeviceParams(&p, vmID)})
+				_, err := r.services.VM.UpdateDevice(ctx, p.DeviceID.ValueInt64(), buildDisplayDeviceOpts(&p, vmID))
 				if err != nil {
 					return fmt.Errorf("failed to update display device: %w", err)
 				}
@@ -264,15 +258,16 @@ func (r *VMResource) reconcilePCIDevices(ctx context.Context, vmID int64, plan, 
 			stateByID[s.DeviceID.ValueInt64()] = s
 		}
 	}
-	for _, p := range plan {
+	for i, p := range plan {
 		if p.DeviceID.IsNull() || p.DeviceID.IsUnknown() {
-			_, err := r.client.Call(ctx, "vm.device.create", buildPCIDeviceParams(&p, vmID))
+			dev, err := r.services.VM.CreateDevice(ctx, buildPCIDeviceOpts(&p, vmID))
 			if err != nil {
 				return fmt.Errorf("failed to create pci device: %w", err)
 			}
+			plan[i].DeviceID = types.Int64Value(dev.ID)
 		} else if s, ok := stateByID[p.DeviceID.ValueInt64()]; ok {
 			if !p.PPTDev.Equal(s.PPTDev) {
-				_, err := r.client.Call(ctx, "vm.device.update", []any{p.DeviceID.ValueInt64(), buildPCIDeviceParams(&p, vmID)})
+				_, err := r.services.VM.UpdateDevice(ctx, p.DeviceID.ValueInt64(), buildPCIDeviceOpts(&p, vmID))
 				if err != nil {
 					return fmt.Errorf("failed to update pci device: %w", err)
 				}
@@ -289,15 +284,16 @@ func (r *VMResource) reconcileUSBDevices(ctx context.Context, vmID int64, plan, 
 			stateByID[s.DeviceID.ValueInt64()] = s
 		}
 	}
-	for _, p := range plan {
+	for i, p := range plan {
 		if p.DeviceID.IsNull() || p.DeviceID.IsUnknown() {
-			_, err := r.client.Call(ctx, "vm.device.create", buildUSBDeviceParams(&p, vmID))
+			dev, err := r.services.VM.CreateDevice(ctx, buildUSBDeviceOpts(&p, vmID))
 			if err != nil {
 				return fmt.Errorf("failed to create usb device: %w", err)
 			}
+			plan[i].DeviceID = types.Int64Value(dev.ID)
 		} else if s, ok := stateByID[p.DeviceID.ValueInt64()]; ok {
 			if !usbEqual(p, s) {
-				_, err := r.client.Call(ctx, "vm.device.update", []any{p.DeviceID.ValueInt64(), buildUSBDeviceParams(&p, vmID)})
+				_, err := r.services.VM.UpdateDevice(ctx, p.DeviceID.ValueInt64(), buildUSBDeviceOpts(&p, vmID))
 				if err != nil {
 					return fmt.Errorf("failed to update usb device: %w", err)
 				}
@@ -312,19 +308,15 @@ func usbEqual(a, b VMUSBModel) bool {
 }
 
 // reconcileState starts or stops the VM to match the desired state.
-// vm.start is NOT a job. vm.stop IS a job (use CallAndWait).
 func (r *VMResource) reconcileState(ctx context.Context, vmID int64, currentState, desiredState string) error {
 	if currentState == desiredState {
 		return nil
 	}
 
 	if desiredState == VMStateRunning {
-		_, err := r.client.Call(ctx, "vm.start", vmID)
-		return err
+		return r.services.VM.StartVM(ctx, vmID)
 	}
 
 	// vm.stop is a job
-	stopOpts := map[string]any{"force": false, "force_after_timeout": true}
-	_, err := r.client.CallAndWait(ctx, "vm.stop", []any{vmID, stopOpts})
-	return err
+	return r.services.VM.StopVM(ctx, vmID, truenas.StopVMOpts{Force: false, ForceAfterTimeout: true})
 }

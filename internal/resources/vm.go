@@ -2,10 +2,10 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -132,42 +132,6 @@ type VMUSBModel struct {
 	ControllerType types.String `tfsdk:"controller_type"`
 	Device         types.String `tfsdk:"device"`
 	Order          types.Int64  `tfsdk:"order"`
-}
-
-// vmAPIResponse represents the JSON response from vm.get_instance.
-type vmAPIResponse struct {
-	ID               int64           `json:"id"`
-	Name             string          `json:"name"`
-	Description      string          `json:"description"`
-	VCPUs            int64           `json:"vcpus"`
-	Cores            int64           `json:"cores"`
-	Threads          int64           `json:"threads"`
-	Memory           int64           `json:"memory"`
-	MinMemory        *int64          `json:"min_memory"`
-	Autostart        bool            `json:"autostart"`
-	Time             string          `json:"time"`
-	Bootloader       string          `json:"bootloader"`
-	BootloaderOVMF   string          `json:"bootloader_ovmf"`
-	CPUMode          string          `json:"cpu_mode"`
-	CPUModel         *string         `json:"cpu_model"`
-	ShutdownTimeout  int64            `json:"shutdown_timeout"`
-	CommandLineArgs  string           `json:"command_line_args"`
-	Status           vmStatusResponse `json:"status"`
-	DisplayAvailable bool            `json:"display_available"`
-}
-
-type vmStatusResponse struct {
-	State       string `json:"state"`
-	PID         *int64 `json:"pid"`
-	DomainState string `json:"domain_state"`
-}
-
-// vmDeviceAPIResponse represents a device from vm.device.query.
-type vmDeviceAPIResponse struct {
-	ID         int64          `json:"id"`
-	VM         int64          `json:"vm"`
-	Order      int64          `json:"order"`
-	Attributes map[string]any `json:"attributes"`
 }
 
 // VMResource defines the resource implementation.
@@ -508,77 +472,70 @@ func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, res
 		return
 	}
 
-	params := r.buildCreateParams(&data)
-	result, err := r.client.Call(ctx, "vm.create", params)
+	opts := r.buildCreateOpts(&data)
+	vm, err := r.services.VM.CreateVM(ctx, opts)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Create VM", fmt.Sprintf("Unable to create VM %q: %s", data.Name.ValueString(), err.Error()))
-		return
-	}
-
-	// vm.create returns the full VM object
-	var vm vmAPIResponse
-	if err := json.Unmarshal(result, &vm); err != nil {
-		resp.Diagnostics.AddError("Unable to Parse VM Response", err.Error())
 		return
 	}
 	vmID := vm.ID
 
 	// Create devices
 	for i := range data.Disks {
-		devResult, err := r.client.Call(ctx, "vm.device.create", buildDiskDeviceParams(&data.Disks[i], vmID))
+		dev, err := r.services.VM.CreateDevice(ctx, buildDiskDeviceOpts(&data.Disks[i], vmID))
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Create Disk Device", err.Error())
 			return
 		}
-		r.setDeviceIDFromResult(devResult, &data.Disks[i].DeviceID)
+		data.Disks[i].DeviceID = types.Int64Value(dev.ID)
 	}
 	for i := range data.Raws {
-		devResult, err := r.client.Call(ctx, "vm.device.create", buildRawDeviceParams(&data.Raws[i], vmID))
+		dev, err := r.services.VM.CreateDevice(ctx, buildRawDeviceOpts(&data.Raws[i], vmID))
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Create Raw Device", err.Error())
 			return
 		}
-		r.setDeviceIDFromResult(devResult, &data.Raws[i].DeviceID)
+		data.Raws[i].DeviceID = types.Int64Value(dev.ID)
 	}
 	for i := range data.CDROMs {
-		devResult, err := r.client.Call(ctx, "vm.device.create", buildCDROMDeviceParams(&data.CDROMs[i], vmID))
+		dev, err := r.services.VM.CreateDevice(ctx, buildCDROMDeviceOpts(&data.CDROMs[i], vmID))
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Create CDROM Device", err.Error())
 			return
 		}
-		r.setDeviceIDFromResult(devResult, &data.CDROMs[i].DeviceID)
+		data.CDROMs[i].DeviceID = types.Int64Value(dev.ID)
 	}
 	for i := range data.NICs {
-		devResult, err := r.client.Call(ctx, "vm.device.create", buildNICDeviceParams(&data.NICs[i], vmID))
+		dev, err := r.services.VM.CreateDevice(ctx, buildNICDeviceOpts(&data.NICs[i], vmID))
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Create NIC Device", err.Error())
 			return
 		}
-		r.setDeviceIDFromResult(devResult, &data.NICs[i].DeviceID)
+		data.NICs[i].DeviceID = types.Int64Value(dev.ID)
 	}
 	for i := range data.Displays {
-		devResult, err := r.client.Call(ctx, "vm.device.create", buildDisplayDeviceParams(&data.Displays[i], vmID))
+		dev, err := r.services.VM.CreateDevice(ctx, buildDisplayDeviceOpts(&data.Displays[i], vmID))
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Create Display Device", err.Error())
 			return
 		}
-		r.setDeviceIDFromResult(devResult, &data.Displays[i].DeviceID)
+		data.Displays[i].DeviceID = types.Int64Value(dev.ID)
 	}
 	for i := range data.PCIs {
-		devResult, err := r.client.Call(ctx, "vm.device.create", buildPCIDeviceParams(&data.PCIs[i], vmID))
+		dev, err := r.services.VM.CreateDevice(ctx, buildPCIDeviceOpts(&data.PCIs[i], vmID))
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Create PCI Device", err.Error())
 			return
 		}
-		r.setDeviceIDFromResult(devResult, &data.PCIs[i].DeviceID)
+		data.PCIs[i].DeviceID = types.Int64Value(dev.ID)
 	}
 	for i := range data.USBs {
-		devResult, err := r.client.Call(ctx, "vm.device.create", buildUSBDeviceParams(&data.USBs[i], vmID))
+		dev, err := r.services.VM.CreateDevice(ctx, buildUSBDeviceOpts(&data.USBs[i], vmID))
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Create USB Device", err.Error())
 			return
 		}
-		r.setDeviceIDFromResult(devResult, &data.USBs[i].DeviceID)
+		data.USBs[i].DeviceID = types.Int64Value(dev.ID)
 	}
 
 	// Handle desired state
@@ -591,7 +548,7 @@ func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, res
 	}
 
 	// Read back to get final state
-	freshVM, err := r.getVM(ctx, vmID)
+	freshVM, err := r.services.VM.GetVM(ctx, vmID)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Read VM After Create", err.Error())
 		return
@@ -599,7 +556,7 @@ func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, res
 	r.mapVMToModel(freshVM, &data)
 
 	// Read devices
-	devices, err := r.queryVMDevices(ctx, vmID)
+	devices, err := r.services.VM.ListDevices(ctx, vmID)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Query VM Devices", err.Error())
 		return
@@ -630,7 +587,7 @@ func (r *VMResource) Read(ctx context.Context, req resource.ReadRequest, resp *r
 	// Preserve user-specified desired state
 	priorState := data.State
 
-	vm, err := r.getVM(ctx, vmID)
+	vm, err := r.services.VM.GetVM(ctx, vmID)
 	if err != nil {
 		if isNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
@@ -643,7 +600,7 @@ func (r *VMResource) Read(ctx context.Context, req resource.ReadRequest, resp *r
 	r.mapVMToModel(vm, &data)
 
 	// Read devices
-	devices, err := r.queryVMDevices(ctx, vmID)
+	devices, err := r.services.VM.ListDevices(ctx, vmID)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Query VM Devices", err.Error())
 		return
@@ -679,10 +636,10 @@ func (r *VMResource) Update(ctx context.Context, req resource.UpdateRequest, res
 		return
 	}
 
-	// Build update params (only changed fields)
-	updateParams := r.buildUpdateParams(&data, &stateData)
-	if len(updateParams) > 0 {
-		_, err := r.client.Call(ctx, "vm.update", []any{vmID, updateParams})
+	// Build update opts (check if anything changed)
+	updateOpts, changed := r.buildUpdateOpts(&data, &stateData)
+	if changed {
+		_, err := r.services.VM.UpdateVM(ctx, vmID, *updateOpts)
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Update VM", err.Error())
 			return
@@ -700,26 +657,26 @@ func (r *VMResource) Update(ctx context.Context, req resource.UpdateRequest, res
 	desiredState := data.State.ValueString()
 	if currentState != desiredState {
 		// Get actual current state from API
-		vm, err := r.getVM(ctx, vmID)
+		vm, err := r.services.VM.GetVM(ctx, vmID)
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Query VM State", err.Error())
 			return
 		}
-		if err := r.reconcileState(ctx, vmID, vm.Status.State, desiredState); err != nil {
+		if err := r.reconcileState(ctx, vmID, vm.State, desiredState); err != nil {
 			resp.Diagnostics.AddError("Unable to Reconcile VM State", err.Error())
 			return
 		}
 	}
 
 	// Read back fresh state
-	freshVM, err := r.getVM(ctx, vmID)
+	freshVM, err := r.services.VM.GetVM(ctx, vmID)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Read VM After Update", err.Error())
 		return
 	}
 	r.mapVMToModel(freshVM, &data)
 
-	devices, err := r.queryVMDevices(ctx, vmID)
+	devices, err := r.services.VM.ListDevices(ctx, vmID)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Query VM Devices", err.Error())
 		return
@@ -748,7 +705,7 @@ func (r *VMResource) Delete(ctx context.Context, req resource.DeleteRequest, res
 	}
 
 	// Check current state - if running, stop first
-	vm, err := r.getVM(ctx, vmID)
+	vm, err := r.services.VM.GetVM(ctx, vmID)
 	if err != nil {
 		if isNotFoundError(err) {
 			return // Already deleted
@@ -757,9 +714,8 @@ func (r *VMResource) Delete(ctx context.Context, req resource.DeleteRequest, res
 		return
 	}
 
-	if vm.Status.State == VMStateRunning {
-		stopOpts := map[string]any{"force": true, "force_after_timeout": true}
-		_, err := r.client.CallAndWait(ctx, "vm.stop", []any{vmID, stopOpts})
+	if vm.State == VMStateRunning {
+		err := r.services.VM.StopVM(ctx, vmID, truenas.StopVMOpts{Force: true, ForceAfterTimeout: true})
 		if err != nil {
 			resp.Diagnostics.AddError("Unable to Stop VM", fmt.Sprintf("Unable to stop VM before delete: %s", err.Error()))
 			return
@@ -767,7 +723,7 @@ func (r *VMResource) Delete(ctx context.Context, req resource.DeleteRequest, res
 	}
 
 	// Delete the VM
-	_, err = r.client.Call(ctx, "vm.delete", vmID)
+	err = r.services.VM.DeleteVM(ctx, vmID)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Delete VM", err.Error())
 		return
