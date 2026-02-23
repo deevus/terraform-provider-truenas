@@ -27,7 +27,7 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Coverage
-        uses: gwatts/go-coverage-action@v2
+        uses: https://github.com/gwatts/go-coverage-action@v2
         with:
           coverage-threshold: 0
           cover-pkg: ./...
