@@ -6,6 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.15.0] - 2026-02-23
+
+
+### Added
+
+- **client:** Add Logger interface and NopLogger
+- **client:** Add WithLogger option to NewSSHClient
+- **provider:** Add TFLogAdapter bridging client.Logger to tflog
+- Add TrueNASServices registry struct
+- Wire TrueNASServices in provider.Configure()
+- Add backward-compat Client field for transitional migration
+
+### Changed
+
+- **client:** Replace tflog with Logger interface
+- Consume truenas-go library instead of internal packages
+- BaseResource uses TrueNASServices instead of client.Client
+- Datasources use typed service methods
+- Snapshot resource uses SnapshotService
+- Cron_job resource uses CronService
+- Cloudsync_credentials resource uses CloudSyncService
+- Cloudsync_task resource uses CloudSyncService
+- Dataset resource uses DatasetService/FilesystemService/SnapshotService
+- Zvol resource uses DatasetService
+- Host_path resource uses FilesystemService
+- File resource uses FilesystemService
+- App resource uses AppService
+- App_registry resource uses AppService
+- Virt_config resource uses VirtService
+- Virt_instance resource uses VirtService
+- Vm resource uses VMService
+
+### Documentation
+
+- Add note about copying local Claude settings to new worktrees
+- Add design plan for extracting client/ to truenas-go
+
+### Miscellaneous
+
+- Clean up docs/plans after extraction complete
+- Update truenas-go to v0.2.1
+- Update truenas-go to v0.2.2
+
+### Build
+
+- Upgrade truenas-go dependency from v0.2.2 to v0.2.4
+
+### Wire
+
+- Pass TFLogAdapter to SSHClient via factory
+
 ## [0.14.0] - 2026-02-15
 
 
@@ -283,10 +334,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **resources:** Add schedule validation tests for cloud sync task
 - **resources:** Add encryption tests for cloud sync task
 
-### Ci
-
-- Fix release process with git-cliff integration
-
 ## [0.5.0] - 2026-01-16
 
 
@@ -343,6 +390,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Build
 
 - Enable git-cliff for automated changelog generation
+
+### Ci
+
+- Fix release process with git-cliff integration
 
 ## [0.3.0] - 2026-01-14
 
