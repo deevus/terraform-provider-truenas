@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.15.1] - 2026-02-27
+
+
+### Fixed
+
+- **vm:** Add UseStateForUnknown to all computed device attributes
+
+### Build
+
+- Upgrade truenas-go dependency from v0.2.4 to v0.4.1
+
+### Ci
+
+- Remove Forgejo-only restriction from test workflow
+- Add GitHub Actions workflow for Go code coverage reporting
+- Use full URL for go-coverage-action in coverage workflow
+- Restrict coverage workflow to GitHub and fix action reference format
+
 ## [0.15.0] - 2026-02-23
 
 
