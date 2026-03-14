@@ -2,11 +2,9 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
 	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -160,9 +158,7 @@ func (d *UserDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		return
 	}
 
-	filter := [][]string{{"username", "=", data.Username.ValueString()}}
-
-	result, err := d.services.Client.Call(ctx, "user.query", filter)
+	user, err := d.services.User.GetByUsername(ctx, data.Username.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read User",
@@ -171,16 +167,7 @@ func (d *UserDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		return
 	}
 
-	var users []api.UserResponse
-	if err := json.Unmarshal(result, &users); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse User Response",
-			fmt.Sprintf("Unable to parse user response: %s", err.Error()),
-		)
-		return
-	}
-
-	if len(users) == 0 {
+	if user == nil {
 		resp.Diagnostics.AddError(
 			"User Not Found",
 			fmt.Sprintf("User %q was not found.", data.Username.ValueString()),
@@ -188,32 +175,18 @@ func (d *UserDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		return
 	}
 
-	user := users[0]
-
 	data.ID = types.StringValue(strconv.FormatInt(user.ID, 10))
 	data.UID = types.Int64Value(user.UID)
 	data.Username = types.StringValue(user.Username)
 	data.FullName = types.StringValue(user.FullName)
-
-	if user.Email != nil {
-		data.Email = types.StringValue(*user.Email)
-	} else {
-		data.Email = types.StringValue("")
-	}
-
+	data.Email = types.StringValue(user.Email)
 	data.Home = types.StringValue(user.Home)
 	data.Shell = types.StringValue(user.Shell)
-	data.GroupID = types.Int64Value(user.Group.ID)
+	data.GroupID = types.Int64Value(user.GroupID)
 	data.SMB = types.BoolValue(user.SMB)
 	data.PasswordDisabled = types.BoolValue(user.PasswordDisabled)
 	data.SSHPasswordEnabled = types.BoolValue(user.SSHPasswordEnabled)
-
-	if user.SSHPubKey != nil {
-		data.SSHPubKey = types.StringValue(*user.SSHPubKey)
-	} else {
-		data.SSHPubKey = types.StringValue("")
-	}
-
+	data.SSHPubKey = types.StringValue(user.SSHPubKey)
 	data.Locked = types.BoolValue(user.Locked)
 	data.Builtin = types.BoolValue(user.Builtin)
 	data.Local = types.BoolValue(user.Local)

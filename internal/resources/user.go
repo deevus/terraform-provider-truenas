@@ -2,11 +2,10 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -195,33 +194,13 @@ func (r *UserResource) Create(ctx context.Context, req resource.CreateRequest, r
 		return
 	}
 
-	params := buildUserCreateParams(ctx, &data)
+	opts := buildCreateUserOpts(ctx, &data)
 
-	result, err := r.services.Client.Call(ctx, "user.create", params)
+	user, err := r.services.User.Create(ctx, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create User",
 			fmt.Sprintf("Unable to create user: %s", err.Error()),
-		)
-		return
-	}
-
-	var createResp struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.Unmarshal(result, &createResp); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Response",
-			fmt.Sprintf("Unable to parse create response: %s", err.Error()),
-		)
-		return
-	}
-
-	user, err := r.queryUser(ctx, createResp.ID)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read User",
-			fmt.Sprintf("User created but unable to read: %s", err.Error()),
 		)
 		return
 	}
@@ -256,7 +235,7 @@ func (r *UserResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 		return
 	}
 
-	user, err := r.queryUser(ctx, id)
+	user, err := r.services.User.Get(ctx, id)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read User",
@@ -294,22 +273,13 @@ func (r *UserResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		return
 	}
 
-	params := buildUserUpdateParams(ctx, &plan)
+	opts := buildUpdateUserOpts(ctx, &plan)
 
-	_, err = r.services.Client.Call(ctx, "user.update", []any{id, params})
+	user, err := r.services.User.Update(ctx, id, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Update User",
 			fmt.Sprintf("Unable to update user: %s", err.Error()),
-		)
-		return
-	}
-
-	user, err := r.queryUser(ctx, id)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read User",
-			fmt.Sprintf("User updated but unable to read: %s", err.Error()),
 		)
 		return
 	}
@@ -344,7 +314,7 @@ func (r *UserResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 		return
 	}
 
-	_, err = r.services.Client.Call(ctx, "user.delete", []any{id, map[string]any{"delete_group": true}})
+	err = r.services.User.Delete(ctx, id, true)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete User",
@@ -365,7 +335,7 @@ func (r *UserResource) ImportState(ctx context.Context, req resource.ImportState
 		return
 	}
 
-	user, err := r.queryUserByField(ctx, "uid", uid)
+	user, err := r.services.User.GetByUID(ctx, uid)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Import User", err.Error())
 		return
@@ -382,154 +352,124 @@ func (r *UserResource) ImportState(ctx context.Context, req resource.ImportState
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), strconv.FormatInt(user.ID, 10))...)
 }
 
-// queryUser queries a user by internal ID and returns the response.
-func (r *UserResource) queryUser(ctx context.Context, id int64) (*api.UserResponse, error) {
-	return r.queryUserByField(ctx, "id", id)
-}
-
-// queryUserByField queries a user by an arbitrary field and returns the response.
-func (r *UserResource) queryUserByField(ctx context.Context, field string, value int64) (*api.UserResponse, error) {
-	filter := [][]any{{field, "=", value}}
-	result, err := r.services.Client.Call(ctx, "user.query", filter)
-	if err != nil {
-		return nil, err
-	}
-
-	var users []api.UserResponse
-	if err := json.Unmarshal(result, &users); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-
-	if len(users) == 0 {
-		return nil, nil
-	}
-
-	return &users[0], nil
-}
-
-// buildUserCreateParams builds the API create params from the resource model.
-func buildUserCreateParams(ctx context.Context, data *UserResourceModel) map[string]any {
-	params := map[string]any{
-		"username":            data.Username.ValueString(),
-		"full_name":           data.FullName.ValueString(),
-		"email":               data.Email.ValueString(),
-		"password_disabled":   data.PasswordDisabled.ValueBool(),
-		"home":                data.Home.ValueString(),
-		"home_mode":           data.HomeMode.ValueString(),
-		"shell":               data.Shell.ValueString(),
-		"smb":                 data.SMB.ValueBool(),
-		"ssh_password_enabled": data.SSHPasswordEnabled.ValueBool(),
-		"locked":              data.Locked.ValueBool(),
+// buildCreateUserOpts builds typed create options from the resource model.
+func buildCreateUserOpts(ctx context.Context, data *UserResourceModel) truenas.CreateUserOpts {
+	opts := truenas.CreateUserOpts{
+		Username:           data.Username.ValueString(),
+		FullName:           data.FullName.ValueString(),
+		Email:              data.Email.ValueString(),
+		PasswordDisabled:   data.PasswordDisabled.ValueBool(),
+		Home:               data.Home.ValueString(),
+		HomeMode:           data.HomeMode.ValueString(),
+		Shell:              data.Shell.ValueString(),
+		SMB:                data.SMB.ValueBool(),
+		SSHPasswordEnabled: data.SSHPasswordEnabled.ValueBool(),
+		Locked:             data.Locked.ValueBool(),
 	}
 
 	if !data.UID.IsNull() && !data.UID.IsUnknown() {
-		params["uid"] = data.UID.ValueInt64()
+		opts.UID = data.UID.ValueInt64()
 	}
 
 	if !data.Password.IsNull() && !data.Password.IsUnknown() {
-		params["password"] = data.Password.ValueString()
+		opts.Password = data.Password.ValueString()
 	}
 
 	if !data.GroupID.IsNull() && !data.GroupID.IsUnknown() {
-		params["group"] = data.GroupID.ValueInt64()
+		opts.Group = data.GroupID.ValueInt64()
 	}
 
 	if !data.GroupCreate.IsNull() && !data.GroupCreate.IsUnknown() {
-		params["group_create"] = data.GroupCreate.ValueBool()
+		opts.GroupCreate = data.GroupCreate.ValueBool()
 	}
 
 	if !data.Groups.IsNull() && !data.Groups.IsUnknown() {
 		var items []int64
 		data.Groups.ElementsAs(ctx, &items, false)
-		params["groups"] = items
+		opts.Groups = items
 	}
 
 	if !data.HomeCreate.IsNull() && !data.HomeCreate.IsUnknown() {
-		params["home_create"] = data.HomeCreate.ValueBool()
+		opts.HomeCreate = data.HomeCreate.ValueBool()
 	}
 
 	if !data.SSHPubKey.IsNull() && !data.SSHPubKey.IsUnknown() {
-		params["sshpubkey"] = data.SSHPubKey.ValueString()
+		opts.SSHPubKey = data.SSHPubKey.ValueString()
 	}
 
 	if !data.SudoCommands.IsNull() && !data.SudoCommands.IsUnknown() {
 		var items []string
 		data.SudoCommands.ElementsAs(ctx, &items, false)
-		params["sudo_commands"] = items
+		opts.SudoCommands = items
 	}
 
 	if !data.SudoCommandsNopasswd.IsNull() && !data.SudoCommandsNopasswd.IsUnknown() {
 		var items []string
 		data.SudoCommandsNopasswd.ElementsAs(ctx, &items, false)
-		params["sudo_commands_nopasswd"] = items
+		opts.SudoCommandsNopasswd = items
 	}
 
-	return params
+	return opts
 }
 
-// buildUserUpdateParams builds the API update params (excludes uid, group_create, home_create).
-func buildUserUpdateParams(ctx context.Context, data *UserResourceModel) map[string]any {
-	params := map[string]any{
-		"username":            data.Username.ValueString(),
-		"full_name":           data.FullName.ValueString(),
-		"email":               data.Email.ValueString(),
-		"password_disabled":   data.PasswordDisabled.ValueBool(),
-		"home":                data.Home.ValueString(),
-		"home_mode":           data.HomeMode.ValueString(),
-		"shell":               data.Shell.ValueString(),
-		"smb":                 data.SMB.ValueBool(),
-		"ssh_password_enabled": data.SSHPasswordEnabled.ValueBool(),
-		"locked":              data.Locked.ValueBool(),
+// buildUpdateUserOpts builds typed update options from the resource model.
+// UID, GroupCreate, and HomeCreate are excluded (immutable after creation).
+func buildUpdateUserOpts(ctx context.Context, data *UserResourceModel) truenas.UpdateUserOpts {
+	opts := truenas.UpdateUserOpts{
+		Username:           data.Username.ValueString(),
+		FullName:           data.FullName.ValueString(),
+		Email:              data.Email.ValueString(),
+		PasswordDisabled:   data.PasswordDisabled.ValueBool(),
+		Home:               data.Home.ValueString(),
+		HomeMode:           data.HomeMode.ValueString(),
+		Shell:              data.Shell.ValueString(),
+		SMB:                data.SMB.ValueBool(),
+		SSHPasswordEnabled: data.SSHPasswordEnabled.ValueBool(),
+		Locked:             data.Locked.ValueBool(),
 	}
 
 	if !data.Password.IsNull() && !data.Password.IsUnknown() {
-		params["password"] = data.Password.ValueString()
+		opts.Password = data.Password.ValueString()
 	}
 
 	if !data.GroupID.IsNull() && !data.GroupID.IsUnknown() {
-		params["group"] = data.GroupID.ValueInt64()
+		opts.Group = data.GroupID.ValueInt64()
 	}
 
 	if !data.Groups.IsNull() && !data.Groups.IsUnknown() {
 		var items []int64
 		data.Groups.ElementsAs(ctx, &items, false)
-		params["groups"] = items
+		opts.Groups = items
 	}
 
 	if !data.SSHPubKey.IsNull() && !data.SSHPubKey.IsUnknown() {
-		params["sshpubkey"] = data.SSHPubKey.ValueString()
+		opts.SSHPubKey = data.SSHPubKey.ValueString()
 	}
 
 	if !data.SudoCommands.IsNull() && !data.SudoCommands.IsUnknown() {
 		var items []string
 		data.SudoCommands.ElementsAs(ctx, &items, false)
-		params["sudo_commands"] = items
+		opts.SudoCommands = items
 	}
 
 	if !data.SudoCommandsNopasswd.IsNull() && !data.SudoCommandsNopasswd.IsUnknown() {
 		var items []string
 		data.SudoCommandsNopasswd.ElementsAs(ctx, &items, false)
-		params["sudo_commands_nopasswd"] = items
+		opts.SudoCommandsNopasswd = items
 	}
 
-	return params
+	return opts
 }
 
-// mapUserToModel maps an API response to the resource model.
-func mapUserToModel(ctx context.Context, user *api.UserResponse, data *UserResourceModel) {
+// mapUserToModel maps a typed User to the resource model.
+func mapUserToModel(ctx context.Context, user *truenas.User, data *UserResourceModel) {
 	data.ID = types.StringValue(strconv.FormatInt(user.ID, 10))
 	data.UID = types.Int64Value(user.UID)
 	data.Username = types.StringValue(user.Username)
 	data.FullName = types.StringValue(user.FullName)
-
-	if user.Email != nil {
-		data.Email = types.StringValue(*user.Email)
-	} else {
-		data.Email = types.StringValue("")
-	}
-
+	data.Email = types.StringValue(user.Email)
 	data.PasswordDisabled = types.BoolValue(user.PasswordDisabled)
-	data.GroupID = types.Int64Value(user.Group.ID)
+	data.GroupID = types.Int64Value(user.GroupID)
 	data.Home = types.StringValue(user.Home)
 	if user.HomeMode != "" {
 		data.HomeMode = types.StringValue(user.HomeMode)
@@ -537,12 +477,9 @@ func mapUserToModel(ctx context.Context, user *api.UserResponse, data *UserResou
 	data.Shell = types.StringValue(user.Shell)
 	data.SMB = types.BoolValue(user.SMB)
 	data.SSHPasswordEnabled = types.BoolValue(user.SSHPasswordEnabled)
-
-	if user.SSHPubKey != nil {
-		data.SSHPubKey = types.StringValue(*user.SSHPubKey)
+	if user.SSHPubKey != "" {
+		data.SSHPubKey = types.StringValue(user.SSHPubKey)
 	}
-	// Leave SSHPubKey unchanged if API returns nil and user didn't configure it
-
 	data.Locked = types.BoolValue(user.Locked)
 	data.Builtin = types.BoolValue(user.Builtin)
 
@@ -550,7 +487,6 @@ func mapUserToModel(ctx context.Context, user *api.UserResponse, data *UserResou
 	// Do not overwrite GroupCreate - it is create-only
 	// Do not overwrite HomeCreate - it is create-only
 
-	// Map groups list
 	if !data.Groups.IsNull() {
 		data.Groups, _ = types.ListValueFrom(ctx, types.Int64Type, user.Groups)
 	} else if len(user.Groups) > 0 {

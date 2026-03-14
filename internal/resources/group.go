@@ -2,11 +2,10 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -104,31 +103,13 @@ func (r *GroupResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	params := buildGroupCreateParams(ctx, &data)
+	opts := buildCreateGroupOpts(ctx, &data)
 
-	result, err := r.services.Client.Call(ctx, "group.create", params)
+	group, err := r.services.Group.Create(ctx, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Group",
 			fmt.Sprintf("Unable to create group: %s", err.Error()),
-		)
-		return
-	}
-
-	var createdID int64
-	if err := json.Unmarshal(result, &createdID); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Response",
-			fmt.Sprintf("Unable to parse create response: %s", err.Error()),
-		)
-		return
-	}
-
-	group, err := r.queryGroup(ctx, createdID)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read Group",
-			fmt.Sprintf("Group created but unable to read: %s", err.Error()),
 		)
 		return
 	}
@@ -163,7 +144,7 @@ func (r *GroupResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 
-	group, err := r.queryGroup(ctx, id)
+	group, err := r.services.Group.Get(ctx, id)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Group",
@@ -201,22 +182,13 @@ func (r *GroupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 
-	params := buildGroupUpdateParams(ctx, &plan)
+	opts := buildUpdateGroupOpts(ctx, &plan)
 
-	_, err = r.services.Client.Call(ctx, "group.update", []any{id, params})
+	group, err := r.services.Group.Update(ctx, id, opts)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Update Group",
 			fmt.Sprintf("Unable to update group: %s", err.Error()),
-		)
-		return
-	}
-
-	group, err := r.queryGroup(ctx, id)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read Group",
-			fmt.Sprintf("Group updated but unable to read: %s", err.Error()),
 		)
 		return
 	}
@@ -251,7 +223,7 @@ func (r *GroupResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 		return
 	}
 
-	_, err = r.services.Client.Call(ctx, "group.delete", []any{id, map[string]any{"delete_users": false}})
+	err = r.services.Group.Delete(ctx, id)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete Group",
@@ -272,7 +244,7 @@ func (r *GroupResource) ImportState(ctx context.Context, req resource.ImportStat
 		return
 	}
 
-	group, err := r.queryGroupByField(ctx, "gid", gid)
+	group, err := r.services.Group.GetByGID(ctx, gid)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Import Group", err.Error())
 		return
@@ -289,81 +261,56 @@ func (r *GroupResource) ImportState(ctx context.Context, req resource.ImportStat
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), strconv.FormatInt(group.ID, 10))...)
 }
 
-// queryGroup queries a group by internal ID and returns the response.
-func (r *GroupResource) queryGroup(ctx context.Context, id int64) (*api.GroupResponse, error) {
-	return r.queryGroupByField(ctx, "id", id)
-}
-
-// queryGroupByField queries a group by an arbitrary field and returns the response.
-func (r *GroupResource) queryGroupByField(ctx context.Context, field string, value int64) (*api.GroupResponse, error) {
-	filter := [][]any{{field, "=", value}}
-	result, err := r.services.Client.Call(ctx, "group.query", filter)
-	if err != nil {
-		return nil, err
-	}
-
-	var groups []api.GroupResponse
-	if err := json.Unmarshal(result, &groups); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-
-	if len(groups) == 0 {
-		return nil, nil
-	}
-
-	return &groups[0], nil
-}
-
-// buildGroupCreateParams builds the API create params from the resource model.
-func buildGroupCreateParams(ctx context.Context, data *GroupResourceModel) map[string]any {
-	params := map[string]any{
-		"name": data.Name.ValueString(),
-		"smb":  data.SMB.ValueBool(),
+// buildCreateGroupOpts builds typed create options from the resource model.
+func buildCreateGroupOpts(ctx context.Context, data *GroupResourceModel) truenas.CreateGroupOpts {
+	opts := truenas.CreateGroupOpts{
+		Name: data.Name.ValueString(),
+		SMB:  data.SMB.ValueBool(),
 	}
 
 	if !data.GID.IsNull() && !data.GID.IsUnknown() {
-		params["gid"] = data.GID.ValueInt64()
+		opts.GID = data.GID.ValueInt64()
 	}
 
 	if !data.SudoCommands.IsNull() && !data.SudoCommands.IsUnknown() {
 		var items []string
 		data.SudoCommands.ElementsAs(ctx, &items, false)
-		params["sudo_commands"] = items
+		opts.SudoCommands = items
 	}
 
 	if !data.SudoCommandsNopasswd.IsNull() && !data.SudoCommandsNopasswd.IsUnknown() {
 		var items []string
 		data.SudoCommandsNopasswd.ElementsAs(ctx, &items, false)
-		params["sudo_commands_nopasswd"] = items
+		opts.SudoCommandsNopasswd = items
 	}
 
-	return params
+	return opts
 }
 
-// buildGroupUpdateParams builds the API update params (excludes gid).
-func buildGroupUpdateParams(ctx context.Context, data *GroupResourceModel) map[string]any {
-	params := map[string]any{
-		"name": data.Name.ValueString(),
-		"smb":  data.SMB.ValueBool(),
+// buildUpdateGroupOpts builds typed update options from the resource model.
+func buildUpdateGroupOpts(ctx context.Context, data *GroupResourceModel) truenas.UpdateGroupOpts {
+	opts := truenas.UpdateGroupOpts{
+		Name: data.Name.ValueString(),
+		SMB:  data.SMB.ValueBool(),
 	}
 
 	if !data.SudoCommands.IsNull() && !data.SudoCommands.IsUnknown() {
 		var items []string
 		data.SudoCommands.ElementsAs(ctx, &items, false)
-		params["sudo_commands"] = items
+		opts.SudoCommands = items
 	}
 
 	if !data.SudoCommandsNopasswd.IsNull() && !data.SudoCommandsNopasswd.IsUnknown() {
 		var items []string
 		data.SudoCommandsNopasswd.ElementsAs(ctx, &items, false)
-		params["sudo_commands_nopasswd"] = items
+		opts.SudoCommandsNopasswd = items
 	}
 
-	return params
+	return opts
 }
 
-// mapGroupToModel maps an API response to the resource model.
-func mapGroupToModel(ctx context.Context, group *api.GroupResponse, data *GroupResourceModel) {
+// mapGroupToModel maps a typed Group to the resource model.
+func mapGroupToModel(ctx context.Context, group *truenas.Group, data *GroupResourceModel) {
 	data.ID = types.StringValue(strconv.FormatInt(group.ID, 10))
 	data.GID = types.Int64Value(group.GID)
 	data.Name = types.StringValue(group.Name)

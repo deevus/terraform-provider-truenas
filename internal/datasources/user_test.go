@@ -2,11 +2,10 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
@@ -76,7 +75,7 @@ func TestUserDataSource_Schema(t *testing.T) {
 func TestUserDataSource_Configure_Success(t *testing.T) {
 	ds := NewUserDataSource().(*UserDataSource)
 
-	req := datasource.ConfigureRequest{ProviderData: &services.TrueNASServices{Client: &client.MockClient{}}}
+	req := datasource.ConfigureRequest{ProviderData: &services.TrueNASServices{}}
 	resp := &datasource.ConfigureResponse{}
 
 	ds.Configure(context.Background(), req, resp)
@@ -169,32 +168,31 @@ func createUserReadRequest(t *testing.T, username string) (datasource.ReadReques
 
 func TestUserDataSource_Read_Success(t *testing.T) {
 	ds := &UserDataSource{
-		services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": 1,
-					"uid": 0,
-					"username": "root",
-					"full_name": "root",
-					"email": "admin@example.com",
-					"home": "/root",
-					"shell": "/usr/bin/zsh",
-					"home_mode": "755",
-					"group": {"id": 1, "bsdgrp_gid": 0, "bsdgrp_group": "wheel"},
-					"groups": [40, 50],
-					"smb": false,
-					"password_disabled": true,
-					"ssh_password_enabled": false,
-					"sshpubkey": "ssh-ed25519 AAAA...",
-					"locked": false,
-					"sudo_commands": [],
-					"sudo_commands_nopasswd": ["ALL"],
-					"builtin": true,
-					"local": true,
-					"immutable": true
-				}]`), nil
+		services: &services.TrueNASServices{
+			User: &truenas.MockUserService{
+				GetByUsernameFunc: func(ctx context.Context, username string) (*truenas.User, error) {
+					return &truenas.User{
+						ID:                   1,
+						UID:                  0,
+						Username:             "root",
+						FullName:             "root",
+						Email:                "admin@example.com",
+						Home:                 "/root",
+						Shell:                "/usr/bin/zsh",
+						GroupID:              1,
+						Groups:               []int64{40, 50},
+						SMB:                  false,
+						PasswordDisabled:     true,
+						SSHPasswordEnabled:   false,
+						SSHPubKey:            "ssh-ed25519 AAAA...",
+						Locked:               false,
+						SudoCommandsNopasswd: []string{"ALL"},
+						Builtin:              true,
+						Local:                true,
+					}, nil
+				},
 			},
-		}},
+		},
 	}
 
 	req, schemaResp := createUserReadRequest(t, "root")
@@ -255,22 +253,20 @@ func TestUserDataSource_Read_Success(t *testing.T) {
 	}
 }
 
-func TestUserDataSource_Read_NullEmail(t *testing.T) {
+func TestUserDataSource_Read_EmptyEmailAndSSHPubKey(t *testing.T) {
 	ds := &UserDataSource{
-		services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": 5, "uid": 1000, "username": "testuser",
-					"full_name": "Test User", "email": null,
-					"home": "/var/empty", "shell": "/usr/bin/zsh", "home_mode": "",
-					"group": {"id": 10, "bsdgrp_gid": 1000, "bsdgrp_group": "testuser"},
-					"groups": [], "smb": false, "password_disabled": false,
-					"ssh_password_enabled": false, "sshpubkey": null,
-					"locked": false, "sudo_commands": [], "sudo_commands_nopasswd": [],
-					"builtin": false, "local": true, "immutable": false
-				}]`), nil
+		services: &services.TrueNASServices{
+			User: &truenas.MockUserService{
+				GetByUsernameFunc: func(ctx context.Context, username string) (*truenas.User, error) {
+					return &truenas.User{
+						ID: 5, UID: 1000, Username: "testuser",
+						FullName: "Test User", Email: "", SSHPubKey: "",
+						Home: "/var/empty", Shell: "/usr/bin/zsh",
+						GroupID: 10, SMB: false, Local: true,
+					}, nil
+				},
 			},
-		}},
+		},
 	}
 
 	req, schemaResp := createUserReadRequest(t, "testuser")
@@ -297,11 +293,13 @@ func TestUserDataSource_Read_NullEmail(t *testing.T) {
 
 func TestUserDataSource_Read_NotFound(t *testing.T) {
 	ds := &UserDataSource{
-		services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[]`), nil
+		services: &services.TrueNASServices{
+			User: &truenas.MockUserService{
+				GetByUsernameFunc: func(ctx context.Context, username string) (*truenas.User, error) {
+					return nil, nil
+				},
 			},
-		}},
+		},
 	}
 
 	req, schemaResp := createUserReadRequest(t, "nonexistent")
@@ -316,13 +314,15 @@ func TestUserDataSource_Read_NotFound(t *testing.T) {
 	}
 }
 
-func TestUserDataSource_Read_APIError(t *testing.T) {
+func TestUserDataSource_Read_ServiceError(t *testing.T) {
 	ds := &UserDataSource{
-		services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection failed")
+		services: &services.TrueNASServices{
+			User: &truenas.MockUserService{
+				GetByUsernameFunc: func(ctx context.Context, username string) (*truenas.User, error) {
+					return nil, errors.New("connection failed")
+				},
 			},
-		}},
+		},
 	}
 
 	req, schemaResp := createUserReadRequest(t, "root")
@@ -333,72 +333,6 @@ func TestUserDataSource_Read_APIError(t *testing.T) {
 	ds.Read(context.Background(), req, resp)
 
 	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for API error")
-	}
-}
-
-func TestUserDataSource_Read_InvalidJSON(t *testing.T) {
-	ds := &UserDataSource{
-		services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not valid json`), nil
-			},
-		}},
-	}
-
-	req, schemaResp := createUserReadRequest(t, "root")
-	resp := &datasource.ReadResponse{
-		State: tfsdk.State{Schema: schemaResp.Schema},
-	}
-
-	ds.Read(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error for invalid JSON")
-	}
-}
-
-func TestUserDataSource_Read_VerifyFilterParams(t *testing.T) {
-	var capturedParams any
-
-	ds := &UserDataSource{
-		services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedParams = params
-				return json.RawMessage(`[{
-					"id": 1, "uid": 0, "username": "root", "full_name": "root",
-					"email": null, "home": "/root", "shell": "/usr/bin/zsh", "home_mode": "755",
-					"group": {"id": 1, "bsdgrp_gid": 0, "bsdgrp_group": "wheel"},
-					"groups": [], "smb": false, "password_disabled": true,
-					"ssh_password_enabled": false, "sshpubkey": null, "locked": false,
-					"sudo_commands": [], "sudo_commands_nopasswd": [],
-					"builtin": true, "local": true, "immutable": true
-				}]`), nil
-			},
-		}},
-	}
-
-	req, schemaResp := createUserReadRequest(t, "root")
-	resp := &datasource.ReadResponse{
-		State: tfsdk.State{Schema: schemaResp.Schema},
-	}
-
-	ds.Read(context.Background(), req, resp)
-
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-	}
-
-	filters, ok := capturedParams.([][]string)
-	if !ok {
-		t.Fatalf("expected params to be [][]string, got %T", capturedParams)
-	}
-
-	if len(filters) != 1 || len(filters[0]) != 3 {
-		t.Fatalf("expected 1 filter with 3 parts, got %v", filters)
-	}
-
-	if filters[0][0] != "username" || filters[0][1] != "=" || filters[0][2] != "root" {
-		t.Errorf("expected filter ['username', '=', 'root'], got %v", filters[0])
+		t.Fatal("expected error for service error")
 	}
 }

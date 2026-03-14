@@ -2,13 +2,11 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"math/big"
 	"testing"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
-	"github.com/deevus/truenas-go/client"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
@@ -51,7 +49,7 @@ func TestGroupResource_Configure_Success(t *testing.T) {
 	r := NewGroupResource().(*GroupResource)
 
 	req := resource.ConfigureRequest{
-		ProviderData: &services.TrueNASServices{Client: &client.MockClient{}},
+		ProviderData: &services.TrueNASServices{},
 	}
 	resp := &resource.ConfigureResponse{}
 
@@ -193,34 +191,17 @@ func createGroupModelValue(p groupModelParams) tftypes.Value {
 }
 
 func TestGroupResource_Create_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedParams any
+	var capturedOpts truenas.CreateGroupOpts
 
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "group.create" {
-					capturedMethod = method
-					capturedParams = params
-					return json.RawMessage(`100`), nil
-				}
-				if method == "group.query" {
-					return json.RawMessage(`[{
-						"id": 100,
-						"gid": 3000,
-						"name": "developers",
-						"builtin": false,
-						"smb": true,
-						"sudo_commands": [],
-						"sudo_commands_nopasswd": [],
-						"users": [],
-						"local": true,
-						"immutable": false
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateGroupOpts) (*truenas.Group, error) {
+					capturedOpts = opts
+					return &truenas.Group{ID: 100, GID: 3000, Name: "developers", SMB: true}, nil
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -248,23 +229,14 @@ func TestGroupResource_Create_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "group.create" {
-		t.Errorf("expected method 'group.create', got %q", capturedMethod)
+	if capturedOpts.Name != "developers" {
+		t.Errorf("expected name 'developers', got %q", capturedOpts.Name)
 	}
-
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if capturedOpts.SMB != true {
+		t.Errorf("expected smb true, got %v", capturedOpts.SMB)
 	}
-
-	if params["name"] != "developers" {
-		t.Errorf("expected name 'developers', got %v", params["name"])
-	}
-	if params["smb"] != true {
-		t.Errorf("expected smb true, got %v", params["smb"])
-	}
-	if _, hasGID := params["gid"]; hasGID {
-		t.Error("expected gid to not be in params when not set")
+	if capturedOpts.GID != 0 {
+		t.Errorf("expected gid to not be set (0), got %d", capturedOpts.GID)
 	}
 
 	var resultData GroupResourceModel
@@ -287,32 +259,17 @@ func TestGroupResource_Create_Success(t *testing.T) {
 }
 
 func TestGroupResource_Create_WithGID(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateGroupOpts
 
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "group.create" {
-					capturedParams = params
-					return json.RawMessage(`101`), nil
-				}
-				if method == "group.query" {
-					return json.RawMessage(`[{
-						"id": 101,
-						"gid": 5000,
-						"name": "custom",
-						"builtin": false,
-						"smb": false,
-						"sudo_commands": [],
-						"sudo_commands_nopasswd": [],
-						"users": [],
-						"local": true,
-						"immutable": false
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateGroupOpts) (*truenas.Group, error) {
+					capturedOpts = opts
+					return &truenas.Group{ID: 101, GID: 5000, Name: "custom"}, nil
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -341,43 +298,27 @@ func TestGroupResource_Create_WithGID(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
-	}
-
-	if params["gid"] != int64(5000) {
-		t.Errorf("expected gid 5000, got %v", params["gid"])
+	if capturedOpts.GID != 5000 {
+		t.Errorf("expected GID 5000, got %d", capturedOpts.GID)
 	}
 }
 
 func TestGroupResource_Create_WithSudoCommands(t *testing.T) {
-	var capturedParams any
+	var capturedOpts truenas.CreateGroupOpts
 
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "group.create" {
-					capturedParams = params
-					return json.RawMessage(`102`), nil
-				}
-				if method == "group.query" {
-					return json.RawMessage(`[{
-						"id": 102,
-						"gid": 3001,
-						"name": "admins",
-						"builtin": false,
-						"smb": true,
-						"sudo_commands": ["/usr/bin/apt", "/usr/bin/systemctl"],
-						"sudo_commands_nopasswd": ["/usr/bin/reboot"],
-						"users": [],
-						"local": true,
-						"immutable": false
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateGroupOpts) (*truenas.Group, error) {
+					capturedOpts = opts
+					return &truenas.Group{
+						ID: 102, GID: 3001, Name: "admins", SMB: true,
+						SudoCommands:         []string{"/usr/bin/apt", "/usr/bin/systemctl"},
+						SudoCommandsNopasswd: []string{"/usr/bin/reboot"},
+					}, nil
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -407,25 +348,12 @@ func TestGroupResource_Create_WithSudoCommands(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	params, ok := capturedParams.(map[string]any)
-	if !ok {
-		t.Fatalf("expected params to be map[string]any, got %T", capturedParams)
+	if len(capturedOpts.SudoCommands) != 2 || capturedOpts.SudoCommands[0] != "/usr/bin/apt" || capturedOpts.SudoCommands[1] != "/usr/bin/systemctl" {
+		t.Errorf("unexpected sudo_commands: %v", capturedOpts.SudoCommands)
 	}
 
-	sudoCmds, ok := params["sudo_commands"].([]string)
-	if !ok {
-		t.Fatalf("expected sudo_commands to be []string, got %T", params["sudo_commands"])
-	}
-	if len(sudoCmds) != 2 || sudoCmds[0] != "/usr/bin/apt" || sudoCmds[1] != "/usr/bin/systemctl" {
-		t.Errorf("unexpected sudo_commands: %v", sudoCmds)
-	}
-
-	sudoNP, ok := params["sudo_commands_nopasswd"].([]string)
-	if !ok {
-		t.Fatalf("expected sudo_commands_nopasswd to be []string, got %T", params["sudo_commands_nopasswd"])
-	}
-	if len(sudoNP) != 1 || sudoNP[0] != "/usr/bin/reboot" {
-		t.Errorf("unexpected sudo_commands_nopasswd: %v", sudoNP)
+	if len(capturedOpts.SudoCommandsNopasswd) != 1 || capturedOpts.SudoCommandsNopasswd[0] != "/usr/bin/reboot" {
+		t.Errorf("unexpected sudo_commands_nopasswd: %v", capturedOpts.SudoCommandsNopasswd)
 	}
 
 	// Verify state has the sudo commands
@@ -441,11 +369,13 @@ func TestGroupResource_Create_WithSudoCommands(t *testing.T) {
 
 func TestGroupResource_Create_APIError(t *testing.T) {
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateGroupOpts) (*truenas.Group, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -480,22 +410,13 @@ func TestGroupResource_Create_APIError(t *testing.T) {
 
 func TestGroupResource_Read_Success(t *testing.T) {
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[{
-					"id": 100,
-					"gid": 3000,
-					"name": "developers",
-					"builtin": false,
-					"smb": true,
-					"sudo_commands": [],
-					"sudo_commands_nopasswd": [],
-					"users": [1, 2],
-					"local": true,
-					"immutable": false
-				}]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				GetFunc: func(ctx context.Context, id int64) (*truenas.Group, error) {
+					return &truenas.Group{ID: 100, GID: 3000, Name: "developers", SMB: true, Users: []int64{1, 2}}, nil
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -546,11 +467,13 @@ func TestGroupResource_Read_Success(t *testing.T) {
 
 func TestGroupResource_Read_NotFound(t *testing.T) {
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				GetFunc: func(ctx context.Context, id int64) (*truenas.Group, error) {
+					return nil, nil
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -587,11 +510,13 @@ func TestGroupResource_Read_NotFound(t *testing.T) {
 
 func TestGroupResource_Read_APIError(t *testing.T) {
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				GetFunc: func(ctx context.Context, id int64) (*truenas.Group, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -623,37 +548,19 @@ func TestGroupResource_Read_APIError(t *testing.T) {
 }
 
 func TestGroupResource_Update_Success(t *testing.T) {
-	var capturedMethod string
 	var capturedID int64
-	var capturedUpdateData map[string]any
+	var capturedOpts truenas.UpdateGroupOpts
 
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "group.update" {
-					capturedMethod = method
-					args := params.([]any)
-					capturedID = args[0].(int64)
-					capturedUpdateData = args[1].(map[string]any)
-					return json.RawMessage(`{"id": 100}`), nil
-				}
-				if method == "group.query" {
-					return json.RawMessage(`[{
-						"id": 100,
-						"gid": 3000,
-						"name": "devs",
-						"builtin": false,
-						"smb": false,
-						"sudo_commands": [],
-						"sudo_commands_nopasswd": [],
-						"users": [],
-						"local": true,
-						"immutable": false
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				UpdateFunc: func(ctx context.Context, id int64, opts truenas.UpdateGroupOpts) (*truenas.Group, error) {
+					capturedID = id
+					capturedOpts = opts
+					return &truenas.Group{ID: 100, GID: 3000, Name: "devs", SMB: false}, nil
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -695,23 +602,15 @@ func TestGroupResource_Update_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "group.update" {
-		t.Errorf("expected method 'group.update', got %q", capturedMethod)
-	}
-
 	if capturedID != 100 {
 		t.Errorf("expected ID 100, got %d", capturedID)
 	}
 
-	if capturedUpdateData["name"] != "devs" {
-		t.Errorf("expected name 'devs', got %v", capturedUpdateData["name"])
+	if capturedOpts.Name != "devs" {
+		t.Errorf("expected name 'devs', got %q", capturedOpts.Name)
 	}
-	if capturedUpdateData["smb"] != false {
-		t.Errorf("expected smb false, got %v", capturedUpdateData["smb"])
-	}
-	// gid should NOT be in update params
-	if _, hasGID := capturedUpdateData["gid"]; hasGID {
-		t.Error("expected gid to not be in update params")
+	if capturedOpts.SMB != false {
+		t.Errorf("expected smb false, got %v", capturedOpts.SMB)
 	}
 
 	var resultData GroupResourceModel
@@ -729,11 +628,13 @@ func TestGroupResource_Update_Success(t *testing.T) {
 
 func TestGroupResource_Update_APIError(t *testing.T) {
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("connection refused")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				UpdateFunc: func(ctx context.Context, id int64, opts truenas.UpdateGroupOpts) (*truenas.Group, error) {
+					return nil, errors.New("connection refused")
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -777,17 +678,17 @@ func TestGroupResource_Update_APIError(t *testing.T) {
 }
 
 func TestGroupResource_Delete_Success(t *testing.T) {
-	var capturedMethod string
-	var capturedArgs []any
+	var capturedID int64
 
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				capturedMethod = method
-				capturedArgs = params.([]any)
-				return json.RawMessage(`true`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				DeleteFunc: func(ctx context.Context, id int64) error {
+					capturedID = id
+					return nil
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -813,30 +714,20 @@ func TestGroupResource_Delete_Success(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	if capturedMethod != "group.delete" {
-		t.Errorf("expected method 'group.delete', got %q", capturedMethod)
-	}
-
-	if capturedArgs[0] != int64(100) {
-		t.Errorf("expected ID 100, got %v", capturedArgs[0])
-	}
-
-	opts, ok := capturedArgs[1].(map[string]any)
-	if !ok {
-		t.Fatalf("expected opts to be map[string]any, got %T", capturedArgs[1])
-	}
-	if opts["delete_users"] != false {
-		t.Errorf("expected delete_users false, got %v", opts["delete_users"])
+	if capturedID != 100 {
+		t.Errorf("expected ID 100, got %d", capturedID)
 	}
 }
 
 func TestGroupResource_Delete_APIError(t *testing.T) {
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return nil, errors.New("group in use")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				DeleteFunc: func(ctx context.Context, id int64) error {
+					return errors.New("group in use")
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -863,18 +754,15 @@ func TestGroupResource_Delete_APIError(t *testing.T) {
 	}
 }
 
-func TestGroupResource_Create_QueryError(t *testing.T) {
-	callCount := 0
+func TestGroupResource_Create_ServiceError(t *testing.T) {
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "group.create" {
-					return json.RawMessage(`100`), nil
-				}
-				callCount++
-				return nil, errors.New("query failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateGroupOpts) (*truenas.Group, error) {
+					return nil, errors.New("query failed")
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -893,20 +781,19 @@ func TestGroupResource_Create_QueryError(t *testing.T) {
 	r.Create(context.Background(), req, resp)
 
 	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when query after create fails")
+		t.Fatal("expected error when service returns error")
 	}
 }
 
-func TestGroupResource_Create_QueryNotFound(t *testing.T) {
+func TestGroupResource_Create_NotFound(t *testing.T) {
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "group.create" {
-					return json.RawMessage(`100`), nil
-				}
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				CreateFunc: func(ctx context.Context, opts truenas.CreateGroupOpts) (*truenas.Group, error) {
+					return nil, nil
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -925,67 +812,26 @@ func TestGroupResource_Create_QueryNotFound(t *testing.T) {
 	r.Create(context.Background(), req, resp)
 
 	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when query returns empty after create")
-	}
-}
-
-func TestGroupResource_Create_ParseError(t *testing.T) {
-	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				return json.RawMessage(`not json`), nil
-			},
-		}}},
-	}
-
-	schemaResp := getGroupResourceSchema(t)
-	planValue := createGroupModelValue(groupModelParams{
-		Name: "developers",
-		SMB:  true,
-	})
-
-	req := resource.CreateRequest{
-		Plan: tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
-	}
-	resp := &resource.CreateResponse{
-		State: tfsdk.State{Schema: schemaResp.Schema},
-	}
-
-	r.Create(context.Background(), req, resp)
-
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when response is not valid JSON")
+		t.Fatal("expected error when service returns nil group")
 	}
 }
 
 func TestGroupResource_Update_WithSudoCommands(t *testing.T) {
-	var capturedUpdateData map[string]any
+	var capturedOpts truenas.UpdateGroupOpts
 
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "group.update" {
-					args := params.([]any)
-					capturedUpdateData = args[1].(map[string]any)
-					return json.RawMessage(`{"id": 100}`), nil
-				}
-				if method == "group.query" {
-					return json.RawMessage(`[{
-						"id": 100,
-						"gid": 3000,
-						"name": "admins",
-						"builtin": false,
-						"smb": true,
-						"sudo_commands": ["/usr/bin/apt"],
-						"sudo_commands_nopasswd": ["/usr/bin/reboot"],
-						"users": [],
-						"local": true,
-						"immutable": false
-					}]`), nil
-				}
-				return nil, nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				UpdateFunc: func(ctx context.Context, id int64, opts truenas.UpdateGroupOpts) (*truenas.Group, error) {
+					capturedOpts = opts
+					return &truenas.Group{
+						ID: 100, GID: 3000, Name: "admins", SMB: true,
+						SudoCommands:         []string{"/usr/bin/apt"},
+						SudoCommandsNopasswd: []string{"/usr/bin/reboot"},
+					}, nil
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -1022,33 +868,24 @@ func TestGroupResource_Update_WithSudoCommands(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
 
-	sudoCmds, ok := capturedUpdateData["sudo_commands"].([]string)
-	if !ok {
-		t.Fatalf("expected sudo_commands to be []string, got %T", capturedUpdateData["sudo_commands"])
-	}
-	if len(sudoCmds) != 1 || sudoCmds[0] != "/usr/bin/apt" {
-		t.Errorf("unexpected sudo_commands: %v", sudoCmds)
+	if len(capturedOpts.SudoCommands) != 1 || capturedOpts.SudoCommands[0] != "/usr/bin/apt" {
+		t.Errorf("unexpected sudo_commands: %v", capturedOpts.SudoCommands)
 	}
 
-	sudoNP, ok := capturedUpdateData["sudo_commands_nopasswd"].([]string)
-	if !ok {
-		t.Fatalf("expected sudo_commands_nopasswd to be []string, got %T", capturedUpdateData["sudo_commands_nopasswd"])
-	}
-	if len(sudoNP) != 1 || sudoNP[0] != "/usr/bin/reboot" {
-		t.Errorf("unexpected sudo_commands_nopasswd: %v", sudoNP)
+	if len(capturedOpts.SudoCommandsNopasswd) != 1 || capturedOpts.SudoCommandsNopasswd[0] != "/usr/bin/reboot" {
+		t.Errorf("unexpected sudo_commands_nopasswd: %v", capturedOpts.SudoCommandsNopasswd)
 	}
 }
 
-func TestGroupResource_Update_QueryError(t *testing.T) {
+func TestGroupResource_Update_ServiceError(t *testing.T) {
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "group.update" {
-					return json.RawMessage(`{"id": 100}`), nil
-				}
-				return nil, errors.New("query failed")
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				UpdateFunc: func(ctx context.Context, id int64, opts truenas.UpdateGroupOpts) (*truenas.Group, error) {
+					return nil, errors.New("query failed")
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -1070,20 +907,19 @@ func TestGroupResource_Update_QueryError(t *testing.T) {
 	r.Update(context.Background(), req, resp)
 
 	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when query after update fails")
+		t.Fatal("expected error when service returns error")
 	}
 }
 
-func TestGroupResource_Update_QueryNotFound(t *testing.T) {
+func TestGroupResource_Update_NotFound(t *testing.T) {
 	r := &GroupResource{
-		BaseResource: BaseResource{services: &services.TrueNASServices{Client: &client.MockClient{
-			CallFunc: func(ctx context.Context, method string, params any) (json.RawMessage, error) {
-				if method == "group.update" {
-					return json.RawMessage(`{"id": 100}`), nil
-				}
-				return json.RawMessage(`[]`), nil
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				UpdateFunc: func(ctx context.Context, id int64, opts truenas.UpdateGroupOpts) (*truenas.Group, error) {
+					return nil, nil
+				},
 			},
-		}}},
+		}},
 	}
 
 	schemaResp := getGroupResourceSchema(t)
@@ -1105,13 +941,13 @@ func TestGroupResource_Update_QueryNotFound(t *testing.T) {
 	r.Update(context.Background(), req, resp)
 
 	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected error when query returns empty after update")
+		t.Fatal("expected error when service returns nil group")
 	}
 }
 
 func TestGroupResource_MapGroupToModel_SudoCommandsFromAPI(t *testing.T) {
 	// Test when data has null sudo_commands but API returns non-empty
-	group := &api.GroupResponse{
+	group := &truenas.Group{
 		ID: 100, GID: 3000, Name: "admins", SMB: true,
 		SudoCommands:         []string{"/usr/bin/apt"},
 		SudoCommandsNopasswd: []string{"/usr/bin/reboot"},

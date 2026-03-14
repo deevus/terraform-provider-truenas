@@ -2,11 +2,9 @@ package datasources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
-	"github.com/deevus/terraform-provider-truenas/internal/api"
 	"github.com/deevus/terraform-provider-truenas/internal/services"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -115,9 +113,7 @@ func (d *GroupDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 		return
 	}
 
-	filter := [][]string{{"group", "=", data.Name.ValueString()}}
-
-	result, err := d.services.Client.Call(ctx, "group.query", filter)
+	group, err := d.services.Group.GetByName(ctx, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Group",
@@ -126,24 +122,13 @@ func (d *GroupDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 		return
 	}
 
-	var groups []api.GroupResponse
-	if err := json.Unmarshal(result, &groups); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Parse Group Response",
-			fmt.Sprintf("Unable to parse group response: %s", err.Error()),
-		)
-		return
-	}
-
-	if len(groups) == 0 {
+	if group == nil {
 		resp.Diagnostics.AddError(
 			"Group Not Found",
 			fmt.Sprintf("Group %q was not found.", data.Name.ValueString()),
 		)
 		return
 	}
-
-	group := groups[0]
 
 	data.ID = types.StringValue(strconv.FormatInt(group.ID, 10))
 	data.GID = types.Int64Value(group.GID)
