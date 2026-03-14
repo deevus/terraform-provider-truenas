@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
@@ -1364,17 +1365,36 @@ func TestUserResource_MapUserToModel_GroupsFromAPI(t *testing.T) {
 		SudoCommandsNopasswd: []string{"/usr/bin/reboot"},
 	}
 
+	// When data fields are null (not set in config), they must stay null even
+	// if the API returns values — overwriting would cause a plan inconsistency.
 	data := &UserResourceModel{}
 	mapUserToModel(context.Background(), user, data)
 
-	// When data.Groups is null but API returns non-empty, it should be set
-	if data.Groups.IsNull() {
-		t.Error("expected groups to be set from API when data was null and API has values")
+	if !data.Groups.IsNull() {
+		t.Error("expected groups to stay null when not set in config")
 	}
-	if data.SudoCommands.IsNull() {
-		t.Error("expected sudo_commands to be set from API")
+	if !data.SudoCommands.IsNull() {
+		t.Error("expected sudo_commands to stay null when not set in config")
 	}
-	if data.SudoCommandsNopasswd.IsNull() {
-		t.Error("expected sudo_commands_nopasswd to be set from API")
+	if !data.SudoCommandsNopasswd.IsNull() {
+		t.Error("expected sudo_commands_nopasswd to stay null when not set in config")
+	}
+
+	// When data fields are already non-null (user set them in config), they
+	// must be refreshed from the API response.
+	data2 := &UserResourceModel{}
+	data2.Groups, _ = types.ListValueFrom(context.Background(), types.Int64Type, []int64{})
+	data2.SudoCommands, _ = types.ListValueFrom(context.Background(), types.StringType, []string{})
+	data2.SudoCommandsNopasswd, _ = types.ListValueFrom(context.Background(), types.StringType, []string{})
+	mapUserToModel(context.Background(), user, data2)
+
+	if data2.Groups.IsNull() {
+		t.Error("expected groups to be refreshed from API when already set in config")
+	}
+	if data2.SudoCommands.IsNull() {
+		t.Error("expected sudo_commands to be refreshed from API when already set in config")
+	}
+	if data2.SudoCommandsNopasswd.IsNull() {
+		t.Error("expected sudo_commands_nopasswd to be refreshed from API when already set in config")
 	}
 }

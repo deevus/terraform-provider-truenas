@@ -493,19 +493,13 @@ func mapUserToModel(ctx context.Context, user *truenas.User, data *UserResourceM
 
 	if !data.Groups.IsNull() {
 		data.Groups, _ = types.ListValueFrom(ctx, types.Int64Type, user.Groups)
-	} else if len(user.Groups) > 0 {
-		data.Groups, _ = types.ListValueFrom(ctx, types.Int64Type, user.Groups)
 	}
 
 	if !data.SudoCommands.IsNull() {
 		data.SudoCommands, _ = types.ListValueFrom(ctx, types.StringType, user.SudoCommands)
-	} else if len(user.SudoCommands) > 0 {
-		data.SudoCommands, _ = types.ListValueFrom(ctx, types.StringType, user.SudoCommands)
 	}
 
 	if !data.SudoCommandsNopasswd.IsNull() {
-		data.SudoCommandsNopasswd, _ = types.ListValueFrom(ctx, types.StringType, user.SudoCommandsNopasswd)
-	} else if len(user.SudoCommandsNopasswd) > 0 {
 		data.SudoCommandsNopasswd, _ = types.ListValueFrom(ctx, types.StringType, user.SudoCommandsNopasswd)
 	}
 }
