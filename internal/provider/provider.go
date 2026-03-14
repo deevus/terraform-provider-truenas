@@ -381,7 +381,9 @@ func (p *TrueNASProvider) Configure(ctx context.Context, req provider.ConfigureR
 		Cron:       truenas.NewCronService(finalClient, version),
 		Dataset:    truenas.NewDatasetService(finalClient, version),
 		Filesystem: truenas.NewFilesystemService(finalClient, version),
+		Group:      truenas.NewGroupService(finalClient, version),
 		Snapshot:   truenas.NewSnapshotService(finalClient, version),
+		User:       truenas.NewUserService(finalClient, version),
 		Virt:       truenas.NewVirtService(finalClient, version),
 		VM:         truenas.NewVMService(finalClient, version),
 	}
@@ -397,6 +399,8 @@ func (p *TrueNASProvider) DataSources(ctx context.Context) []func() datasource.D
 		datasources.NewSnapshotsDataSource,
 		datasources.NewCloudSyncCredentialsDataSource,
 		datasources.NewVirtConfigDataSource,
+		datasources.NewGroupDataSource,
+		datasources.NewUserDataSource,
 	}
 }
 
@@ -415,5 +419,7 @@ func (p *TrueNASProvider) Resources(ctx context.Context) []func() resource.Resou
 		resources.NewAppRegistryResource,
 		resources.NewVMResource,
 		resources.NewZvolResource,
+		resources.NewGroupResource,
+		resources.NewUserResource,
 	}
 }
