@@ -101,7 +101,7 @@ func mapDiskDevice(dev truenas.VMDevice) VMDiskModel {
 	if dev.Disk != nil {
 		m.Path = nonEmptyStringValue(dev.Disk.Path)
 		m.Type = nonEmptyStringValue(dev.Disk.Type)
-		m.IOType = nonEmptyStringValue(dev.Disk.IOType)
+		m.IOType = nilableStringValue(dev.Disk.IOType)
 		m.Serial = nonEmptyStringValue(dev.Disk.Serial)
 		m.LogicalSectorSize = nilableInt64Value(dev.Disk.Logical_Sector_Size)
 		m.PhysicalSectorSize = nilableInt64Value(dev.Disk.PhysicalSectorSize)
@@ -117,7 +117,7 @@ func mapRawDevice(dev truenas.VMDevice) VMRawModel {
 	if dev.Raw != nil {
 		m.Path = nonEmptyStringValue(dev.Raw.Path)
 		m.Type = nonEmptyStringValue(dev.Raw.Type)
-		m.IOType = nonEmptyStringValue(dev.Raw.IOType)
+		m.IOType = nilableStringValue(dev.Raw.IOType)
 		m.Serial = nonEmptyStringValue(dev.Raw.Serial)
 		m.Boot = types.BoolValue(dev.Raw.Boot)
 		// exists is a create-time flag, not stored state — preserve plan/state value
@@ -200,6 +200,14 @@ func nonEmptyStringValue(s string) types.String {
 		return types.StringNull()
 	}
 	return types.StringValue(s)
+}
+
+// nilableStringValue returns a types.String from a *string, or null if nil.
+func nilableStringValue(s *string) types.String {
+	if s == nil {
+		return types.StringNull()
+	}
+	return nonEmptyStringValue(*s)
 }
 
 // nilableInt64Value converts an *int64 to types.Int64, returning null if nil.

@@ -64,7 +64,8 @@ func buildDiskDeviceOpts(disk *VMDiskModel, vmID int64) truenas.CreateVMDeviceOp
 		d.Type = disk.Type.ValueString()
 	}
 	if !disk.IOType.IsNull() && !disk.IOType.IsUnknown() {
-		d.IOType = disk.IOType.ValueString()
+		v := disk.IOType.ValueString()
+		d.IOType = &v
 	}
 	if !disk.Serial.IsNull() && !disk.Serial.IsUnknown() {
 		d.Serial = disk.Serial.ValueString()
@@ -105,7 +106,8 @@ func buildRawDeviceOpts(raw *VMRawModel, vmID int64) truenas.CreateVMDeviceOpts 
 		r.Exists = raw.Exists.ValueBool()
 	}
 	if !raw.IOType.IsNull() && !raw.IOType.IsUnknown() {
-		r.IOType = raw.IOType.ValueString()
+		v := raw.IOType.ValueString()
+		r.IOType = &v
 	}
 	if !raw.Serial.IsNull() && !raw.Serial.IsUnknown() {
 		r.Serial = raw.Serial.ValueString()

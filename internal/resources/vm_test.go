@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	truenas "github.com/deevus/truenas-go"
 	"github.com/deevus/terraform-provider-truenas/internal/services"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -339,22 +339,22 @@ func mockVM(id int64, name string, memory int64, state string) *truenas.VM {
 // defaultVMPlanParams returns params for a minimal VM plan.
 func defaultVMPlanParams() vmModelParams {
 	return vmModelParams{
-		Name:            "test-vm",
-		Description:     "",
-		VCPUs:           float64(1),
-		Cores:           float64(1),
-		Threads:         float64(1),
-		Memory:          float64(2048),
-		MinMemory:       nil,
-		Autostart:       true,
-		Time:            "LOCAL",
-		Bootloader:      "UEFI",
-		BootloaderOVMF:  "OVMF_CODE.fd",
-		CPUMode:         "CUSTOM",
-		CPUModel:        nil,
-		ShutdownTimeout: float64(90),
-		CommandLineArgs: "",
-		State:           "STOPPED",
+		Name:             "test-vm",
+		Description:      "",
+		VCPUs:            float64(1),
+		Cores:            float64(1),
+		Threads:          float64(1),
+		Memory:           float64(2048),
+		MinMemory:        nil,
+		Autostart:        true,
+		Time:             "LOCAL",
+		Bootloader:       "UEFI",
+		BootloaderOVMF:   "OVMF_CODE.fd",
+		CPUMode:          "CUSTOM",
+		CPUModel:         nil,
+		ShutdownTimeout:  float64(90),
+		CommandLineArgs:  "",
+		State:            "STOPPED",
 		DisplayAvailable: nil,
 	}
 }
@@ -3113,13 +3113,13 @@ func TestVMResource_reconcileNICDevices(t *testing.T) {
 		}
 
 		plan := []VMNICModel{{
-			DeviceID: types.Int64Value(50),
-			Type:     types.StringValue("E1000"), // changed
+			DeviceID:  types.Int64Value(50),
+			Type:      types.StringValue("E1000"), // changed
 			NICAttach: types.StringValue("br0"),
 		}}
 		state := []VMNICModel{{
-			DeviceID: types.Int64Value(50),
-			Type:     types.StringValue("VIRTIO"),
+			DeviceID:  types.Int64Value(50),
+			Type:      types.StringValue("VIRTIO"),
 			NICAttach: types.StringValue("br0"),
 		}}
 		err := r.reconcileNICDevices(context.Background(), 1, plan, state)
@@ -3645,7 +3645,6 @@ func TestVMResource_collectDeviceIDs_SkipsNullAndUnknown(t *testing.T) {
 	}
 }
 
-
 // -- reconcileDevices dispatching to non-disk types --
 
 func TestVMResource_reconcileDevices_NonDiskTypes(t *testing.T) {
@@ -3838,5 +3837,730 @@ func TestVMResource_diskEqual(t *testing.T) {
 	e.LogicalSectorSize = types.Int64Value(512)
 	if diskEqual(a, e) {
 		t.Error("expected different logical_sectorsize to return false")
+	}
+}
+
+// -- Tests for iotype optional changes --
+
+func TestNilableStringValue(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+
+	tests := []struct {
+		name      string
+		input     *string
+		wantNull  bool
+		wantValue string
+	}{
+		{
+			name:     "nil returns null",
+			input:    nil,
+			wantNull: true,
+		},
+		{
+			name:     "empty string returns null",
+			input:    strPtr(""),
+			wantNull: true,
+		},
+		{
+			name:      "non-empty string returns value",
+			input:     strPtr("THREADS"),
+			wantNull:  false,
+			wantValue: "THREADS",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := nilableStringValue(tt.input)
+			if tt.wantNull {
+				if !result.IsNull() {
+					t.Errorf("expected null, got %v", result)
+				}
+			} else {
+				if result.IsNull() {
+					t.Error("expected non-null")
+				}
+				if result.ValueString() != tt.wantValue {
+					t.Errorf("expected %q, got %q", tt.wantValue, result.ValueString())
+				}
+			}
+		})
+	}
+}
+
+func TestMapDiskDevice_IOType(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+
+	tests := []struct {
+		name      string
+		ioType    *string
+		wantNull  bool
+		wantValue string
+	}{
+		{
+			name:     "nil IOType maps to null",
+			ioType:   nil,
+			wantNull: true,
+		},
+		{
+			name:      "non-nil IOType maps to value",
+			ioType:    strPtr("THREADS"),
+			wantNull:  false,
+			wantValue: "THREADS",
+		},
+		{
+			name:     "empty string IOType maps to null",
+			ioType:   strPtr(""),
+			wantNull: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dev := truenas.VMDevice{
+				ID:         10,
+				VM:         1,
+				Order:      1000,
+				DeviceType: truenas.DeviceTypeDisk,
+				Disk: &truenas.DiskDevice{
+					Path:   "/dev/zvol/tank/vms/disk0",
+					Type:   "VIRTIO",
+					IOType: tt.ioType,
+				},
+			}
+			result := mapDiskDevice(dev)
+			if tt.wantNull {
+				if !result.IOType.IsNull() {
+					t.Errorf("expected IOType to be null, got %v", result.IOType)
+				}
+			} else {
+				if result.IOType.IsNull() {
+					t.Error("expected IOType to be non-null")
+				}
+				if result.IOType.ValueString() != tt.wantValue {
+					t.Errorf("expected %q, got %q", tt.wantValue, result.IOType.ValueString())
+				}
+			}
+		})
+	}
+}
+
+func TestBuildDiskDeviceOpts_IOType(t *testing.T) {
+	t.Run("null IOType results in nil", func(t *testing.T) {
+		disk := &VMDiskModel{
+			Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
+			Type:   types.StringValue("VIRTIO"),
+			IOType: types.StringNull(),
+		}
+		opts := buildDiskDeviceOpts(disk, 1)
+		if opts.Disk.IOType != nil {
+			t.Errorf("expected nil IOType for null input, got %v", *opts.Disk.IOType)
+		}
+	})
+
+	t.Run("unknown IOType results in nil", func(t *testing.T) {
+		disk := &VMDiskModel{
+			Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
+			Type:   types.StringValue("VIRTIO"),
+			IOType: types.StringUnknown(),
+		}
+		opts := buildDiskDeviceOpts(disk, 1)
+		if opts.Disk.IOType != nil {
+			t.Errorf("expected nil IOType for unknown input, got %v", *opts.Disk.IOType)
+		}
+	})
+
+	t.Run("set IOType results in pointer", func(t *testing.T) {
+		disk := &VMDiskModel{
+			Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
+			Type:   types.StringValue("VIRTIO"),
+			IOType: types.StringValue("NATIVE"),
+		}
+		opts := buildDiskDeviceOpts(disk, 1)
+		if opts.Disk.IOType == nil {
+			t.Fatal("expected non-nil IOType pointer")
+		}
+		if *opts.Disk.IOType != "NATIVE" {
+			t.Errorf("expected 'NATIVE', got %q", *opts.Disk.IOType)
+		}
+	})
+}
+
+func TestVMResource_Create_WithDiskWithoutIOType(t *testing.T) {
+	var capturedDeviceOpts truenas.CreateVMDeviceOpts
+
+	r := &VMResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				capturedDeviceOpts = opts
+				return &truenas.VMDevice{ID: 101}, nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 101, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeDisk,
+						Disk: &truenas.DiskDevice{Path: "/dev/zvol/tank/vms/disk0", Type: "VIRTIO", IOType: nil}},
+				}, nil
+			},
+		}}},
+	}
+
+	schemaResp := getVMResourceSchema(t)
+	p := defaultVMPlanParams()
+	// Note: IOType is nil (not set) - this is the key part of the test
+	p.Disks = []vmDiskParams{{
+		DeviceID: nil, Path: "/dev/zvol/tank/vms/disk0", Type: "VIRTIO",
+		LogicalSectorSize: nil, PhysicalSectorSize: nil, IOType: nil,
+		Serial: nil, Order: nil,
+	}}
+	planValue := createVMModelValue(p)
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
+	}
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify IOType was not sent in the device creation opts
+	if capturedDeviceOpts.Disk.IOType != nil {
+		t.Errorf("expected nil IOType when not specified, got %v", *capturedDeviceOpts.Disk.IOType)
+	}
+}
+
+func TestVMResource_Read_WithDiskHavingNullIOType(t *testing.T) {
+	r := &VMResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				// API returns disk with nil IOType
+				return []truenas.VMDevice{
+					{ID: 10, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeDisk,
+						Disk: &truenas.DiskDevice{Path: "/dev/zvol/tank/vms/disk0", Type: "VIRTIO", IOType: nil}},
+				}, nil
+			},
+		}}},
+	}
+
+	schemaResp := getVMResourceSchema(t)
+	p := defaultVMPlanParams()
+	p.ID = "1"
+	stateValue := createVMModelValue(p)
+	req := resource.ReadRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model VMResourceModel
+	resp.State.Get(context.Background(), &model)
+
+	if len(model.Disks) != 1 {
+		t.Fatalf("expected 1 disk, got %d", len(model.Disks))
+	}
+
+	// Verify IOType is null when API returns nil
+	if !model.Disks[0].IOType.IsNull() {
+		t.Errorf("expected IOType to be null when API returns nil, got %v", model.Disks[0].IOType)
+	}
+}
+
+func TestVMResource_Read_WithDiskHavingSetIOType(t *testing.T) {
+	iotype := "THREADS"
+	r := &VMResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				// API returns disk with set IOType
+				return []truenas.VMDevice{
+					{ID: 10, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeDisk,
+						Disk: &truenas.DiskDevice{Path: "/dev/zvol/tank/vms/disk0", Type: "VIRTIO", IOType: &iotype}},
+				}, nil
+			},
+		}}},
+	}
+
+	schemaResp := getVMResourceSchema(t)
+	p := defaultVMPlanParams()
+	p.ID = "1"
+	stateValue := createVMModelValue(p)
+	req := resource.ReadRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model VMResourceModel
+	resp.State.Get(context.Background(), &model)
+
+	if len(model.Disks) != 1 {
+		t.Fatalf("expected 1 disk, got %d", len(model.Disks))
+	}
+
+	// Verify IOType is set when API returns a value
+	if model.Disks[0].IOType.IsNull() {
+		t.Error("expected IOType to be non-null when API returns value")
+	}
+	if model.Disks[0].IOType.ValueString() != "THREADS" {
+		t.Errorf("expected IOType 'THREADS', got %q", model.Disks[0].IOType.ValueString())
+	}
+}
+
+func TestVMResource_diskEqual_IOType(t *testing.T) {
+	tests := []struct {
+		name     string
+		a        VMDiskModel
+		b        VMDiskModel
+		expected bool
+	}{
+		{
+			name: "both null IOType are equal",
+			a: VMDiskModel{
+				Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
+				Type:   types.StringValue("VIRTIO"),
+				IOType: types.StringNull(),
+			},
+			b: VMDiskModel{
+				Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
+				Type:   types.StringValue("VIRTIO"),
+				IOType: types.StringNull(),
+			},
+			expected: true,
+		},
+		{
+			name: "null vs set IOType are not equal",
+			a: VMDiskModel{
+				Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
+				Type:   types.StringValue("VIRTIO"),
+				IOType: types.StringNull(),
+			},
+			b: VMDiskModel{
+				Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
+				Type:   types.StringValue("VIRTIO"),
+				IOType: types.StringValue("THREADS"),
+			},
+			expected: false,
+		},
+		{
+			name: "different IOType values are not equal",
+			a: VMDiskModel{
+				Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
+				Type:   types.StringValue("VIRTIO"),
+				IOType: types.StringValue("THREADS"),
+			},
+			b: VMDiskModel{
+				Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
+				Type:   types.StringValue("VIRTIO"),
+				IOType: types.StringValue("NATIVE"),
+			},
+			expected: false,
+		},
+		{
+			name: "same IOType values are equal",
+			a: VMDiskModel{
+				Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
+				Type:   types.StringValue("VIRTIO"),
+				IOType: types.StringValue("THREADS"),
+			},
+			b: VMDiskModel{
+				Path:   types.StringValue("/dev/zvol/tank/vms/disk0"),
+				Type:   types.StringValue("VIRTIO"),
+				IOType: types.StringValue("THREADS"),
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := diskEqual(tt.a, tt.b)
+			if result != tt.expected {
+				t.Errorf("diskEqual() = %v, expected %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMapRawDevice_IOType(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+	size := int64(1024)
+
+	tests := []struct {
+		name      string
+		ioType    *string
+		wantNull  bool
+		wantValue string
+	}{
+		{
+			name:     "nil IOType maps to null",
+			ioType:   nil,
+			wantNull: true,
+		},
+		{
+			name:      "non-nil IOType maps to value",
+			ioType:    strPtr("THREADS"),
+			wantNull:  false,
+			wantValue: "THREADS",
+		},
+		{
+			name:     "empty string IOType maps to null",
+			ioType:   strPtr(""),
+			wantNull: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dev := truenas.VMDevice{
+				ID:         10,
+				VM:         1,
+				Order:      1000,
+				DeviceType: truenas.DeviceTypeRaw,
+				Raw: &truenas.RawDevice{
+					Path:   "/mnt/tank/vms/raw.img",
+					Type:   "AHCI",
+					Boot:   true,
+					Size:   &size,
+					IOType: tt.ioType,
+				},
+			}
+			result := mapRawDevice(dev)
+			if tt.wantNull {
+				if !result.IOType.IsNull() {
+					t.Errorf("expected IOType to be null, got %v", result.IOType)
+				}
+			} else {
+				if result.IOType.IsNull() {
+					t.Error("expected IOType to be non-null")
+				}
+				if result.IOType.ValueString() != tt.wantValue {
+					t.Errorf("expected %q, got %q", tt.wantValue, result.IOType.ValueString())
+				}
+			}
+		})
+	}
+}
+
+func TestBuildRawDeviceOpts_IOType(t *testing.T) {
+	t.Run("null IOType results in nil", func(t *testing.T) {
+		raw := &VMRawModel{
+			Path:   types.StringValue("/mnt/tank/vms/raw.img"),
+			Type:   types.StringValue("AHCI"),
+			Boot:   types.BoolValue(true),
+			Size:   types.Int64Value(1024),
+			IOType: types.StringNull(),
+		}
+		opts := buildRawDeviceOpts(raw, 1)
+		if opts.Raw.IOType != nil {
+			t.Errorf("expected nil IOType for null input, got %v", *opts.Raw.IOType)
+		}
+	})
+
+	t.Run("unknown IOType results in nil", func(t *testing.T) {
+		raw := &VMRawModel{
+			Path:   types.StringValue("/mnt/tank/vms/raw.img"),
+			Type:   types.StringValue("AHCI"),
+			Boot:   types.BoolValue(true),
+			Size:   types.Int64Value(1024),
+			IOType: types.StringUnknown(),
+		}
+		opts := buildRawDeviceOpts(raw, 1)
+		if opts.Raw.IOType != nil {
+			t.Errorf("expected nil IOType for unknown input, got %v", *opts.Raw.IOType)
+		}
+	})
+
+	t.Run("set IOType results in pointer", func(t *testing.T) {
+		raw := &VMRawModel{
+			Path:   types.StringValue("/mnt/tank/vms/raw.img"),
+			Type:   types.StringValue("AHCI"),
+			Boot:   types.BoolValue(true),
+			Size:   types.Int64Value(1024),
+			IOType: types.StringValue("NATIVE"),
+		}
+		opts := buildRawDeviceOpts(raw, 1)
+		if opts.Raw.IOType == nil {
+			t.Fatal("expected non-nil IOType pointer")
+		}
+		if *opts.Raw.IOType != "NATIVE" {
+			t.Errorf("expected 'NATIVE', got %q", *opts.Raw.IOType)
+		}
+	})
+}
+
+func TestVMResource_Create_WithRawWithoutIOType(t *testing.T) {
+	var capturedDeviceOpts truenas.CreateVMDeviceOpts
+	size := int64(1024)
+
+	r := &VMResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			CreateVMFunc: func(ctx context.Context, opts truenas.CreateVMOpts) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			CreateDeviceFunc: func(ctx context.Context, opts truenas.CreateVMDeviceOpts) (*truenas.VMDevice, error) {
+				capturedDeviceOpts = opts
+				return &truenas.VMDevice{ID: 101}, nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 101, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeRaw,
+						Raw: &truenas.RawDevice{Path: "/mnt/tank/vms/raw.img", Type: "AHCI", Boot: true, Size: &size, IOType: nil}},
+				}, nil
+			},
+		}}},
+	}
+
+	schemaResp := getVMResourceSchema(t)
+	p := defaultVMPlanParams()
+	// Clear default disk from default plan
+	p.Disks = []vmDiskParams{}
+	raws := []vmRawParams{{
+		DeviceID: nil, Path: "/mnt/tank/vms/raw.img", Type: "AHCI", Boot: true, Exists: false, Size: 1024,
+		LogicalSectorSize: nil, PhysicalSectorSize: nil, IOType: nil,
+		Serial: nil, Order: nil,
+	}}
+	planValue := createVMModelValueFull(p, raws, nil, nil)
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
+	}
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedDeviceOpts.Raw.IOType != nil {
+		t.Errorf("expected nil IOType when not specified, got %v", *capturedDeviceOpts.Raw.IOType)
+	}
+}
+
+func TestVMResource_Read_WithRawHavingNullIOType(t *testing.T) {
+	size := int64(1024)
+	r := &VMResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 10, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeRaw,
+						Raw: &truenas.RawDevice{Path: "/mnt/tank/vms/raw.img", Type: "AHCI", Boot: true, Size: &size, IOType: nil}},
+				}, nil
+			},
+		}}},
+	}
+
+	schemaResp := getVMResourceSchema(t)
+	p := defaultVMPlanParams()
+	p.ID = "1"
+	p.Disks = []vmDiskParams{}
+	raws := []vmRawParams{{
+		DeviceID: 10, Path: "/mnt/tank/vms/raw.img", Type: "AHCI", Boot: true, Exists: false, Size: 1024,
+		LogicalSectorSize: nil, PhysicalSectorSize: nil, IOType: nil,
+		Serial: nil, Order: nil,
+	}}
+	stateValue := createVMModelValueFull(p, raws, nil, nil)
+	req := resource.ReadRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model VMResourceModel
+	resp.State.Get(context.Background(), &model)
+
+	if len(model.Raws) != 1 {
+		t.Fatalf("expected 1 raw, got %d", len(model.Raws))
+	}
+
+	if !model.Raws[0].IOType.IsNull() {
+		t.Errorf("expected IOType to be null when API returns nil, got %v", model.Raws[0].IOType)
+	}
+}
+
+func TestVMResource_Read_WithRawHavingSetIOType(t *testing.T) {
+	iotype := "THREADS"
+	size := int64(1024)
+	r := &VMResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{VM: &truenas.MockVMService{
+			GetVMFunc: func(ctx context.Context, id int64) (*truenas.VM, error) {
+				return mockVM(1, "test-vm", 2048, "STOPPED"), nil
+			},
+			ListDevicesFunc: func(ctx context.Context, vmID int64) ([]truenas.VMDevice, error) {
+				return []truenas.VMDevice{
+					{ID: 10, VM: 1, Order: 1000, DeviceType: truenas.DeviceTypeRaw,
+						Raw: &truenas.RawDevice{Path: "/mnt/tank/vms/raw.img", Type: "AHCI", Boot: true, Size: &size, IOType: &iotype}},
+				}, nil
+			},
+		}}},
+	}
+
+	schemaResp := getVMResourceSchema(t)
+	p := defaultVMPlanParams()
+	p.ID = "1"
+	p.Disks = []vmDiskParams{}
+	raws := []vmRawParams{{
+		DeviceID: 10, Path: "/mnt/tank/vms/raw.img", Type: "AHCI", Boot: true, Exists: false, Size: 1024,
+		LogicalSectorSize: nil, PhysicalSectorSize: nil, IOType: "THREADS",
+		Serial: nil, Order: nil,
+	}}
+	stateValue := createVMModelValueFull(p, raws, nil, nil)
+	req := resource.ReadRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model VMResourceModel
+	resp.State.Get(context.Background(), &model)
+
+	if len(model.Raws) != 1 {
+		t.Fatalf("expected 1 raw, got %d", len(model.Raws))
+	}
+
+	if model.Raws[0].IOType.IsNull() {
+		t.Error("expected IOType to be non-null when API returns value")
+	}
+	if model.Raws[0].IOType.ValueString() != "THREADS" {
+		t.Errorf("expected IOType 'THREADS', got %q", model.Raws[0].IOType.ValueString())
+	}
+}
+
+func TestVMResource_rawEqual_IOType(t *testing.T) {
+	tests := []struct {
+		name     string
+		a        VMRawModel
+		b        VMRawModel
+		expected bool
+	}{
+		{
+			name: "both null IOType are equal",
+			a: VMRawModel{
+				Path:   types.StringValue("/mnt/tank/vms/raw.img"),
+				Type:   types.StringValue("AHCI"),
+				Boot:   types.BoolValue(true),
+				Size:   types.Int64Value(1024),
+				IOType: types.StringNull(),
+			},
+			b: VMRawModel{
+				Path:   types.StringValue("/mnt/tank/vms/raw.img"),
+				Type:   types.StringValue("AHCI"),
+				Boot:   types.BoolValue(true),
+				Size:   types.Int64Value(1024),
+				IOType: types.StringNull(),
+			},
+			expected: true,
+		},
+		{
+			name: "null vs set IOType are not equal",
+			a: VMRawModel{
+				Path:   types.StringValue("/mnt/tank/vms/raw.img"),
+				Type:   types.StringValue("AHCI"),
+				Boot:   types.BoolValue(true),
+				Size:   types.Int64Value(1024),
+				IOType: types.StringNull(),
+			},
+			b: VMRawModel{
+				Path:   types.StringValue("/mnt/tank/vms/raw.img"),
+				Type:   types.StringValue("AHCI"),
+				Boot:   types.BoolValue(true),
+				Size:   types.Int64Value(1024),
+				IOType: types.StringValue("THREADS"),
+			},
+			expected: false,
+		},
+		{
+			name: "different IOType values are not equal",
+			a: VMRawModel{
+				Path:   types.StringValue("/mnt/tank/vms/raw.img"),
+				Type:   types.StringValue("AHCI"),
+				Boot:   types.BoolValue(true),
+				Size:   types.Int64Value(1024),
+				IOType: types.StringValue("THREADS"),
+			},
+			b: VMRawModel{
+				Path:   types.StringValue("/mnt/tank/vms/raw.img"),
+				Type:   types.StringValue("AHCI"),
+				Boot:   types.BoolValue(true),
+				Size:   types.Int64Value(1024),
+				IOType: types.StringValue("NATIVE"),
+			},
+			expected: false,
+		},
+		{
+			name: "same IOType values are equal",
+			a: VMRawModel{
+				Path:   types.StringValue("/mnt/tank/vms/raw.img"),
+				Type:   types.StringValue("AHCI"),
+				Boot:   types.BoolValue(true),
+				Size:   types.Int64Value(1024),
+				IOType: types.StringValue("THREADS"),
+			},
+			b: VMRawModel{
+				Path:   types.StringValue("/mnt/tank/vms/raw.img"),
+				Type:   types.StringValue("AHCI"),
+				Boot:   types.BoolValue(true),
+				Size:   types.Int64Value(1024),
+				IOType: types.StringValue("THREADS"),
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := rawEqual(tt.a, tt.b); got != tt.expected {
+				t.Errorf("rawEqual() = %v, want %v", got, tt.expected)
+			}
+		})
 	}
 }

@@ -38,3 +38,5 @@ require (
 	google.golang.org/grpc v1.75.1 // indirect
 	google.golang.org/protobuf v1.36.9 // indirect
 )
+
+replace github.com/deevus/truenas-go => github.com/deevus/truenas-go v0.4.2-0.20260322234348-249e8ca820f9

@@ -161,7 +161,7 @@ func (r *VMResource) reconcileRawDevices(ctx context.Context, vmID int64, plan, 
 }
 
 func rawEqual(a, b VMRawModel) bool {
-	return a.Path.Equal(b.Path) && a.Type.Equal(b.Type) && a.Boot.Equal(b.Boot) && a.Size.Equal(b.Size)
+	return a.Path.Equal(b.Path) && a.Type.Equal(b.Type) && a.Boot.Equal(b.Boot) && a.Size.Equal(b.Size) && a.IOType.Equal(b.IOType)
 }
 
 func (r *VMResource) reconcileCDROMDevices(ctx context.Context, vmID int64, plan, state []VMCDROMModel) error {
