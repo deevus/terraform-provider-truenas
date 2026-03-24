@@ -80,6 +80,34 @@ resource "truenas_virt_instance" "bridged" {
 }
 ```
 
+### Accessing Instance IP Addresses
+
+```terraform
+resource "truenas_virt_instance" "app" {
+  name          = "my-app"
+  image_name    = "ubuntu"
+  image_version = "24.04"
+  storage_pool  = "tank"
+
+  nic {
+    nic_type = "MACVLAN"
+    parent   = "eno1"
+  }
+}
+
+# Get first IPv4 address
+output "ipv4_address" {
+  value = try([for a in truenas_virt_instance.app.addresses : a.address if a.type == "INET"][0], null)
+}
+
+# Get all addresses
+output "all_addresses" {
+  value = truenas_virt_instance.app.addresses
+}
+```
+
+-> **Note:** The `addresses` attribute is empty when the container is stopped, as network interfaces are not active.
+
 ## Import
 
 Containers can be imported using the container name:
@@ -110,6 +138,7 @@ terraform import truenas_virt_instance.example my-container
 
 ### Read-Only
 
+- `addresses` (Attributes List) IP addresses assigned to the instance. Empty when stopped. (see [below for nested schema](#nestedatt--addresses))
 - `id` (String) Container ID (numeric).
 - `state` (String) Current container state (RUNNING, STOPPED, etc.).
 - `uuid` (String) Container UUID.
@@ -152,3 +181,13 @@ Required:
 Optional:
 
 - `name` (String) Device name (auto-generated if not specified).
+
+
+<a id="nestedatt--addresses"></a>
+### Nested Schema for `addresses`
+
+Read-Only:
+
+- `address` (String) IP address.
+- `netmask` (Number) Network mask prefix length.
+- `type` (String) Address type: INET (IPv4) or INET6 (IPv6).
