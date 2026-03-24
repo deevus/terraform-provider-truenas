@@ -74,7 +74,7 @@ Required:
 
 Optional:
 
-- `iotype` (String) I/O type: NATIVE, THREADS, or IO_URING. Defaults to THREADS.
+- `iotype` (String) I/O type: NATIVE, THREADS, or IO_URING.
 - `logical_sectorsize` (Number) Logical sector size: 512 or 4096.
 - `order` (Number) Device boot/load order.
 - `physical_sectorsize` (Number) Physical sector size: 512 or 4096.
@@ -152,7 +152,7 @@ Optional:
 
 - `boot` (Boolean) Bootable device. Defaults to false.
 - `exists` (Boolean) Set to true when the file at path already exists. When false (default), the API creates the raw file.
-- `iotype` (String) I/O type: NATIVE, THREADS, or IO_URING. Defaults to THREADS.
+- `iotype` (String) I/O type: NATIVE, THREADS, or IO_URING.
 - `logical_sectorsize` (Number) Logical sector size: 512 or 4096.
 - `order` (Number) Device boot/load order.
 - `physical_sectorsize` (Number) Physical sector size: 512 or 4096.

@@ -323,7 +323,7 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 							},
 						},
 						"iotype": schema.StringAttribute{
-							Description: "I/O type: NATIVE, THREADS, or IO_URING. Defaults to THREADS.",
+							Description: "I/O type: NATIVE, THREADS, or IO_URING.",
 							Optional:    true,
 							Computed:    true,
 							Validators: []validator.String{
@@ -368,8 +368,9 @@ func (r *VMResource) Schema(ctx context.Context, req resource.SchemaRequest, res
 						"logical_sectorsize":  schema.Int64Attribute{Optional: true, Description: "Logical sector size: 512 or 4096.", Validators: []validator.Int64{int64validator.OneOf(512, 4096)}},
 						"physical_sectorsize": schema.Int64Attribute{Optional: true, Description: "Physical sector size: 512 or 4096.", Validators: []validator.Int64{int64validator.OneOf(512, 4096)}},
 						"iotype": schema.StringAttribute{
-							Optional: true, Computed: true,
-							Description: "I/O type: NATIVE, THREADS, or IO_URING. Defaults to THREADS.",
+							Optional:    true,
+							Computed:    true,
+							Description: "I/O type: NATIVE, THREADS, or IO_URING.",
 							Validators:  []validator.String{stringvalidator.OneOf("NATIVE", "THREADS", "IO_URING")},
 						},
 						"serial": schema.StringAttribute{Optional: true, Computed: true, Description: "Disk serial number. Auto-generated if not set.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
