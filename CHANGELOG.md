@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.15.2] - 2026-03-25
+
+
+### Documentation
+
+- Add badges and commercial support section to README
+- Consolidate badge links and remove redundant Terraform Registry badge
+- Reorder badges to place downloads after license and release
+- Update support section wording in README
+
+### Fixed
+
+- Use assertive StopVMFunc mock in Delete_Stopped test
+- Make iotype attribute optional for disk/raw devices (#12)
+
 ## [0.15.1] - 2026-02-27
 
 
