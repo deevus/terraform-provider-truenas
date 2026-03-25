@@ -18,7 +18,9 @@ type TrueNASServices struct {
 	Cron       truenas.CronServiceAPI
 	Dataset    truenas.DatasetServiceAPI
 	Filesystem truenas.FilesystemServiceAPI
+	Group      truenas.GroupServiceAPI
 	Snapshot   truenas.SnapshotServiceAPI
+	User       truenas.UserServiceAPI
 	Virt       truenas.VirtServiceAPI
 	VM         truenas.VMServiceAPI
 }
