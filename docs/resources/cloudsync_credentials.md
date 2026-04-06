@@ -75,6 +75,7 @@ terraform import truenas_cloudsync_credentials.example 1
 - `b2` (Block, Optional) Backblaze B2 credentials. (see [below for nested schema](#nestedblock--b2))
 - `gcs` (Block, Optional) Google Cloud Storage credentials. (see [below for nested schema](#nestedblock--gcs))
 - `s3` (Block, Optional) S3-compatible storage credentials. (see [below for nested schema](#nestedblock--s3))
+- `webdav` (Block, Optional) WebDAV credentials. (see [below for nested schema](#nestedblock--webdav))
 
 ### Read-Only
 
@@ -115,3 +116,14 @@ Optional:
 - `endpoint` (String) Custom endpoint URL for S3-compatible storage.
 - `region` (String) Region.
 - `secret_access_key` (String, Sensitive) Secret access key.
+
+
+<a id="nestedblock--webdav"></a>
+### Nested Schema for `webdav`
+
+Optional:
+
+- `pass` (String, Sensitive) WebDAV account password.
+- `url` (String) URL of the HTTP host to connect to.
+- `user` (String) WebDAV account username.
+- `vendor` (String) Name of the WebDAV site, service, or software being used.

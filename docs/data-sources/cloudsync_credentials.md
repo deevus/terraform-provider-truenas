@@ -38,4 +38,4 @@ resource "truenas_cloudsync_task" "backup" {
 ### Read-Only
 
 - `id` (String) The unique identifier of the credentials.
-- `provider_type` (String) The type of cloud provider (s3, b2, gcs, azure).
+- `provider_type` (String) The type of cloud provider (s3, b2, gcs, azure, webdav).

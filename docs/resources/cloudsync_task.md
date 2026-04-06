@@ -128,6 +128,7 @@ terraform import truenas_cloudsync_task.example 1
 - `sync_on_change` (Boolean) Fire-and-forget sync after create or update.
 - `transfer_mode` (String) Transfer mode: sync, copy, or move.
 - `transfers` (Number) Number of simultaneous file transfers.
+- `webdav` (Block, Optional) WebDAV settings. (see [below for nested schema](#nestedblock--webdav))
 
 ### Read-Only
 
@@ -191,3 +192,11 @@ Optional:
 - `dom` (String) Day of month (1-31 or cron expression).
 - `dow` (String) Day of week (0-6 or cron expression).
 - `month` (String) Month (1-12 or cron expression).
+
+
+<a id="nestedblock--webdav"></a>
+### Nested Schema for `webdav`
+
+Optional:
+
+- `folder` (String) Folder path on the remote machine.

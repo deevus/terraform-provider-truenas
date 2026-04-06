@@ -48,7 +48,7 @@ func (d *CloudSyncCredentialsDataSource) Schema(ctx context.Context, req datasou
 				Required:    true,
 			},
 			"provider_type": schema.StringAttribute{
-				Description: "The type of cloud provider (s3, b2, gcs, azure).",
+				Description: "The type of cloud provider (s3, b2, gcs, azure, webdav).",
 				Computed:    true,
 			},
 		},
@@ -128,6 +128,8 @@ func mapAPIProviderToTerraform(provider string) string {
 		return "gcs"
 	case "AZUREBLOB":
 		return "azure"
+	case "WEBDAV":
+		return "webdav"
 	default:
 		// Return unknown providers as-is in lowercase
 		return strings.ToLower(provider)

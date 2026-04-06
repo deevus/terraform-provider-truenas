@@ -19,18 +19,19 @@ var _ resource.ResourceWithImportState = &CloudSyncCredentialsResource{}
 
 // CloudSyncCredentialsResourceModel describes the resource data model.
 type CloudSyncCredentialsResourceModel struct {
-	ID    types.String `tfsdk:"id"`
-	Name  types.String `tfsdk:"name"`
-	S3    *S3Block     `tfsdk:"s3"`
-	B2    *B2Block     `tfsdk:"b2"`
-	GCS   *GCSBlock    `tfsdk:"gcs"`
-	Azure *AzureBlock  `tfsdk:"azure"`
+	ID     types.String `tfsdk:"id"`
+	Name   types.String `tfsdk:"name"`
+	S3     *S3Block     `tfsdk:"s3"`
+	B2     *B2Block     `tfsdk:"b2"`
+	GCS    *GCSBlock    `tfsdk:"gcs"`
+	Azure  *AzureBlock  `tfsdk:"azure"`
+	WebDAV *WebDAVBlock `tfsdk:"webdav"`
 }
 
 // S3Block represents S3 credentials.
 type S3Block struct {
 	AccessKeyID     types.String `tfsdk:"access_key_id"`
-	SecretAccessKey  types.String `tfsdk:"secret_access_key"`
+	SecretAccessKey types.String `tfsdk:"secret_access_key"`
 	Endpoint        types.String `tfsdk:"endpoint"`
 	Region          types.String `tfsdk:"region"`
 }
@@ -50,6 +51,13 @@ type GCSBlock struct {
 type AzureBlock struct {
 	Account types.String `tfsdk:"account"`
 	Key     types.String `tfsdk:"key"`
+}
+
+type WebDAVBlock struct {
+	URL    types.String `tfsdk:"url"`
+	Vendor types.String `tfsdk:"vendor"`
+	User   types.String `tfsdk:"user"`
+	Pass   types.String `tfsdk:"pass"`
 }
 
 // CloudSyncCredentialsResource defines the resource implementation.
@@ -146,6 +154,28 @@ func (r *CloudSyncCredentialsResource) Schema(ctx context.Context, req resource.
 					},
 				},
 			},
+			"webdav": schema.SingleNestedBlock{
+				Description: "WebDAV credentials.",
+				Attributes: map[string]schema.Attribute{
+					"url": schema.StringAttribute{
+						Description: "URL of the HTTP host to connect to.",
+						Optional:    true,
+					},
+					"vendor": schema.StringAttribute{
+						Description: "Name of the WebDAV site, service, or software being used.",
+						Optional:    true,
+					},
+					"user": schema.StringAttribute{
+						Description: "WebDAV account username.",
+						Optional:    true,
+					},
+					"pass": schema.StringAttribute{
+						Description: "WebDAV account password.",
+						Optional:    true,
+						Sensitive:   true,
+					},
+				},
+			},
 		},
 	}
 }
@@ -181,6 +211,17 @@ func validateProviderBlock(data *CloudSyncCredentialsResourceModel) []string {
 		}
 		if data.Azure.Key.IsNull() || data.Azure.Key.ValueString() == "" {
 			errors = append(errors, "azure.key is required when azure block is specified")
+		}
+	}
+	if data.WebDAV != nil {
+		if data.WebDAV.URL.IsNull() || data.WebDAV.URL.ValueString() == "" {
+			errors = append(errors, "webdav.url is required when webdav block is specified")
+		}
+		if data.WebDAV.User.IsNull() || data.WebDAV.User.ValueString() == "" {
+			errors = append(errors, "webdav.user is required when webdav block is specified")
+		}
+		if data.WebDAV.Pass.IsNull() || data.WebDAV.Pass.ValueString() == "" {
+			errors = append(errors, "webdav.pass is required when webdav block is specified")
 		}
 	}
 
@@ -219,6 +260,14 @@ func getProviderAndAttributes(data *CloudSyncCredentialsResourceModel) (string, 
 			"key":     data.Azure.Key.ValueString(),
 		}
 	}
+	if data.WebDAV != nil {
+		return "WEBDAV", map[string]string{
+			"url":    data.WebDAV.URL.ValueString(),
+			"vendor": data.WebDAV.Vendor.ValueString(),
+			"user":   data.WebDAV.User.ValueString(),
+			"pass":   data.WebDAV.Pass.ValueString(),
+		}
+	}
 	return "", nil
 }
 
@@ -242,7 +291,7 @@ func (r *CloudSyncCredentialsResource) Create(ctx context.Context, req resource.
 	if providerType == "" {
 		resp.Diagnostics.AddError(
 			"Invalid Configuration",
-			"Exactly one provider block (s3, b2, gcs, or azure) must be specified.",
+			"Exactly one provider block (s3, b2, gcs, azure or webdav) must be specified.",
 		)
 		return
 	}
@@ -342,7 +391,7 @@ func (r *CloudSyncCredentialsResource) Update(ctx context.Context, req resource.
 	if providerType == "" {
 		resp.Diagnostics.AddError(
 			"Invalid Configuration",
-			"Exactly one provider block (s3, b2, gcs, or azure) must be specified.",
+			"Exactly one provider block (s3, b2, gcs, azure or webdav) must be specified.",
 		)
 		return
 	}

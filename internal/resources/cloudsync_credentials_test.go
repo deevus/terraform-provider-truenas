@@ -69,7 +69,7 @@ func TestCloudSyncCredentialsResource_Schema(t *testing.T) {
 	}
 
 	// Verify provider blocks exist
-	for _, block := range []string{"s3", "b2", "gcs", "azure"} {
+	for _, block := range []string{"s3", "b2", "gcs", "azure", "webdav"} {
 		_, ok := resp.Schema.Blocks[block]
 		if !ok {
 			t.Errorf("expected '%s' block in schema", block)
@@ -90,12 +90,13 @@ func getCloudSyncCredentialsResourceSchema(t *testing.T) resource.SchemaResponse
 
 // cloudSyncCredentialsModelParams holds parameters for creating test model values.
 type cloudSyncCredentialsModelParams struct {
-	ID    interface{}
-	Name  interface{}
-	S3    *s3BlockParams
-	B2    *b2BlockParams
-	GCS   *gcsBlockParams
-	Azure *azureBlockParams
+	ID     interface{}
+	Name   interface{}
+	S3     *s3BlockParams
+	B2     *b2BlockParams
+	GCS    *gcsBlockParams
+	Azure  *azureBlockParams
+	WebDAV *webdavBlockParams
 }
 
 type s3BlockParams struct {
@@ -117,6 +118,13 @@ type gcsBlockParams struct {
 type azureBlockParams struct {
 	Account interface{}
 	Key     interface{}
+}
+
+type webdavBlockParams struct {
+	URL    interface{}
+	Vendor interface{}
+	User   interface{}
+	Pass   interface{}
 }
 
 func createCloudSyncCredentialsModelValue(p cloudSyncCredentialsModelParams) tftypes.Value {
@@ -195,6 +203,30 @@ func createCloudSyncCredentialsModelValue(p cloudSyncCredentialsModelParams) tft
 		})
 	}
 
+	webdavValue := tftypes.NewValue(tftypes.Object{
+		AttributeTypes: map[string]tftypes.Type{
+			"url":    tftypes.String,
+			"vendor": tftypes.String,
+			"user":   tftypes.String,
+			"pass":   tftypes.String,
+		},
+	}, nil)
+	if p.WebDAV != nil {
+		webdavValue = tftypes.NewValue(tftypes.Object{
+			AttributeTypes: map[string]tftypes.Type{
+				"url":    tftypes.String,
+				"vendor": tftypes.String,
+				"user":   tftypes.String,
+				"pass":   tftypes.String,
+			},
+		}, map[string]tftypes.Value{
+			"url":    tftypes.NewValue(tftypes.String, p.WebDAV.URL),
+			"vendor": tftypes.NewValue(tftypes.String, p.WebDAV.Vendor),
+			"user":   tftypes.NewValue(tftypes.String, p.WebDAV.User),
+			"pass":   tftypes.NewValue(tftypes.String, p.WebDAV.Pass),
+		})
+	}
+
 	return tftypes.NewValue(tftypes.Object{
 		AttributeTypes: map[string]tftypes.Type{
 			"id":   tftypes.String,
@@ -224,14 +256,23 @@ func createCloudSyncCredentialsModelValue(p cloudSyncCredentialsModelParams) tft
 					"key":     tftypes.String,
 				},
 			},
+			"webdav": tftypes.Object{
+				AttributeTypes: map[string]tftypes.Type{
+					"url":    tftypes.String,
+					"vendor": tftypes.String,
+					"user":   tftypes.String,
+					"pass":   tftypes.String,
+				},
+			},
 		},
 	}, map[string]tftypes.Value{
-		"id":    tftypes.NewValue(tftypes.String, p.ID),
-		"name":  tftypes.NewValue(tftypes.String, p.Name),
-		"s3":    s3Value,
-		"b2":    b2Value,
-		"gcs":   gcsValue,
-		"azure": azureValue,
+		"id":     tftypes.NewValue(tftypes.String, p.ID),
+		"name":   tftypes.NewValue(tftypes.String, p.Name),
+		"s3":     s3Value,
+		"b2":     b2Value,
+		"gcs":    gcsValue,
+		"azure":  azureValue,
+		"webdav": webdavValue,
 	})
 }
 
@@ -976,6 +1017,88 @@ func TestCloudSyncCredentialsResource_Create_Azure_Success(t *testing.T) {
 	resp.State.Get(context.Background(), &resultData)
 	if resultData.ID.ValueString() != "8" {
 		t.Errorf("expected ID '8', got %q", resultData.ID.ValueString())
+	}
+}
+
+func TestCloudSyncCredentialsResource_Create_WebDAV_Success(t *testing.T) {
+	var capturedOpts truenas.CreateCredentialOpts
+
+	r := &CloudSyncCredentialsResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateCredentialFunc: func(ctx context.Context, opts truenas.CreateCredentialOpts) (*truenas.CloudSyncCredential, error) {
+					capturedOpts = opts
+					return &truenas.CloudSyncCredential{
+						ID:           9,
+						Name:         "WebDAV",
+						ProviderType: "WEBDAV",
+						Attributes: map[string]string{
+							"url":    `https://webdav.example.com`,
+							"vendor": `OTHER`,
+							"user":   `someuser`,
+							"pass":   `somepass`,
+						},
+					}, nil
+				},
+			},
+		}},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		Name: "WebDAV",
+		WebDAV: &webdavBlockParams{
+			URL:    `https://webdav.example.com`,
+			Vendor: `OTHER`,
+			User:   `someuser`,
+			Pass:   `somepass`,
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify opts sent to service
+	if capturedOpts.Name != "WebDAV" {
+		t.Errorf("expected name 'WebDAV', got %q", capturedOpts.Name)
+	}
+	if capturedOpts.ProviderType != "WEBDAV" {
+		t.Errorf("expected provider type 'WEBDAV', got %q", capturedOpts.ProviderType)
+	}
+	if capturedOpts.Attributes["url"] != `https://webdav.example.com` {
+		t.Errorf("expected url 'https://webdav.example.com', got %v", capturedOpts.Attributes["service_account_credentials"])
+	}
+	if capturedOpts.Attributes["vendor"] != `OTHER` {
+		t.Errorf("expected vendor 'OTHER', got %v", capturedOpts.Attributes["service_account_credentials"])
+	}
+	if capturedOpts.Attributes["user"] != `someuser` {
+		t.Errorf("expected user 'someuser', got %v", capturedOpts.Attributes["service_account_credentials"])
+	}
+	if capturedOpts.Attributes["pass"] != `somepass` {
+		t.Errorf("expected pass 'somepass', got %v", capturedOpts.Attributes["service_account_credentials"])
+	}
+
+	// Verify state was set correctly
+	var resultData CloudSyncCredentialsResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "9" {
+		t.Errorf("expected ID '9', got %q", resultData.ID.ValueString())
 	}
 }
 

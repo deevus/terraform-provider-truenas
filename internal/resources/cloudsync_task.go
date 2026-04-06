@@ -46,6 +46,7 @@ type CloudSyncTaskResourceModel struct {
 	B2                 *TaskB2Block     `tfsdk:"b2"`
 	GCS                *TaskGCSBlock    `tfsdk:"gcs"`
 	Azure              *TaskAzureBlock  `tfsdk:"azure"`
+	WebDAV             *TaskWebDAVBlock `tfsdk:"webdav"`
 }
 
 // ScheduleBlock represents cron schedule settings.
@@ -85,6 +86,11 @@ type TaskGCSBlock struct {
 type TaskAzureBlock struct {
 	Container types.String `tfsdk:"container"`
 	Folder    types.String `tfsdk:"folder"`
+}
+
+// TaskWebDAVBlock represents WebDAV settings.
+type TaskWebDAVBlock struct {
+	Folder types.String `tfsdk:"folder"`
 }
 
 // CloudSyncTaskResource defines the resource implementation.
@@ -285,6 +291,15 @@ func (r *CloudSyncTaskResource) Schema(ctx context.Context, req resource.SchemaR
 					},
 				},
 			},
+			"webdav": schema.SingleNestedBlock{
+				Description: "WebDAV settings.",
+				Attributes: map[string]schema.Attribute{
+					"folder": schema.StringAttribute{
+						Description: "Folder path on the remote machine.",
+						Optional:    true,
+					},
+				},
+			},
 		},
 	}
 }
@@ -311,10 +326,13 @@ func (r *CloudSyncTaskResource) Create(ctx context.Context, req resource.CreateR
 	if data.Azure != nil {
 		count++
 	}
+	if data.WebDAV != nil {
+		count++
+	}
 	if count != 1 {
 		resp.Diagnostics.AddError(
 			"Invalid Configuration",
-			"Exactly one provider block (s3, b2, gcs, or azure) must be specified.",
+			"Exactly one provider block (s3, b2, gcs, azure or webdav) must be specified.",
 		)
 		return
 	}
@@ -499,6 +517,13 @@ func getTaskAttributes(data *CloudSyncTaskResourceModel) map[string]any {
 		}
 		if !data.Azure.Folder.IsNull() && !data.Azure.Folder.IsUnknown() {
 			attrs["folder"] = data.Azure.Folder.ValueString()
+		}
+		return attrs
+	}
+	if data.WebDAV != nil {
+		attrs := map[string]any{}
+		if !data.WebDAV.Folder.IsNull() && !data.WebDAV.Folder.IsUnknown() {
+			attrs["folder"] = data.WebDAV.Folder.ValueString()
 		}
 		return attrs
 	}

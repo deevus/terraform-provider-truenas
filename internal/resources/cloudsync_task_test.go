@@ -156,6 +156,9 @@ func TestCloudSyncTaskResource_Schema(t *testing.T) {
 	if blocks["azure"] == nil {
 		t.Error("expected 'azure' block")
 	}
+	if blocks["webdav"] == nil {
+		t.Error("expected 'webdav' block")
+	}
 }
 
 // Test helpers
@@ -195,6 +198,7 @@ type cloudSyncTaskModelParams struct {
 	B2                 *taskB2BlockParams
 	GCS                *taskGCSBlockParams
 	Azure              *taskAzureBlockParams
+	WebDAV             *taskWebDAVBlockParams
 }
 
 type scheduleBlockParams struct {
@@ -230,6 +234,10 @@ type taskAzureBlockParams struct {
 	Folder    interface{}
 }
 
+type taskWebDAVBlockParams struct {
+	Folder interface{}
+}
+
 func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 	// Define type structures
 	scheduleType := tftypes.Object{
@@ -260,6 +268,12 @@ func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 		AttributeTypes: map[string]tftypes.Type{
 			"container": tftypes.String,
 			"folder":    tftypes.String,
+		},
+	}
+
+	webdavFoldertype := tftypes.Object{
+		AttributeTypes: map[string]tftypes.Type{
+			"folder": tftypes.String,
 		},
 	}
 
@@ -365,6 +379,15 @@ func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 		values["azure"] = tftypes.NewValue(containerFolderType, nil)
 	}
 
+	// Handle WebDAV block
+	if p.WebDAV != nil {
+		values["webdav"] = tftypes.NewValue(webdavFoldertype, map[string]tftypes.Value{
+			"folder": tftypes.NewValue(tftypes.String, p.WebDAV.Folder),
+		})
+	} else {
+		values["webdav"] = tftypes.NewValue(webdavFoldertype, nil)
+	}
+
 	// Create object type matching the schema
 	objectType := tftypes.Object{
 		AttributeTypes: map[string]tftypes.Type{
@@ -389,6 +412,7 @@ func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 			"b2":                    bucketFolderType,
 			"gcs":                   bucketFolderType,
 			"azure":                 containerFolderType,
+			"webdav":                webdavFoldertype,
 		},
 	}
 
@@ -836,6 +860,106 @@ func TestCloudSyncTaskResource_Create_Azure_Success(t *testing.T) {
 	}
 }
 
+func TestCloudSyncTaskResource_Create_WebDAV_Success(t *testing.T) {
+	var capturedOpts truenas.CreateCloudSyncTaskOpts
+
+	r := &CloudSyncTaskResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				CreateTaskFunc: func(ctx context.Context, opts truenas.CreateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedOpts = opts
+					return &truenas.CloudSyncTask{
+						ID:           14,
+						Description:  "WebDAV Backup",
+						Path:         "/mnt/tank/webdavdata",
+						CredentialID: 7,
+						Direction:    "PULL",
+						TransferMode: "MOVE",
+						Transfers:    2,
+						Enabled:      true,
+						Attributes:   map[string]any{"folder": "/webdav-backups/"},
+						Schedule:     truenas.Schedule{Minute: "15", Hour: "4", Dom: "*", Month: "*", Dow: "*"},
+					}, nil
+				},
+			},
+		}},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		Description:  "WebDAV Backup",
+		Path:         "/mnt/tank/webdavdata",
+		Credentials:  7,
+		Direction:    "pull",
+		TransferMode: "move",
+		Transfers:    2,
+		Enabled:      true,
+		Schedule: &scheduleBlockParams{
+			Minute: "15",
+			Hour:   "4",
+			Dom:    "*",
+			Month:  "*",
+			Dow:    "*",
+		},
+		WebDAV: &taskWebDAVBlockParams{
+			Folder: "/webdav-backups/",
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	// Verify opts
+	if capturedOpts.Description != "WebDAV Backup" {
+		t.Errorf("expected description 'WebDAV Backup', got %q", capturedOpts.Description)
+	}
+	if capturedOpts.Path != "/mnt/tank/webdavdata" {
+		t.Errorf("expected path '/mnt/tank/webdavdata', got %q", capturedOpts.Path)
+	}
+	if capturedOpts.Direction != "PULL" {
+		t.Errorf("expected direction 'PULL', got %q", capturedOpts.Direction)
+	}
+	if capturedOpts.TransferMode != "MOVE" {
+		t.Errorf("expected transfer_mode 'MOVE', got %q", capturedOpts.TransferMode)
+	}
+
+	// Verify schedule
+	if capturedOpts.Schedule.Minute != "15" {
+		t.Errorf("expected schedule minute '15', got %q", capturedOpts.Schedule.Minute)
+	}
+	if capturedOpts.Schedule.Hour != "4" {
+		t.Errorf("expected schedule hour '4', got %q", capturedOpts.Schedule.Hour)
+	}
+
+	// Verify attributes (folder for WebDAV)
+	if capturedOpts.Attributes["folder"] != "/webdav-backups/" {
+		t.Errorf("expected attributes folder '/webdav-backups/', got %v", capturedOpts.Attributes["folder"])
+	}
+
+	// Verify state was set
+	var resultData CloudSyncTaskResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.ID.ValueString() != "14" {
+		t.Errorf("expected ID '14', got %q", resultData.ID.ValueString())
+	}
+}
+
 func TestCloudSyncTaskResource_Read_Success(t *testing.T) {
 	r := &CloudSyncTaskResource{
 		BaseResource: BaseResource{services: &services.TrueNASServices{
@@ -1251,7 +1375,7 @@ func TestCloudSyncTaskResource_Create_NoProviderBlock(t *testing.T) {
 		Path:        "/mnt/tank/data",
 		Credentials: 5,
 		Direction:   "push",
-		// No S3, B2, GCS, or Azure block
+		// No S3, B2, GCS, Azure or WebDAV block
 	})
 
 	req := resource.CreateRequest{
