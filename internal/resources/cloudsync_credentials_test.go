@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 
 	truenas "github.com/deevus/truenas-go"
@@ -731,6 +732,57 @@ func TestCloudSyncCredentialsResource_Create_S3_MissingRequiredFields(t *testing
 	}
 }
 
+func TestCloudSyncCredentialsResource_Create_WebDAV_MissingRequiredFields(t *testing.T) {
+	r := &CloudSyncCredentialsResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{}},
+	}
+
+	schemaResp := getCloudSyncCredentialsResourceSchema(t)
+	// Create S3 block with missing required fields (access_key_id and secret_access_key are nil)
+	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
+		Name:   "Test WebDAV Missing Fields",
+		WebDAV: &webdavBlockParams{
+			// url, user and pass are nil - should fail validation
+		},
+	})
+
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Create(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when WebDAV block is missing required fields")
+	}
+
+	// Verify the error messages mention the missing fields
+	for _, err := range resp.Diagnostics.Errors() {
+		errStr := err.Detail()
+		if errStr != "webdav.url is required when webdav block is specified" &&
+			errStr != "webdav.vendor is required when webdav block is specified" &&
+			errStr != "webdav.user is required when webdav block is specified" &&
+			errStr != "webdav.pass is required when webdav block is specified" {
+			t.Errorf("expected error about missing webdav required field, got: %s", errStr)
+		}
+	}
+
+	// The previous check would also succeed if just one error message was mentioned, so verify that each missing fields resulted in an error
+	if resp.Diagnostics.ErrorsCount() != 4 {
+		t.Errorf("expected 4 error messages for url, vendor, user and pass, got: %s", strconv.Itoa(resp.Diagnostics.ErrorsCount()))
+	}
+
+}
+
 func TestCloudSyncCredentialsResource_Read_APIError(t *testing.T) {
 	r := &CloudSyncCredentialsResource{
 		BaseResource: BaseResource{services: &services.TrueNASServices{
@@ -1082,16 +1134,16 @@ func TestCloudSyncCredentialsResource_Create_WebDAV_Success(t *testing.T) {
 		t.Errorf("expected provider type 'WEBDAV', got %q", capturedOpts.ProviderType)
 	}
 	if capturedOpts.Attributes["url"] != `https://webdav.example.com` {
-		t.Errorf("expected url 'https://webdav.example.com', got %v", capturedOpts.Attributes["service_account_credentials"])
+		t.Errorf("expected url 'https://webdav.example.com', got %v", capturedOpts.Attributes["url"])
 	}
 	if capturedOpts.Attributes["vendor"] != `OTHER` {
-		t.Errorf("expected vendor 'OTHER', got %v", capturedOpts.Attributes["service_account_credentials"])
+		t.Errorf("expected vendor 'OTHER', got %v", capturedOpts.Attributes["vendor"])
 	}
 	if capturedOpts.Attributes["user"] != `someuser` {
-		t.Errorf("expected user 'someuser', got %v", capturedOpts.Attributes["service_account_credentials"])
+		t.Errorf("expected user 'someuser', got %v", capturedOpts.Attributes["someuser"])
 	}
 	if capturedOpts.Attributes["pass"] != `somepass` {
-		t.Errorf("expected pass 'somepass', got %v", capturedOpts.Attributes["service_account_credentials"])
+		t.Errorf("expected pass 'somepass', got %v", capturedOpts.Attributes["somepass"])
 	}
 
 	// Verify state was set correctly

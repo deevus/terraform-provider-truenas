@@ -271,7 +271,7 @@ func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 		},
 	}
 
-	webdavFoldertype := tftypes.Object{
+	webdavFolderType := tftypes.Object{
 		AttributeTypes: map[string]tftypes.Type{
 			"folder": tftypes.String,
 		},
@@ -381,11 +381,11 @@ func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 
 	// Handle WebDAV block
 	if p.WebDAV != nil {
-		values["webdav"] = tftypes.NewValue(webdavFoldertype, map[string]tftypes.Value{
+		values["webdav"] = tftypes.NewValue(webdavFolderType, map[string]tftypes.Value{
 			"folder": tftypes.NewValue(tftypes.String, p.WebDAV.Folder),
 		})
 	} else {
-		values["webdav"] = tftypes.NewValue(webdavFoldertype, nil)
+		values["webdav"] = tftypes.NewValue(webdavFolderType, nil)
 	}
 
 	// Create object type matching the schema
@@ -412,7 +412,7 @@ func createCloudSyncTaskModelValue(p cloudSyncTaskModelParams) tftypes.Value {
 			"b2":                    bucketFolderType,
 			"gcs":                   bucketFolderType,
 			"azure":                 containerFolderType,
-			"webdav":                webdavFoldertype,
+			"webdav":                webdavFolderType,
 		},
 	}
 
@@ -1165,6 +1165,79 @@ func TestCloudSyncTaskResource_Update_Success(t *testing.T) {
 	resp.State.Get(context.Background(), &resultData)
 	if resultData.Description.ValueString() != "Updated Backup" {
 		t.Errorf("expected description 'Updated Backup', got %q", resultData.Description.ValueString())
+	}
+}
+
+func TestCloudSyncTaskResource_Update_WebDAV_Success(t *testing.T) {
+	var capturedID int64
+
+	r := &CloudSyncTaskResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			CloudSync: &truenas.MockCloudSyncService{
+				UpdateTaskFunc: func(ctx context.Context, id int64, opts truenas.UpdateCloudSyncTaskOpts) (*truenas.CloudSyncTask, error) {
+					capturedID = id
+					return &truenas.CloudSyncTask{
+						ID:         20,
+						Attributes: map[string]any{"folder": "/webdav-new/"},
+					}, nil
+				},
+			},
+		}},
+	}
+
+	schemaResp := getCloudSyncTaskResourceSchema(t)
+
+	// Current state
+	stateValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID: "20",
+		WebDAV: &taskWebDAVBlockParams{
+			Folder: "/webdav-old/",
+		},
+	})
+
+	// Updated plan
+	planValue := createCloudSyncTaskModelValue(cloudSyncTaskModelParams{
+		ID: "20",
+		WebDAV: &taskWebDAVBlockParams{
+			Folder: "/webdav-new/",
+		},
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+			Raw:    stateValue,
+		},
+		Plan: tfsdk.Plan{
+			Schema: schemaResp.Schema,
+			Raw:    planValue,
+		},
+	}
+
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{
+			Schema: schemaResp.Schema,
+		},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if capturedID != 20 {
+		t.Errorf("expected ID 20, got %d", capturedID)
+	}
+
+	// Verify state was set
+	var resultData CloudSyncTaskResourceModel
+	resp.State.Get(context.Background(), &resultData)
+	if resultData.WebDAV == nil {
+		t.Fatal("webdav block not found in response")
+	}
+	if resultData.WebDAV.Folder.ValueString() != "/webdav-new/" {
+		t.Errorf("expected webdav.folder '/webdav-new/', got %q", resultData.WebDAV.Folder.ValueString())
 	}
 }
 
