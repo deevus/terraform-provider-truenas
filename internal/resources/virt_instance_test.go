@@ -145,6 +145,8 @@ type virtInstanceModelParams struct {
 	StoragePool     interface{}
 	ImageName       interface{}
 	ImageVersion    interface{}
+	Memory          interface{}
+	CPU             interface{}
 	Autostart       interface{}
 	DesiredState    interface{}
 	StateTimeout    interface{}
@@ -308,6 +310,8 @@ func createVirtInstanceModelValue(p virtInstanceModelParams) tftypes.Value {
 		"storage_pool":     tftypes.NewValue(tftypes.String, p.StoragePool),
 		"image_name":       tftypes.NewValue(tftypes.String, p.ImageName),
 		"image_version":    tftypes.NewValue(tftypes.String, p.ImageVersion),
+		"memory":           tftypes.NewValue(tftypes.Number, p.Memory),
+		"cpu":              tftypes.NewValue(tftypes.String, p.CPU),
 		"autostart":        tftypes.NewValue(tftypes.Bool, p.Autostart),
 		"desired_state":    tftypes.NewValue(tftypes.String, p.DesiredState),
 		"state_timeout":    tftypes.NewValue(tftypes.Number, p.StateTimeout),
@@ -327,6 +331,8 @@ func createVirtInstanceModelValue(p virtInstanceModelParams) tftypes.Value {
 			"storage_pool":     tftypes.String,
 			"image_name":       tftypes.String,
 			"image_version":    tftypes.String,
+			"memory":           tftypes.Number,
+			"cpu":              tftypes.String,
 			"autostart":        tftypes.Bool,
 			"desired_state":    tftypes.String,
 			"state_timeout":    tftypes.Number,

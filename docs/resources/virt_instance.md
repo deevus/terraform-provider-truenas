@@ -22,6 +22,8 @@ resource "truenas_virt_instance" "example" {
   image_name    = "ubuntu"
   image_version = "24.04"
   storage_pool  = "tank"
+  memory        = 4294967296
+  cpu           = "2"
   autostart     = true
 }
 ```
@@ -129,8 +131,10 @@ terraform import truenas_virt_instance.example my-container
 ### Optional
 
 - `autostart` (Boolean) Whether to start the container automatically on boot. Defaults to false.
+- `cpu` (String) CPU allocation (e.g., '2' for 2 cores).
 - `desired_state` (String) Desired container state: 'RUNNING' or 'STOPPED'. Defaults to 'RUNNING'.
 - `disk` (Block List) Disk devices to attach to the container. (see [below for nested schema](#nestedblock--disk))
+- `memory` (Number) Memory allocation in bytes. Minimum 33554432 (32 MiB).
 - `nic` (Block List) Network interfaces to attach to the container. (see [below for nested schema](#nestedblock--nic))
 - `proxy` (Block List) Port proxies/forwards for the container. (see [below for nested schema](#nestedblock--proxy))
 - `shutdown_timeout` (Number) Timeout in seconds for graceful shutdown. Defaults to 30.

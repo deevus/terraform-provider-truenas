@@ -43,6 +43,8 @@ type VirtInstanceResourceModel struct {
 	StoragePool     types.String `tfsdk:"storage_pool"`
 	ImageName       types.String `tfsdk:"image_name"`
 	ImageVersion    types.String `tfsdk:"image_version"`
+	Memory          types.Int64  `tfsdk:"memory"`
+	CPU             types.String `tfsdk:"cpu"`
 	Autostart       types.Bool   `tfsdk:"autostart"`
 	DesiredState    types.String `tfsdk:"desired_state"`
 	StateTimeout    types.Int64  `tfsdk:"state_timeout"`
@@ -139,6 +141,17 @@ func (r *VirtInstanceResource) Schema(ctx context.Context, req resource.SchemaRe
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
+			},
+			"memory": schema.Int64Attribute{
+				Description: "Memory allocation in bytes. Minimum 33554432 (32 MiB).",
+				Optional:    true,
+				Validators: []validator.Int64{
+					int64validator.AtLeast(33554432),
+				},
+			},
+			"cpu": schema.StringAttribute{
+				Description: "CPU allocation (e.g., '2' for 2 cores).",
+				Optional:    true,
 			},
 			"autostart": schema.BoolAttribute{
 				Description: "Whether to start the container automatically on boot. Defaults to false.",
@@ -677,6 +690,14 @@ func (r *VirtInstanceResource) buildCreateOpts(ctx context.Context, data *VirtIn
 		StoragePool:  data.StoragePool.ValueString(),
 	}
 
+	if !data.Memory.IsNull() && !data.Memory.IsUnknown() {
+		opts.Memory = data.Memory.ValueInt64()
+	}
+
+	if !data.CPU.IsNull() && !data.CPU.IsUnknown() {
+		opts.CPU = data.CPU.ValueString()
+	}
+
 	if !data.Autostart.IsNull() && !data.Autostart.IsUnknown() {
 		opts.Autostart = data.Autostart.ValueBool()
 	}
@@ -795,6 +816,18 @@ func (r *VirtInstanceResource) mapVirtInstanceToModel(container *truenas.VirtIns
 	// These fields have RequiresReplace so they don't change during resource lifecycle
 	data.State = types.StringValue(container.Status)
 	data.Autostart = types.BoolValue(container.Autostart)
+
+	if container.Memory > 0 {
+		data.Memory = types.Int64Value(container.Memory)
+	} else {
+		data.Memory = types.Int64Null()
+	}
+
+	if container.CPU != "" {
+		data.CPU = types.StringValue(container.CPU)
+	} else {
+		data.CPU = types.StringNull()
+	}
 
 	// Use container ID as UUID (virt.instance uses name as ID)
 	data.UUID = types.StringValue(container.ID)
