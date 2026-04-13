@@ -55,10 +55,10 @@ type AzureBlock struct {
 
 // WebDAVBlock represents WebDAV Storage credentials.
 type WebDAVBlock struct {
-	URL    types.String `tfsdk:"url"`
-	Vendor types.String `tfsdk:"vendor"`
-	User   types.String `tfsdk:"user"`
-	Pass   types.String `tfsdk:"pass"`
+	URL      types.String `tfsdk:"url"`
+	Vendor   types.String `tfsdk:"vendor"`
+	User     types.String `tfsdk:"user"`
+	Password types.String `tfsdk:"pass"`
 }
 
 // CloudSyncCredentialsResource defines the resource implementation.
@@ -224,7 +224,7 @@ func validateProviderBlock(data *CloudSyncCredentialsResourceModel) []string {
 		if data.WebDAV.User.IsNull() || data.WebDAV.User.ValueString() == "" {
 			errors = append(errors, "webdav.user is required when webdav block is specified")
 		}
-		if data.WebDAV.Pass.IsNull() || data.WebDAV.Pass.ValueString() == "" {
+		if data.WebDAV.Password.IsNull() || data.WebDAV.Password.ValueString() == "" {
 			errors = append(errors, "webdav.pass is required when webdav block is specified")
 		}
 	}
@@ -269,7 +269,7 @@ func getProviderAndAttributes(data *CloudSyncCredentialsResourceModel) (string, 
 			"url":    data.WebDAV.URL.ValueString(),
 			"vendor": data.WebDAV.Vendor.ValueString(),
 			"user":   data.WebDAV.User.ValueString(),
-			"pass":   data.WebDAV.Pass.ValueString(),
+			"pass":   data.WebDAV.Password.ValueString(),
 		}
 	}
 	return "", nil

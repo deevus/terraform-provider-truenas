@@ -742,7 +742,7 @@ func TestCloudSyncCredentialsResource_Create_WebDAV_MissingRequiredFields(t *tes
 	planValue := createCloudSyncCredentialsModelValue(cloudSyncCredentialsModelParams{
 		Name:   "Test WebDAV Missing Fields",
 		WebDAV: &webdavBlockParams{
-			// url, user and pass are nil - should fail validation
+			// url, vendor, user and pass are nil - should fail validation
 		},
 	})
 
@@ -1140,10 +1140,10 @@ func TestCloudSyncCredentialsResource_Create_WebDAV_Success(t *testing.T) {
 		t.Errorf("expected vendor 'OTHER', got %v", capturedOpts.Attributes["vendor"])
 	}
 	if capturedOpts.Attributes["user"] != `someuser` {
-		t.Errorf("expected user 'someuser', got %v", capturedOpts.Attributes["someuser"])
+		t.Errorf("expected user 'someuser', got %v", capturedOpts.Attributes["user"])
 	}
 	if capturedOpts.Attributes["pass"] != `somepass` {
-		t.Errorf("expected pass 'somepass', got %v", capturedOpts.Attributes["somepass"])
+		t.Errorf("expected pass 'somepass', got %v", capturedOpts.Attributes["pass"])
 	}
 
 	// Verify state was set correctly
