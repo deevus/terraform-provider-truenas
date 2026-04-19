@@ -421,12 +421,12 @@ func TestFileResource_Create_WithHostPath(t *testing.T) {
 							mkdirPath = path
 							return nil
 						},
-						WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
-							writtenPath = path
-							writtenContent = params.Content
-							return nil
-						},
 					}
+				},
+				WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
+					writtenPath = path
+					writtenContent = params.Content
+					return nil
 				},
 			},
 		}},
@@ -489,13 +489,9 @@ func TestFileResource_Create_WithStandalonePath(t *testing.T) {
 	r := &FileResource{
 		BaseResource: BaseResource{services: &services.TrueNASServices{
 			Filesystem: &truenas.MockFilesystemService{
-				ClientFunc: func() truenas.FileCaller {
-					return &client.MockClient{
-						WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
-							writtenPath = path
-							return nil
-						},
-					}
+				WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
+					writtenPath = path
+					return nil
 				},
 			},
 		}},
@@ -538,10 +534,10 @@ func TestFileResource_Create_WriteError(t *testing.T) {
 						MkdirAllFunc: func(ctx context.Context, path string, mode fs.FileMode) error {
 							return nil
 						},
-						WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
-							return errors.New("permission denied")
-						},
 					}
+				},
+				WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
+					return errors.New("permission denied")
 				},
 			},
 		}},
@@ -826,13 +822,9 @@ func TestFileResource_Update_ContentChange(t *testing.T) {
 	r := &FileResource{
 		BaseResource: BaseResource{services: &services.TrueNASServices{
 			Filesystem: &truenas.MockFilesystemService{
-				ClientFunc: func() truenas.FileCaller {
-					return &client.MockClient{
-						WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
-							writtenContent = params.Content
-							return nil
-						},
-					}
+				WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
+					writtenContent = params.Content
+					return nil
 				},
 			},
 		}},
@@ -896,12 +888,8 @@ func TestFileResource_Update_WriteError(t *testing.T) {
 	r := &FileResource{
 		BaseResource: BaseResource{services: &services.TrueNASServices{
 			Filesystem: &truenas.MockFilesystemService{
-				ClientFunc: func() truenas.FileCaller {
-					return &client.MockClient{
-						WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
-							return errors.New("permission denied")
-						},
-					}
+				WriteFileFunc: func(ctx context.Context, path string, params truenas.WriteFileParams) error {
+					return errors.New("permission denied")
 				},
 			},
 		}},
