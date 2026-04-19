@@ -110,7 +110,6 @@ func (r *FileResource) Schema(ctx context.Context, req resource.SchemaRequest, r
 	}
 }
 
-
 func (r *FileResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
 	var data FileResourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
@@ -266,7 +265,7 @@ func (r *FileResource) Create(ctx context.Context, req resource.CreateRequest, r
 	}
 
 	// Write the file with ownership
-	if err := r.services.Filesystem.Client().WriteFile(ctx, fullPath, params); err != nil {
+	if err := r.services.Filesystem.WriteFile(ctx, fullPath, params); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create File",
 			fmt.Sprintf("Unable to write file %q: %s", fullPath, err.Error()),
@@ -365,7 +364,7 @@ func (r *FileResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 
 	// Write the updated file with ownership
-	if err := r.services.Filesystem.Client().WriteFile(ctx, fullPath, params); err != nil {
+	if err := r.services.Filesystem.WriteFile(ctx, fullPath, params); err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Update File",
 			fmt.Sprintf("Unable to write file %q: %s", fullPath, err.Error()),
@@ -417,4 +416,3 @@ func (r *FileResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 		return
 	}
 }
-
