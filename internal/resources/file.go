@@ -110,6 +110,7 @@ func (r *FileResource) Schema(ctx context.Context, req resource.SchemaRequest, r
 	}
 }
 
+
 func (r *FileResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
 	var data FileResourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
@@ -416,3 +417,4 @@ func (r *FileResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 		return
 	}
 }
+
