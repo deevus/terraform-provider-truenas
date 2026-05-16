@@ -122,6 +122,8 @@ terraform import truenas_cloudsync_task.example 1
 - `follow_symlinks` (Boolean) Follow symbolic links.
 - `gcs` (Block, Optional) Google Cloud Storage settings. (see [below for nested schema](#nestedblock--gcs))
 - `include` (List of String) Patterns to include in sync. Supports glob patterns like '/folder/**' or '*.jpg'.
+- `post_script` (String) Script to execute after running sync.
+- `pre_script` (String) Script to execute before running sync.
 - `s3` (Block, Optional) S3-compatible storage settings. (see [below for nested schema](#nestedblock--s3))
 - `schedule` (Block, Optional) Cron schedule for the task. (see [below for nested schema](#nestedblock--schedule))
 - `snapshot` (Boolean) Take a snapshot before sync.
