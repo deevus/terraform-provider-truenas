@@ -1,0 +1,30 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+## Example Usage
+
+### Basic User
+
+{{ tffile "examples/resources/user/main.tf" }}
+
+> **Note:** Either `password` or `password_disabled = true` must be set. The `password` attribute is write-only and will not be read back from the API.
+
+> **Note:** `group_create` and `home_create` are only used during resource creation and are ignored on updates.
+
+## Import
+
+Users can be imported using the UNIX UID:
+
+```shell
+terraform import truenas_user.root 0
+```
+
+{{ .SchemaMarkdown | trimspace }}

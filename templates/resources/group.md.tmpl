@@ -1,0 +1,26 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+## Example Usage
+
+### Basic Group
+
+{{ tffile "examples/resources/group/main.tf" }}
+
+## Import
+
+Groups can be imported using the UNIX GID:
+
+```shell
+terraform import truenas_group.wheel 0
+```
+
+{{ .SchemaMarkdown | trimspace }}
