@@ -6,8 +6,8 @@ import (
 	"math/big"
 	"testing"
 
-	truenas "github.com/deevus/truenas-go"
 	"github.com/deevus/terraform-provider-truenas/internal/services"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -960,5 +960,196 @@ func TestGroupResource_MapGroupToModel_SudoCommandsFromAPI(t *testing.T) {
 	}
 	if data.SudoCommandsNopasswd.IsNull() {
 		t.Error("expected sudo_commands_nopasswd to be set from API when not null and API has values")
+	}
+}
+
+func TestGroupResource_Read_InvalidID(t *testing.T) {
+	r := &GroupResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{},
+		}},
+	}
+
+	schemaResp := getGroupResourceSchema(t)
+	stateValue := createGroupModelValue(groupModelParams{
+		ID: "not-a-number", GID: big.NewFloat(3000), Name: "developers", SMB: true,
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for non-numeric ID in state")
+	}
+}
+
+func TestGroupResource_Update_InvalidStateID(t *testing.T) {
+	r := &GroupResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{},
+		}},
+	}
+
+	schemaResp := getGroupResourceSchema(t)
+	stateValue := createGroupModelValue(groupModelParams{
+		ID: "not-a-number", GID: big.NewFloat(3000), Name: "developers", SMB: true,
+	})
+	planValue := createGroupModelValue(groupModelParams{
+		ID: "not-a-number", GID: big.NewFloat(3000), Name: "devs", SMB: true,
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+		Plan:  tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
+	}
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for non-numeric ID in state")
+	}
+}
+
+func TestGroupResource_Delete_InvalidID(t *testing.T) {
+	r := &GroupResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{},
+		}},
+	}
+
+	schemaResp := getGroupResourceSchema(t)
+	stateValue := createGroupModelValue(groupModelParams{
+		ID: "not-a-number", GID: big.NewFloat(3000), Name: "developers", SMB: true,
+	})
+
+	req := resource.DeleteRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.DeleteResponse{}
+
+	r.Delete(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for non-numeric ID in state")
+	}
+}
+
+func TestGroupResource_ImportState_Success(t *testing.T) {
+	r := &GroupResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				GetByGIDFunc: func(ctx context.Context, gid int64) (*truenas.Group, error) {
+					if gid != 3000 {
+						t.Errorf("expected GID 3000, got %d", gid)
+					}
+					return &truenas.Group{ID: 100, GID: 3000, Name: "developers"}, nil
+				},
+			},
+		}},
+	}
+
+	schemaResp := getGroupResourceSchema(t)
+	emptyState := createGroupModelValue(groupModelParams{})
+
+	req := resource.ImportStateRequest{ID: "3000"}
+	resp := &resource.ImportStateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: emptyState},
+	}
+
+	r.ImportState(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model GroupResourceModel
+	if diags := resp.State.Get(context.Background(), &model); diags.HasError() {
+		t.Fatalf("failed to read state: %v", diags)
+	}
+	if model.ID.ValueString() != "100" {
+		t.Errorf("expected id '100', got %q", model.ID.ValueString())
+	}
+}
+
+func TestGroupResource_ImportState_InvalidID(t *testing.T) {
+	r := &GroupResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{},
+		}},
+	}
+
+	schemaResp := getGroupResourceSchema(t)
+	emptyState := createGroupModelValue(groupModelParams{})
+
+	req := resource.ImportStateRequest{ID: "not-a-gid"}
+	resp := &resource.ImportStateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: emptyState},
+	}
+
+	r.ImportState(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for non-numeric import ID")
+	}
+}
+
+func TestGroupResource_ImportState_APIError(t *testing.T) {
+	r := &GroupResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				GetByGIDFunc: func(ctx context.Context, gid int64) (*truenas.Group, error) {
+					return nil, errors.New("connection refused")
+				},
+			},
+		}},
+	}
+
+	schemaResp := getGroupResourceSchema(t)
+	emptyState := createGroupModelValue(groupModelParams{})
+
+	req := resource.ImportStateRequest{ID: "3000"}
+	resp := &resource.ImportStateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: emptyState},
+	}
+
+	r.ImportState(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error during import")
+	}
+}
+
+func TestGroupResource_ImportState_NotFound(t *testing.T) {
+	r := &GroupResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			Group: &truenas.MockGroupService{
+				GetByGIDFunc: func(ctx context.Context, gid int64) (*truenas.Group, error) {
+					return nil, nil
+				},
+			},
+		}},
+	}
+
+	schemaResp := getGroupResourceSchema(t)
+	emptyState := createGroupModelValue(groupModelParams{})
+
+	req := resource.ImportStateRequest{ID: "9999"}
+	resp := &resource.ImportStateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: emptyState},
+	}
+
+	r.ImportState(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when group not found during import")
 	}
 }

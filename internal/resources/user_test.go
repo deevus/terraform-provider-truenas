@@ -6,8 +6,8 @@ import (
 	"math/big"
 	"testing"
 
-	truenas "github.com/deevus/truenas-go"
 	"github.com/deevus/terraform-provider-truenas/internal/services"
+	truenas "github.com/deevus/truenas-go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
@@ -169,20 +169,20 @@ type userModelParams struct {
 
 func createUserModelValue(p userModelParams) tftypes.Value {
 	values := map[string]tftypes.Value{
-		"id":                     tftypes.NewValue(tftypes.String, p.ID),
-		"username":               tftypes.NewValue(tftypes.String, p.Username),
-		"full_name":              tftypes.NewValue(tftypes.String, p.FullName),
-		"email":                  tftypes.NewValue(tftypes.String, p.Email),
-		"password":               tftypes.NewValue(tftypes.String, p.Password),
-		"password_disabled":      tftypes.NewValue(tftypes.Bool, p.PasswordDisabled),
-		"home":                   tftypes.NewValue(tftypes.String, p.Home),
-		"home_mode":              tftypes.NewValue(tftypes.String, p.HomeMode),
-		"shell":                  tftypes.NewValue(tftypes.String, p.Shell),
-		"smb":                    tftypes.NewValue(tftypes.Bool, p.SMB),
-		"ssh_password_enabled":   tftypes.NewValue(tftypes.Bool, p.SSHPasswordEnabled),
-		"sshpubkey":              tftypes.NewValue(tftypes.String, p.SSHPubKey),
-		"locked":                 tftypes.NewValue(tftypes.Bool, p.Locked),
-		"builtin":                tftypes.NewValue(tftypes.Bool, p.Builtin),
+		"id":                   tftypes.NewValue(tftypes.String, p.ID),
+		"username":             tftypes.NewValue(tftypes.String, p.Username),
+		"full_name":            tftypes.NewValue(tftypes.String, p.FullName),
+		"email":                tftypes.NewValue(tftypes.String, p.Email),
+		"password":             tftypes.NewValue(tftypes.String, p.Password),
+		"password_disabled":    tftypes.NewValue(tftypes.Bool, p.PasswordDisabled),
+		"home":                 tftypes.NewValue(tftypes.String, p.Home),
+		"home_mode":            tftypes.NewValue(tftypes.String, p.HomeMode),
+		"shell":                tftypes.NewValue(tftypes.String, p.Shell),
+		"smb":                  tftypes.NewValue(tftypes.Bool, p.SMB),
+		"ssh_password_enabled": tftypes.NewValue(tftypes.Bool, p.SSHPasswordEnabled),
+		"sshpubkey":            tftypes.NewValue(tftypes.String, p.SSHPubKey),
+		"locked":               tftypes.NewValue(tftypes.Bool, p.Locked),
+		"builtin":              tftypes.NewValue(tftypes.Bool, p.Builtin),
 	}
 
 	if p.UID != nil {
@@ -1396,5 +1396,200 @@ func TestUserResource_MapUserToModel_GroupsFromAPI(t *testing.T) {
 	}
 	if data2.SudoCommandsNopasswd.IsNull() {
 		t.Error("expected sudo_commands_nopasswd to be refreshed from API when already set in config")
+	}
+}
+
+func TestUserResource_Read_InvalidID(t *testing.T) {
+	r := &UserResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			User: &truenas.MockUserService{},
+		}},
+	}
+
+	schemaResp := getUserResourceSchema(t)
+	stateValue := createUserModelValue(userModelParams{
+		ID: "not-a-number", UID: big.NewFloat(1001), Username: "jdoe", FullName: "John Doe",
+		Email: "", Home: "/home/jdoe", HomeMode: "700", Shell: "/usr/bin/zsh", SMB: true,
+	})
+
+	req := resource.ReadRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Read(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for non-numeric ID in state")
+	}
+}
+
+func TestUserResource_Update_InvalidStateID(t *testing.T) {
+	r := &UserResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			User: &truenas.MockUserService{},
+		}},
+	}
+
+	schemaResp := getUserResourceSchema(t)
+	stateValue := createUserModelValue(userModelParams{
+		ID: "not-a-number", UID: big.NewFloat(1001), Username: "jdoe", FullName: "John Doe",
+		Email: "", Home: "/home/jdoe", HomeMode: "700", Shell: "/usr/bin/zsh", SMB: true,
+	})
+	planValue := createUserModelValue(userModelParams{
+		ID: "not-a-number", UID: big.NewFloat(1001), Username: "jdoe", FullName: "Jane Doe",
+		Email: "", Home: "/home/jdoe", HomeMode: "700", Shell: "/usr/bin/zsh", SMB: true,
+	})
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+		Plan:  tfsdk.Plan{Schema: schemaResp.Schema, Raw: planValue},
+	}
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema},
+	}
+
+	r.Update(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for non-numeric ID in state")
+	}
+}
+
+func TestUserResource_Delete_InvalidID(t *testing.T) {
+	r := &UserResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			User: &truenas.MockUserService{},
+		}},
+	}
+
+	schemaResp := getUserResourceSchema(t)
+	stateValue := createUserModelValue(userModelParams{
+		ID: "not-a-number", UID: big.NewFloat(1001), Username: "jdoe", FullName: "John Doe",
+		Email: "", Home: "/home/jdoe", HomeMode: "700", Shell: "/usr/bin/zsh", SMB: true,
+	})
+
+	req := resource.DeleteRequest{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: stateValue},
+	}
+	resp := &resource.DeleteResponse{}
+
+	r.Delete(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for non-numeric ID in state")
+	}
+}
+
+func TestUserResource_ImportState_Success(t *testing.T) {
+	r := &UserResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			User: &truenas.MockUserService{
+				GetByUIDFunc: func(ctx context.Context, uid int64) (*truenas.User, error) {
+					if uid != 1001 {
+						t.Errorf("expected UID 1001, got %d", uid)
+					}
+					return &truenas.User{ID: 50, UID: 1001, Username: "jdoe", FullName: "John Doe"}, nil
+				},
+			},
+		}},
+	}
+
+	schemaResp := getUserResourceSchema(t)
+	emptyState := createUserModelValue(userModelParams{})
+
+	req := resource.ImportStateRequest{ID: "1001"}
+	resp := &resource.ImportStateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: emptyState},
+	}
+
+	r.ImportState(context.Background(), req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	var model UserResourceModel
+	if diags := resp.State.Get(context.Background(), &model); diags.HasError() {
+		t.Fatalf("failed to read state: %v", diags)
+	}
+	if model.ID.ValueString() != "50" {
+		t.Errorf("expected id '50', got %q", model.ID.ValueString())
+	}
+}
+
+func TestUserResource_ImportState_InvalidID(t *testing.T) {
+	r := &UserResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			User: &truenas.MockUserService{},
+		}},
+	}
+
+	schemaResp := getUserResourceSchema(t)
+	emptyState := createUserModelValue(userModelParams{})
+
+	req := resource.ImportStateRequest{ID: "not-a-uid"}
+	resp := &resource.ImportStateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: emptyState},
+	}
+
+	r.ImportState(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for non-numeric import ID")
+	}
+}
+
+func TestUserResource_ImportState_APIError(t *testing.T) {
+	r := &UserResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			User: &truenas.MockUserService{
+				GetByUIDFunc: func(ctx context.Context, uid int64) (*truenas.User, error) {
+					return nil, errors.New("connection refused")
+				},
+			},
+		}},
+	}
+
+	schemaResp := getUserResourceSchema(t)
+	emptyState := createUserModelValue(userModelParams{})
+
+	req := resource.ImportStateRequest{ID: "1001"}
+	resp := &resource.ImportStateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: emptyState},
+	}
+
+	r.ImportState(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error for API error during import")
+	}
+}
+
+func TestUserResource_ImportState_NotFound(t *testing.T) {
+	r := &UserResource{
+		BaseResource: BaseResource{services: &services.TrueNASServices{
+			User: &truenas.MockUserService{
+				GetByUIDFunc: func(ctx context.Context, uid int64) (*truenas.User, error) {
+					return nil, nil
+				},
+			},
+		}},
+	}
+
+	schemaResp := getUserResourceSchema(t)
+	emptyState := createUserModelValue(userModelParams{})
+
+	req := resource.ImportStateRequest{ID: "9999"}
+	resp := &resource.ImportStateResponse{
+		State: tfsdk.State{Schema: schemaResp.Schema, Raw: emptyState},
+	}
+
+	r.ImportState(context.Background(), req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected error when user not found during import")
 	}
 }
